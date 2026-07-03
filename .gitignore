@@ -1,0 +1,6 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# personal/local settings, not shared
+.claude/settings.local.json

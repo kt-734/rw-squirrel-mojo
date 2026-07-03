@@ -1,0 +1,13 @@
+[workspace]
+authors = ["Tom Kelly <kelly.tom.734@gmail.com>"]
+channels = ["https://conda.modular.com/max-nightly", "conda-forge"]
+name = "rw_squirrel"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+run = "mojo run -I src src/main.mojo"
+test = "mojo run -I src test/test_id_allocator.mojo && mojo run -I src test/test_entity.mojo && mojo run -I src test/test_rel.mojo && mojo run -I src test/test_parser.mojo && mojo run -I src test/test_codegen.mojo && mojo run -I src test/test_driver.mojo"
+
+[dependencies]
+mojo = ">=1.0.0b3.dev2026070206,<2"

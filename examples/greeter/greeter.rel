@@ -1,0 +1,10 @@
+@@struct Person {
+    name: String,
+    age: UInt32,
+}
+
+def main() raises:
+    @@init();
+    var @@alice = @@Person { .name = "alice", .age = 30 };
+    @@alice.age = 31;
+    print(@@alice.name, @@alice.age);
