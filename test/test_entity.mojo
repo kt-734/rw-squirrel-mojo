@@ -64,6 +64,33 @@ def test_copying_into_a_container_bumps_the_count_automatically() raises:
     assert_false(table.is_live(0))
 
 
+def test_all_returns_every_currently_live_entity() raises:
+    """`Table.all()` walks `IdAllocator.id_count()`/`is_live` directly, not
+    any one field's own index -- so it finds an entity regardless of what's
+    actually keeping it alive: here, a `List` standing in for what a
+    generated `keepalive` Set would do (a plain local `var`/`create()`
+    return value would work identically -- `all()` doesn't care which)."""
+    var table = Table[TestState](TestState())
+    var kept = List[EntityHandle[TestState]]()
+    kept.append(table.create())
+    kept.append(table.create())
+    # Created and immediately dropped -- nothing keeps this one alive.
+    _ = table.create()
+
+    var live = table.all()
+    assert_equal(len(live), 2)
+    for e in kept:
+        assert_true(e in live)
+
+
+def test_all_reflects_a_dropped_entity() raises:
+    var table = Table[TestState](TestState())
+    var e = table.create()
+    assert_equal(len(table.all()), 1)
+    _ = e^
+    assert_equal(len(table.all()), 0)
+
+
 struct EmployeeTestState(TableStateLike, Movable, ImplicitlyDeletable):
     var title: Rel[String]
 
@@ -102,7 +129,7 @@ def test_destroying_an_entity_cascades_into_its_relation_fields() raises:
     var alice = people.create()
     people.state[].state.employee.put(alice.id(), bob)
 
-    assert_equal(bob.count(), 3)  # bob itself, +1 fwd copy, +1 bwd key copy
+    assert_equal(bob.count(), 3)  # bob itself, +1 fwd copy, +1 _bwd key copy
 
     _ = alice^
     assert_equal(bob.count(), 1)  # cascade cleanup dropped both references

@@ -1,18 +1,28 @@
 from std.testing import assert_equal, assert_true, assert_false, assert_raises, TestSuite
 
-from squirrel_compiler.parser import Scanner, ParsedStruct, Field, parse_fields, MarkerKind
+from squirrel_compiler.parser import (
+    Scanner,
+    ParsedStruct,
+    Field,
+    FieldModifier,
+    parse_fields,
+    MarkerKind,
+    is_wrapped_relation_type,
+    relation_target_of,
+    relation_wrapper_of,
+)
 
 
 def test_find_next_struct_decl_ignores_comment() raises:
-    var sc = Scanner("// not @@struct Real\n@@struct Actual { x: u32 }")
+    var sc = Scanner("// not @@struct Real\n@@struct @@Actual:\n    x: u32\n")
     assert_true(sc.find_next_struct_decl())
-    assert_true(sc.starts_with("@@struct Actual"))
+    assert_true(sc.starts_with("@@struct @@Actual"))
 
 
 def test_find_next_struct_decl_ignores_string() raises:
-    var sc = Scanner('const s = "@@struct Fake { x: u32 }";\n@@struct Real { y: u32 }')
+    var sc = Scanner('const s = "@@struct @@Fake:\n    x: u32\n";\n@@struct @@Real:\n    y: u32\n')
     assert_true(sc.find_next_struct_decl())
-    assert_true(sc.starts_with("@@struct Real"))
+    assert_true(sc.starts_with("@@struct @@Real"))
 
 
 def test_find_next_struct_decl_returns_false_when_absent() raises:
@@ -21,7 +31,7 @@ def test_find_next_struct_decl_returns_false_when_absent() raises:
 
 
 def test_parse_struct_basic() raises:
-    var sc = Scanner("@@struct Foo { x: u32, label: String }")
+    var sc = Scanner("@@struct @@Foo:\n    x: u32\n    label: String\n")
     assert_true(sc.find_next_struct_decl())
     var parsed = sc.parse_struct()
     assert_equal(parsed.name, String("Foo"))
@@ -32,8 +42,29 @@ def test_parse_struct_basic() raises:
     assert_equal(parsed.fields[1].type_str, String("String"))
 
 
-def test_parse_struct_tolerates_brace_in_comment() raises:
-    var sc = Scanner("@@struct Foo {\n    // odd brace: }\n    x: u32,\n}")
+def test_parse_struct_recognizes_keepalive() raises:
+    var sc = Scanner("@@struct keepalive @@Foo:\n    x: u32\n")
+    assert_true(sc.find_next_struct_decl())
+    var parsed = sc.parse_struct()
+    assert_equal(parsed.name, String("Foo"))
+    assert_true(parsed.is_keepalive)
+
+
+def test_parse_struct_without_keepalive_defaults_false() raises:
+    var sc = Scanner("@@struct @@Foo:\n    x: u32\n")
+    assert_true(sc.find_next_struct_decl())
+    var parsed = sc.parse_struct()
+    assert_false(parsed.is_keepalive)
+
+
+def test_parse_struct_tolerates_comment_in_body() raises:
+    """A `//`/`#` comment line inside the indented body, at the same
+    indentation as the fields around it, is skipped rather than mistaken
+    for a field or confusing the block's own indentation-based extent
+    (no braces to miscount here, unlike the old brace-delimited grammar --
+    the risk is a comment's own text being misread as a dedent or a field
+    name instead)."""
+    var sc = Scanner("@@struct @@Foo:\n    // odd text: not a field\n    x: u32\n")
     assert_true(sc.find_next_struct_decl())
     var parsed = sc.parse_struct()
     assert_equal(parsed.name, String("Foo"))
@@ -42,7 +73,7 @@ def test_parse_struct_tolerates_brace_in_comment() raises:
 
 
 def test_parse_struct_tolerates_nested_brackets_in_type() raises:
-    var sc = Scanner("@@struct Foo { x: u32, tags: List[u32] }")
+    var sc = Scanner("@@struct @@Foo:\n    x: u32\n    tags: List[u32]\n")
     assert_true(sc.find_next_struct_decl())
     var parsed = sc.parse_struct()
     assert_equal(len(parsed.fields), 2)
@@ -50,7 +81,7 @@ def test_parse_struct_tolerates_nested_brackets_in_type() raises:
 
 
 def test_parse_struct_rejects_duplicate_field_names() raises:
-    var sc = Scanner("@@struct Foo { x: u32, x: f32 }")
+    var sc = Scanner("@@struct @@Foo:\n    x: u32\n    x: f32\n")
     assert_true(sc.find_next_struct_decl())
     with assert_raises():
         _ = sc.parse_struct()
@@ -64,7 +95,7 @@ def test_parse_struct_rejects_malformed_input() raises:
 
 
 def test_parse_struct_relation_field() raises:
-    var sc = Scanner("@@struct Person { @@employee: @@Employee }")
+    var sc = Scanner("@@struct @@Person:\n    @@employee: @@Employee\n")
     assert_true(sc.find_next_struct_decl())
     var parsed = sc.parse_struct()
     assert_equal(len(parsed.fields), 1)
@@ -73,14 +104,168 @@ def test_parse_struct_relation_field() raises:
 
 
 def test_parse_struct_rejects_unmarked_name_with_relation_type() raises:
-    var sc = Scanner("@@struct Person { employee: @@Employee }")
+    var sc = Scanner("@@struct @@Person:\n    employee: @@Employee\n")
     assert_true(sc.find_next_struct_decl())
     with assert_raises():
         _ = sc.parse_struct()
 
 
 def test_parse_struct_rejects_marked_name_with_non_relation_type() raises:
-    var sc = Scanner("@@struct Person { @@age: u32 }")
+    var sc = Scanner("@@struct @@Person:\n    @@age: u32\n")
+    assert_true(sc.find_next_struct_decl())
+    with assert_raises():
+        _ = sc.parse_struct()
+
+
+def test_parse_struct_wrapped_relation_field() raises:
+    var sc = Scanner("@@struct @@Department:\n    @@members: List[@@Employee]\n")
+    assert_true(sc.find_next_struct_decl())
+    var parsed = sc.parse_struct()
+    assert_equal(len(parsed.fields), 1)
+    assert_equal(parsed.fields[0].name, String("members"))
+    assert_equal(parsed.fields[0].type_str, String("List[@@Employee]"))
+    assert_true(is_wrapped_relation_type(parsed.fields[0].type_str))
+    assert_equal(relation_target_of(parsed.fields[0].type_str), String("Employee"))
+    assert_equal(relation_wrapper_of(parsed.fields[0].type_str), String("List"))
+
+
+def test_parse_struct_rejects_unmarked_name_with_wrapped_relation_type() raises:
+    var sc = Scanner("@@struct @@Department:\n    members: List[@@Employee]\n")
+    assert_true(sc.find_next_struct_decl())
+    with assert_raises():
+        _ = sc.parse_struct()
+
+
+def test_parse_struct_allows_unique_on_wrapped_relation_field() raises:
+    """A collection-typed relation field CAN be `unique` -- `List[@@Employee]`
+    is `KeyElement` exactly when `@@Employee` (an `EntityHandle`) is, which
+    it always is, so there's nothing collection-specific to reject (unlike
+    `forwardonly`, an explicit opt-out of `KeyElement` storage entirely,
+    which genuinely conflicts with `unique`)."""
+    var sc = Scanner("@@struct @@Department:\n    unique @@members: List[@@Employee]\n")
+    assert_true(sc.find_next_struct_decl())
+    var parsed = sc.parse_struct()
+    assert_equal(len(parsed.fields), 1)
+    assert_true(parsed.fields[0].modifier == FieldModifier.UNIQUE)
+
+
+def test_parse_struct_forward_only_field() raises:
+    var sc = Scanner("@@struct @@Foo:\n    forwardonly scores: List[Int]\n")
+    assert_true(sc.find_next_struct_decl())
+    var parsed = sc.parse_struct()
+    assert_equal(len(parsed.fields), 1)
+    assert_equal(parsed.fields[0].name, String("scores"))
+    assert_equal(parsed.fields[0].type_str, String("List[Int]"))
+    assert_true(parsed.fields[0].modifier == FieldModifier.FORWARD_ONLY)
+    assert_false(parsed.fields[0].modifier == FieldModifier.UNIQUE)
+
+
+def test_parse_struct_forward_only_field_name_not_mistaken() raises:
+    """A field merely starting with `forwardonly` (`forwardonlyId`) isn't
+    mistaken for the keyword -- word-boundary checked the same way `unique`
+    already is. A field literally, exactly named `forwardonly` is as
+    inherently ambiguous with the keyword as one literally named `unique`
+    already is -- a pre-existing limitation, not new here."""
+    var sc = Scanner("@@struct @@Foo:\n    forwardonlyId: String\n")
+    assert_true(sc.find_next_struct_decl())
+    var parsed = sc.parse_struct()
+    assert_equal(len(parsed.fields), 1)
+    assert_equal(parsed.fields[0].name, String("forwardonlyId"))
+    assert_false(parsed.fields[0].modifier == FieldModifier.FORWARD_ONLY)
+
+
+def test_parse_struct_rejects_unique_and_forward_only_together() raises:
+    var sc = Scanner("@@struct @@Foo:\n    unique forwardonly scores: List[Int]\n")
+    assert_true(sc.find_next_struct_decl())
+    with assert_raises():
+        _ = sc.parse_struct()
+
+
+def test_parse_struct_multi_relation_field() raises:
+    """`multi @@members: @@Employee` -- the element type is written bare,
+    not wrapped in `List[...]` -- the `multi` keyword itself already means
+    "many of these"."""
+    var sc = Scanner("@@struct @@Department:\n    multi @@members: @@Employee\n")
+    assert_true(sc.find_next_struct_decl())
+    var parsed = sc.parse_struct()
+    assert_equal(len(parsed.fields), 1)
+    assert_equal(parsed.fields[0].name, String("members"))
+    assert_equal(parsed.fields[0].type_str, String("@@Employee"))
+    assert_true(parsed.fields[0].modifier == FieldModifier.MULTI)
+    assert_false(parsed.fields[0].modifier == FieldModifier.UNIQUE)
+    assert_false(parsed.fields[0].modifier == FieldModifier.FORWARD_ONLY)
+
+
+def test_parse_struct_multi_plain_field() raises:
+    """`multi` isn't restricted to relation fields -- `multi tags: String`
+    means "each row can hold several of these strings", indexed
+    individually, no different in kind from a relation element."""
+    var sc = Scanner("@@struct @@Department:\n    multi tags: String\n")
+    assert_true(sc.find_next_struct_decl())
+    var parsed = sc.parse_struct()
+    assert_equal(len(parsed.fields), 1)
+    assert_equal(parsed.fields[0].name, String("tags"))
+    assert_equal(parsed.fields[0].type_str, String("String"))
+    assert_true(parsed.fields[0].modifier == FieldModifier.MULTI)
+
+
+def test_parse_struct_multi_field_name_not_mistaken() raises:
+    var sc = Scanner("@@struct @@Foo:\n    multiplier: Int\n")
+    assert_true(sc.find_next_struct_decl())
+    var parsed = sc.parse_struct()
+    assert_equal(len(parsed.fields), 1)
+    assert_equal(parsed.fields[0].name, String("multiplier"))
+    assert_false(parsed.fields[0].modifier == FieldModifier.MULTI)
+
+
+def test_parse_struct_rejects_unique_and_multi_together() raises:
+    var sc = Scanner("@@struct @@Department:\n    unique multi @@members: @@Employee\n")
+    assert_true(sc.find_next_struct_decl())
+    with assert_raises():
+        _ = sc.parse_struct()
+
+
+def test_parse_struct_rejects_forward_only_and_multi_together() raises:
+    var sc = Scanner("@@struct @@Department:\n    forwardonly multi @@members: @@Employee\n")
+    assert_true(sc.find_next_struct_decl())
+    with assert_raises():
+        _ = sc.parse_struct()
+
+
+def test_parse_struct_allows_multi_of_container_element() raises:
+    """`multi` doesn't require its element type to be bare -- `multi
+    @@tags: List[@@Category]` is a field where each row can hold several
+    `List[@@Category]` values; nothing about the element type looking
+    container-shaped on its own means it must be a redundant wrapping."""
+    var sc = Scanner("@@struct @@Department:\n    multi @@tags: List[@@Category]\n")
+    assert_true(sc.find_next_struct_decl())
+    var parsed = sc.parse_struct()
+    assert_equal(len(parsed.fields), 1)
+    assert_true(parsed.fields[0].modifier == FieldModifier.MULTI)
+    assert_equal(parsed.fields[0].type_str, String("List[@@Category]"))
+
+
+def test_parse_struct_ordered_field() raises:
+    var sc = Scanner("@@struct @@Employee:\n    ordered years_employed: UInt32\n")
+    assert_true(sc.find_next_struct_decl())
+    var parsed = sc.parse_struct()
+    assert_equal(len(parsed.fields), 1)
+    assert_equal(parsed.fields[0].name, String("years_employed"))
+    assert_equal(parsed.fields[0].type_str, String("UInt32"))
+    assert_true(parsed.fields[0].modifier == FieldModifier.ORDERED)
+
+
+def test_parse_struct_ordered_field_name_not_mistaken() raises:
+    var sc = Scanner("@@struct @@Foo:\n    orderedBy: String\n")
+    assert_true(sc.find_next_struct_decl())
+    var parsed = sc.parse_struct()
+    assert_equal(len(parsed.fields), 1)
+    assert_equal(parsed.fields[0].name, String("orderedBy"))
+    assert_false(parsed.fields[0].modifier == FieldModifier.ORDERED)
+
+
+def test_parse_struct_rejects_ordered_and_unique_together() raises:
+    var sc = Scanner("@@struct @@Foo:\n    unique ordered scores: UInt32\n")
     assert_true(sc.find_next_struct_decl())
     with assert_raises():
         _ = sc.parse_struct()
@@ -162,8 +347,59 @@ def test_find_next_marker_returns_none_when_absent() raises:
     assert_true(sc.find_next_marker() == MarkerKind.NONE)
 
 
+def test_find_next_marker_finds_for_entity_loop() raises:
+    var sc = Scanner("for @@entry in @@AuditLog.all():")
+    assert_true(sc.find_next_marker() == MarkerKind.FOR_ENTITY_LOOP)
+    var name = sc.parse_for_entity_loop()
+    assert_equal(name, String("entry"))
+    # Left right at (or just before, mod whitespace) the iterated
+    # expression's own marker -- `find_next_marker` skips trivia at its own
+    # top, so the real codegen path doesn't care either way.
+    sc.skip_trivia()
+    assert_true(sc.starts_with("@@AuditLog"))
+
+
+def test_find_next_marker_finds_for_entity_loop_with_var() raises:
+    """`for var @@name in ...:` -- Mojo's own exclusivity checker sometimes
+    *requires* `var` on a loop target (an owned copy, not the default
+    aliased `ref` binding) when the loop body indexes back into the
+    container being iterated, so this needs recognizing same as the bare
+    `for @@name in ...:` form."""
+    var sc = Scanner("for var @@entry in @@AuditLog.all():")
+    assert_true(sc.find_next_marker() == MarkerKind.FOR_ENTITY_LOOP)
+    var name = sc.parse_for_entity_loop()
+    assert_equal(name, String("entry"))
+
+
+def test_find_next_marker_finds_for_entity_loop_with_ref() raises:
+    var sc = Scanner("for ref @@entry in @@AuditLog.all():")
+    assert_true(sc.find_next_marker() == MarkerKind.FOR_ENTITY_LOOP)
+    var name = sc.parse_for_entity_loop()
+    assert_equal(name, String("entry"))
+
+
+def test_find_next_marker_ignores_unmarked_for_loop_target() raises:
+    """An ordinary `for x in y:` (no `@@` on the target) never reaches this
+    scanner's `@@`-detection at all -- confirming the new marker doesn't
+    misfire on the common, unmarked case already used elsewhere (e.g.
+    `for name in names:` in `hire_team`)."""
+    var sc = Scanner("for name in names: pass")
+    assert_true(sc.find_next_marker() == MarkerKind.NONE)
+
+
 def test_find_next_marker_ignores_markers_in_comments_and_strings() raises:
     var sc = Scanner('// @@alice.name\nconst s = "@@bob.age = 1;";\n@@carol.title')
+    assert_true(sc.find_next_marker() == MarkerKind.FIELD_ACCESS)
+    var fa = sc.parse_field_access()
+    assert_equal(fa.entity, String("carol"))
+    assert_equal(fa.field, String("title"))
+
+
+def test_find_next_marker_ignores_markers_in_hash_comments() raises:
+    """`#` is real Mojo's own comment syntax (`//` above is carried over
+    from this compiler's original Zig-targeting version) -- a `@@`-looking
+    mention inside one must be ignored the same way."""
+    var sc = Scanner("# @@alice.name\n@@carol.title")
     assert_true(sc.find_next_marker() == MarkerKind.FIELD_ACCESS)
     var fa = sc.parse_field_access()
     assert_equal(fa.entity, String("carol"))

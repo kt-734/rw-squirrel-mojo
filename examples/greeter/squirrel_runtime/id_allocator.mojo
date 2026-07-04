@@ -44,3 +44,10 @@ struct IdAllocator(Movable):
 
     def is_live(self, id: UInt32) -> Bool:
         return Int(id) < len(self.live) and self.live[Int(id)]
+
+    def id_count(self) -> Int:
+        """One past the highest id ever handed out -- the upper bound
+        `Table.all()` walks (paired with `is_live`) to enumerate a table's
+        currently-live entities in a single pass, without materializing an
+        intermediate list of ids first."""
+        return len(self.live)

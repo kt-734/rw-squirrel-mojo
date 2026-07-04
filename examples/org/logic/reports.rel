@@ -1,0 +1,3 @@
+def @@print_person(@@p: @@Person):
+    print(@@p.name, "lives in", @@p.home.city);
+    print("  job:", @@p.@@job.title, "in", @@p.@@job.@@dept.name);

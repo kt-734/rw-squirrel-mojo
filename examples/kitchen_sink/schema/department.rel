@@ -1,0 +1,5 @@
+@@struct @@Department:
+    name: String
+    forwardonly tags: List[String]
+    multi @@projects: @@Project
+

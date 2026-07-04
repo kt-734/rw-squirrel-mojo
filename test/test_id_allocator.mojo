@@ -44,5 +44,23 @@ def test_free_then_recycle() raises:
     # itself.
 
 
+def test_id_count_tracks_highest_id_ever_allocated() raises:
+    """`id_count()` is one past the highest id ever handed out -- the upper
+    bound `Table.all()` walks (paired with `is_live`) to enumerate live
+    entities in one pass. Freeing an id doesn't shrink it (the slot's still
+    there, just marked dead), only allocating a fresh one grows it."""
+    var ids = IdAllocator()
+    assert_equal(ids.id_count(), 0)
+    _ = ids.alloc()  # 0
+    _ = ids.alloc()  # 1
+    assert_equal(ids.id_count(), 2)
+    ids.free(0)
+    assert_equal(ids.id_count(), 2)
+    _ = ids.alloc()  # recycles 0
+    assert_equal(ids.id_count(), 2)
+    _ = ids.alloc()  # 2
+    assert_equal(ids.id_count(), 3)
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

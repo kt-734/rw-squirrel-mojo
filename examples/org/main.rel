@@ -1,0 +1,14 @@
+from logic.factories import @@make_department, @@hire, @@make_person, @@make_team
+from logic.reports import @@print_person
+
+def main():
+    @@init();
+    var @@dept = @@make_department("Engineering");
+    var @@emp = @@hire("Engineer", @@dept);
+    var @@alice = @@make_person("alice", @@emp);
+    @@print_person(@@alice);
+
+    var @@team = @@make_team(["bob", "carol"], @@emp);
+    print("team size:", len(@@team));
+    @@print_person(@@team[0]);
+    @@print_person(@@team[1]);

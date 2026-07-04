@@ -1,0 +1,5 @@
+@@struct @@Employee:
+    unique email: String
+    title: String
+    @@dept: @@Department
+

@@ -1,5 +1,7 @@
-from squirrel_runtime.entity import Table, EntityHandle, TableStateLike
-from squirrel_runtime.rel import Rel
+from squirrel_runtime.entity import Table, EntityHandle, EntityInner, TableStateLike
+from squirrel_runtime.rel import Rel, UniqueRel, ForwardOnlyRel, MultiRel, OrderedRel
+from std.collections import Set
+from std.os import abort
 from sqrrl__Squirrel import sqrrl__init, sqrrl__Squirrel
 
 
@@ -28,19 +30,36 @@ struct sqrrl__PersonTable(Movable):
         self.table.state[].state.age.put(e.id(), age)
         return e
 
+    def all(self) -> Set[EntityHandle[sqrrl__PersonTableState]]:
+        return self.table.all()
+
     def get_name(self, e: EntityHandle[sqrrl__PersonTableState]) -> String:
-        return self.table.state[].state.name.get_fwd(e.id()).value()
+        var got = self.table.state[].state.name.get_fwd(e.id())
+        return got.take()
 
     def set_name(mut self, e: EntityHandle[sqrrl__PersonTableState], v: String):
         self.table.state[].state.name.update(e.id(), v)
 
+    def for_name(self, value: String) -> List[EntityHandle[sqrrl__PersonTableState]]:
+        var ids = self.table.state[].state.name.get_bwd(value)
+        var out = List[EntityHandle[sqrrl__PersonTableState]]()
+        for id in ids:
+            out.append(self.table.handle_for(id))
+        return out^
+
     def get_age(self, e: EntityHandle[sqrrl__PersonTableState]) -> UInt32:
-        return self.table.state[].state.age.get_fwd(e.id()).value()
+        var got = self.table.state[].state.age.get_fwd(e.id())
+        return got.take()
 
     def set_age(mut self, e: EntityHandle[sqrrl__PersonTableState], v: UInt32):
         self.table.state[].state.age.update(e.id(), v)
 
-
+    def for_age(self, value: UInt32) -> List[EntityHandle[sqrrl__PersonTableState]]:
+        var ids = self.table.state[].state.age.get_bwd(value)
+        var out = List[EntityHandle[sqrrl__PersonTableState]]()
+        for id in ids:
+            out.append(self.table.handle_for(id))
+        return out^
 def main() raises:
     var sqrrl__world = sqrrl__init();
     var sqrrl__alice = sqrrl__world.Person.create(name = "alice", age = 30);

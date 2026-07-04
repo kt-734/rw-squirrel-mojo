@@ -1,4 +1,4 @@
-@@struct Person {
-    name: String,
-    @@employee: @@Employee,
-}
+@@struct @@Person:
+    name: String
+    @@employee: @@Employee
+

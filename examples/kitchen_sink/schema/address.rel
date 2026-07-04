@@ -1,0 +1,5 @@
+struct Address(Copyable, Movable, ImplicitlyDeletable):
+    var city: String
+
+    def __init__(out self, var city: String):
+        self.city = city^

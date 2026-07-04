@@ -1,0 +1,2 @@
+@@struct keepalive @@AuditLog:
+    message: String
