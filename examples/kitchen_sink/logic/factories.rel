@@ -2,15 +2,17 @@ def @@make_department(name: String) -> @@Department:
     var @@dept = @@Department { .name = name, .tags = List[String](), .@@projects = Set[@@Project]() };
     return @@dept;
 
-def @@hire(name: String, email: String, title: String, @@dept: @@Department) raises -> @@Employee:
-    var @@emp = @@Employee { .email = email, .title = title, .@@dept = @@dept };
+def @@hire(name: String, email: String, title: String, years_employed: UInt32, @@dept: @@Department) raises -> @@Employee:
+    var @@emp = @@Employee { .email = email, .title = title, .years_employed = years_employed, .@@dept = @@dept };
     return @@emp;
 
-def @@hire_team(names: List[String], email_suffix: String, @@dept: @@Department) raises -> List[@@Employee]:
+def @@hire_team(names: List[String], email_suffix: String, starting_years: UInt32, @@dept: @@Department) raises -> List[@@Employee]:
     var @@team = List[@@Employee]();
+    var years = starting_years;
     for name in names:
-        var @@emp = @@hire(name, name + email_suffix, "Engineer", @@dept);
+        var @@emp = @@hire(name, name + email_suffix, "Engineer", years, @@dept);
         @@team.append(@@emp);
+        years += 1;
     return @@team^;
 
 def @@log(message: String) raises:

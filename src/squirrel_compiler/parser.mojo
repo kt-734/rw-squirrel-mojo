@@ -273,24 +273,63 @@ struct Field(Copyable, Movable):
     var modifier: FieldModifier
 
 
+@fieldwise_init
+struct TypeParam(Copyable, Movable):
+    """One entry in a plain struct's own `[T: Bound, ...]` type-parameter
+    list (shorthand or hand-written -- see `parse_type_params`). `bound`
+    defaults to `"Copyable & ImplicitlyDeletable"` when the `.rel` author
+    writes no `: Bound` at all, matching whatever the generated struct's
+    own derived conformances (`emit_plain_struct`) require of every
+    field's type, `T` included -- a field typed bare `T` has to satisfy
+    the same bounds any other field's concrete type already does
+    implicitly, no tighter: `ImplicitlyCopyable` here would wrongly
+    reject instantiating a generic plain struct at a merely-`Copyable`
+    type (`List`/`Set`/`Dict`, confirmed rejected before this used
+    `Copyable`), even though `emit_plain_struct`'s own struct-level
+    conformance never needed `ImplicitlyCopyable` in the first place --
+    see its own doc comment. `Movable` isn't spelled out too, unlike
+    `emit_plain_struct`'s own trait list -- confirmed plain `Copyable`
+    doesn't imply it the way `ImplicitlyCopyable` does, but nothing here
+    (a bare field's own type) ever needs a struct to be independently
+    `Movable` beyond what `Copyable` already requires of it. Never
+    populated for an `@@struct` (`parse_struct`) -- only plain structs
+    can declare their own type parameters."""
+
+    var name: String
+    var bound: String
+
+
 struct ParsedStruct(Copyable, Movable):
     """One `@@struct [keepalive] @@Name: <indented fields>` declaration (or
-    a plain `struct Name { field: Type, ... }`, which never sets
-    `is_keepalive`). `is_keepalive` gets the generated table a `keepalive:
+    a plain `struct Name { field: Type, ... }` / a hand-written `struct
+    Name(Traits...):`, neither of which ever sets `is_keepalive`).
+    `is_keepalive` gets the generated table a `keepalive:
     Set[EntityHandle[...]]` (holding a strong reference to every entity
     `create` makes, so it survives past whatever scope constructed it), a
     `dont_keepalive(e)` method to release one back to ordinary refcounted
     lifetime, and an `all()` method returning the current keepalive set --
-    see `emit_table`."""
+    see `emit_table`.
+
+    `type_params` (only ever non-empty for a plain struct -- an `@@struct`
+    is never generic) is its own `[T: Bound, ...]` list, if any -- see
+    `TypeParam`'s own doc comment."""
 
     var name: String
     var fields: List[Field]
     var is_keepalive: Bool
+    var type_params: List[TypeParam]
 
-    def __init__(out self, var name: String, var fields: List[Field], is_keepalive: Bool = False):
+    def __init__(
+        out self,
+        var name: String,
+        var fields: List[Field],
+        is_keepalive: Bool = False,
+        var type_params: List[TypeParam] = List[TypeParam](),
+    ):
         self.name = name^
         self.fields = fields^
         self.is_keepalive = is_keepalive
+        self.type_params = type_params^
 
 
 @fieldwise_init
@@ -707,6 +746,74 @@ struct Scanner(Movable):
         var raw = String(self.source[byte = start : self.pos])
         return String(raw.strip())
 
+    def _scan_type_param_bound(mut self) -> String:
+        """Like `scan_type`, but for a `[T: Bound, ...]` type-parameter
+        list's own bound text specifically -- stops (without consuming) at
+        a top-level `,` *or* a top-level closing `]`/`)`/`}`, rather than
+        `scan_type`'s `,`/`\\n`. `scan_type` can't be reused here: its own
+        depth counter starts at 0 assuming it's scanning a type that owns
+        its *own* brackets, so hitting the type-parameter list's closing
+        `]` (already consumed by the caller as the list's own delimiter,
+        not part of any type this scans) would decrement past zero and
+        keep consuming instead of stopping -- confirmed by direct
+        inspection of what `scan_type` does at depth 0 on a closing
+        bracket it didn't open."""
+        var start = self.pos
+        var depth = 0
+        while not self.at_end():
+            var before = self.pos
+            self.skip_non_code()
+            if self.pos != before:
+                continue
+            var b = self.peek()
+            if b == UInt8(ord("[")) or b == UInt8(ord("(")) or b == UInt8(ord("{")):
+                depth += 1
+            elif b == UInt8(ord("]")) or b == UInt8(ord(")")) or b == UInt8(ord("}")):
+                if depth == 0:
+                    break
+                depth -= 1
+            elif b == UInt8(ord(",")) and depth == 0:
+                break
+            self.pos += 1
+        var raw = String(self.source[byte = start : self.pos])
+        return String(raw.strip())
+
+    def parse_type_params(mut self) raises -> List[TypeParam]:
+        """Requires `self.pos` at `[` -- a plain struct's own `[T: Bound,
+        ...]` type-parameter list, immediately after its name (shorthand
+        or hand-written; an `@@struct` never has one). Returns the parsed
+        list, advancing `self.pos` past the closing `]`. A parameter with
+        no explicit `: Bound` gets `"Copyable & ImplicitlyDeletable"` --
+        see `TypeParam`'s own doc comment for why."""
+        if not self.try_consume("["):
+            raise self.err("InvalidSquirrelSyntax: expected '['")
+        var out = List[TypeParam]()
+        self.skip_trivia()
+        if self.try_consume("]"):
+            return out^
+        while True:
+            self.skip_trivia()
+            var name = self.scan_ident()
+            if name.byte_length() == 0:
+                raise self.err("InvalidSquirrelSyntax: expected type parameter name")
+            self.skip_trivia()
+            var bound = "Copyable & ImplicitlyDeletable"
+            if self.try_consume(":"):
+                self.skip_trivia()
+                bound = self._scan_type_param_bound()
+                if bound.byte_length() == 0:
+                    raise self.err(
+                        "InvalidSquirrelSyntax: expected type parameter bound after ':'"
+                    )
+            out.append(TypeParam(name=name, bound=bound))
+            self.skip_trivia()
+            if self.try_consume(","):
+                continue
+            if self.try_consume("]"):
+                break
+            raise self.err("InvalidSquirrelSyntax: expected ',' or ']' in type parameter list")
+        return out^
+
     def find_next_struct_decl(mut self) -> Bool:
         """Advances to the start of the next `@@struct` occurrence at
         real-code depth. Returns False (leaving `self.pos` at the end) if
@@ -780,7 +887,7 @@ struct Scanner(Movable):
         )
         return not before_is_ident and not before_is_at and not after_is_ident
 
-    def find_next_plain_struct_decl(mut self) -> Bool:
+    def find_next_plain_struct_decl(mut self) raises -> Bool:
         """Advances to the start of the next bare `struct` occurrence (not
         `@@struct`) at real-code depth, *only* if its body uses the same
         brace-delimited shorthand grammar `@@struct` bodies do (`struct Name
@@ -806,7 +913,11 @@ struct Scanner(Movable):
         underlying generated type (`EntityHandle[sqrrl__PersonTableState]`)
         by hand, a much more deliberate act than the shorthand form's `@@`
         sugar. Returns False (leaving `self.pos` at the end) if there isn't
-        a brace-shorthand one."""
+        a brace-shorthand one. A generic plain struct's own `[T: Bound,
+        ...]` list (if any) sits between the name and the `{`/non-`{`
+        that decides shorthand vs hand-written -- skipped here via
+        `parse_type_params` (discarding the result) purely to see past it
+        to whatever follows."""
         while True:
             self.skip_trivia()
             if self.at_end():
@@ -818,6 +929,9 @@ struct Scanner(Movable):
                 self.skip_trivia()
                 var name = self.scan_ident()
                 self.skip_trivia()
+                if name.byte_length() > 0 and self.peek() == UInt8(ord("[")):
+                    _ = self.parse_type_params()
+                    self.skip_trivia()
                 var is_shorthand = name.byte_length() > 0 and self.peek() == UInt8(ord("{"))
                 if is_shorthand:
                     self.pos = struct_start
@@ -888,7 +1002,20 @@ struct Scanner(Movable):
         this keeps the brace-delimited shorthand grammar (`struct Name {
         field: Type, ... }`) -- a plain struct never gets a generated table,
         so there's no `@@`-marked name either (it isn't itself a tracked
-        entity type)."""
+        entity type). An optional `[T: Bound, ...]` type-parameter list
+        (`parse_type_params`) sits between the name and the `{` -- a field
+        can then use `T` bare (`value: T`), the intended shorthand style,
+        same as any other type. Also tolerates a field spelled out with
+        the real-Mojo `Self.T` qualification instead (`unqualify_self_type_params`
+        normalizes either spelling to the same bare form) -- harmless
+        either way for a *shorthand* struct (unlike a hand-written one,
+        where `Self.T` is the only form Mojo itself accepts), but
+        skipping the normalization here would double-qualify it right
+        back to `Self.Self.T` when `emit_plain_struct` adds its own
+        `Self.` prefix, and would leak a literal `Self.T` into
+        `emit_plain_struct_from_json`'s generated companion -- a free
+        function, where `Self` doesn't exist at all (confirmed both
+        failure modes directly)."""
         if not self.try_consume("struct"):
             raise self.err("InvalidSquirrelSyntax: expected 'struct'")
         self.skip_trivia()
@@ -896,11 +1023,133 @@ struct Scanner(Movable):
         if name.byte_length() == 0:
             raise self.err("InvalidSquirrelSyntax: expected struct name")
         self.skip_trivia()
+        var type_params = List[TypeParam]()
+        if self.peek() == UInt8(ord("[")):
+            type_params = self.parse_type_params()
+            self.skip_trivia()
         var body = self.scan_braced_span()
-        var fields = parse_fields(body)
-        return ParsedStruct(name=name, fields=fields^)
+        var raw_fields = parse_fields(body)
+        var fields = List[Field]()
+        for field in raw_fields:
+            fields.append(
+                Field(
+                    name=field.name,
+                    type_str=unqualify_self_type_params(field.type_str, type_params),
+                    modifier=field.modifier,
+                )
+            )
+        return ParsedStruct(name=name, fields=fields^, type_params=type_params^)
 
-    def find_next_marker(mut self) -> MarkerKind:
+    def find_next_hand_written_plain_struct_decl(mut self) raises -> Bool:
+        """Advances to the start of the next bare `struct Name(...):`/
+        `struct Name:` occurrence (not `@@struct`, and not the brace-
+        shorthand form `find_next_plain_struct_decl` already handles) -- a
+        *real*, hand-written Mojo struct. Its body is never fully parsed by
+        this compiler (`check_no_relation_cycles` still can't see through
+        one -- see `find_next_plain_struct_decl`'s own doc comment, an
+        accepted, unrelated gap this doesn't change), but `from_json`
+        codegen still needs its field list to serialize/deserialize a
+        field of this type correctly instead of raising at runtime -- see
+        `parse_hand_written_plain_struct`. Returns False (leaving
+        `self.pos` at the end) once there are none left."""
+        while True:
+            self.skip_trivia()
+            if self.at_end():
+                return False
+            if self.at_bare_struct_keyword():
+                var struct_start = self.pos
+                var after = self.pos + String("struct").byte_length()
+                self.pos = after
+                self.skip_trivia()
+                var name = self.scan_ident()
+                self.skip_trivia()
+                if name.byte_length() == 0:
+                    self.pos = after
+                    continue
+                if self.peek() == UInt8(ord("[")):
+                    # A generic struct's own `[T: Bound, ...]` sits before
+                    # either the `{` this loop is checking for below, or
+                    # the `(Traits...)`/`:` `parse_hand_written_plain_struct`
+                    # handles -- skip past it here too, purely to see past
+                    # it to whichever of those actually follows.
+                    _ = self.parse_type_params()
+                    self.skip_trivia()
+                if self.peek() == UInt8(ord("{")):
+                    # Brace shorthand -- already handled by
+                    # `find_next_plain_struct_decl`/`discover_plain_structs`
+                    # elsewhere; skip past its whole body so it isn't seen
+                    # (or double-counted) here too.
+                    _ = self.scan_braced_span()
+                    continue
+                self.pos = struct_start
+                return True
+            self.pos += 1
+
+    def parse_hand_written_plain_struct(mut self) raises -> ParsedStruct:
+        """Requires `self.pos` at the bare `struct` token of a hand-written
+        (non-brace) plain struct, e.g. right after
+        `find_next_hand_written_plain_struct_decl` returns True. Extracts
+        the struct's own name, its own optional `[T: Bound, ...]`
+        type-parameter list (`parse_type_params` -- real Mojo syntax
+        order: type parameters before the parenthesized trait list), and
+        its leading `var name: Type` field declarations (see
+        `parse_hand_written_struct_fields`), skipping over an optional
+        parenthesized trait list (`(Copyable, Movable, ...)`) between that
+        and the header's own trailing `:`. A best-effort structural read,
+        not a full Mojo parse -- enough for `from_json` to know this
+        struct's own fields, the one thing `sqrrl__from_json[T]`'s generic
+        dispatcher can't do for any struct (see its own doc comment in
+        `emit_json_module`).
+
+        A field referencing the struct's own type parameter has to say
+        `Self.T` in real, hand-written Mojo (Mojo's own requirement, not
+        this DSL's -- see `unqualify_self_type_params`'s own doc comment),
+        but the extracted field list feeds a *free function*
+        (`emit_plain_struct_from_json`'s generated companion), where
+        `Self` doesn't exist at all -- so every field's own `type_str` is
+        unqualified back to bare `T` right here, once, rather than
+        leaving every downstream consumer of this struct's fields to
+        remember to do it."""
+        var header_indent = line_indent_of(self.source, self.pos)
+        if not self.try_consume("struct"):
+            raise self.err("InvalidSquirrelSyntax: expected 'struct'")
+        self.skip_trivia()
+        var name = self.scan_ident()
+        if name.byte_length() == 0:
+            raise self.err("InvalidSquirrelSyntax: expected struct name")
+        self.skip_trivia()
+        var type_params = List[TypeParam]()
+        if self.peek() == UInt8(ord("[")):
+            type_params = self.parse_type_params()
+            self.skip_trivia()
+        if self.peek() == UInt8(ord("(")):
+            var depth = 0
+            while not self.at_end():
+                var b = self.peek()
+                self.pos += 1
+                if b == UInt8(ord("(")):
+                    depth += 1
+                elif b == UInt8(ord(")")):
+                    depth -= 1
+                    if depth == 0:
+                        break
+            self.skip_trivia()
+        if not self.try_consume(":"):
+            raise self.err("InvalidSquirrelSyntax: expected ':' after struct name")
+        var body = self.scan_indented_block(header_indent)
+        var raw_fields = parse_hand_written_struct_fields(body)
+        var fields = List[Field]()
+        for field in raw_fields:
+            fields.append(
+                Field(
+                    name=field.name,
+                    type_str=unqualify_self_type_params(field.type_str, type_params),
+                    modifier=field.modifier,
+                )
+            )
+        return ParsedStruct(name=name, fields=fields^, type_params=type_params^)
+
+    def find_next_marker(mut self) raises -> MarkerKind:
         """Advances to the next `@@`-marked construct at real-code depth and
         reports which kind it is, leaving `self.pos` at the start of the
         marker (ready for the matching `parse_*` call) -- mirrors the Zig
@@ -921,7 +1170,7 @@ struct Scanner(Movable):
         Four more kinds beyond the original four, all driven by Mojo having
         no mutable global/static state (see `Table`'s doc comment in
         `entity.mojo`): `@@init()` (`MarkerKind.INIT`) is the explicit call
-        a script makes to obtain `sqrrl__Squirrel`'s shared instance,
+        a script makes to obtain `sqrrl__World`'s shared instance,
         `@@name(` (`MarkerKind.WORLD_FUNC`, e.g. `def @@make_department(a:
         Int)` or, at a call site, `@@make_department(x)`) marks a function
         whose *own name* -- not a separate parameter -- signals that it
@@ -970,6 +1219,15 @@ struct Scanner(Movable):
                 self.skip_trivia()
                 var name = self.scan_ident()
                 self.skip_trivia()
+                if name.byte_length() > 0 and self.peek() == UInt8(ord("[")):
+                    # A generic plain struct's own `[T: Bound, ...]` sits
+                    # before the `{` this is checking for -- skip past it
+                    # (discarding the result) purely to see past it, same
+                    # as `find_next_plain_struct_decl`/
+                    # `find_next_hand_written_plain_struct_decl` already
+                    # do for their own, separate shorthand-vs-not checks.
+                    _ = self.parse_type_params()
+                    self.skip_trivia()
                 var is_shorthand = name.byte_length() > 0 and self.peek() == UInt8(ord("{"))
                 self.pos = save
                 if is_shorthand:
@@ -1243,7 +1501,7 @@ struct Scanner(Movable):
         """Requires `self.pos` at the `@@` of `@@init()`, e.g. right after
         `find_next_marker` returns `MarkerKind.INIT`. Takes no arguments --
         just consumes the token; `sqrrl__init`'s doc comment (generated
-        `sqrrl__Squirrel.mojo`) is where the actual construction happens."""
+        `sqrrl__world.mojo`) is where the actual construction happens."""
         if not self.try_consume("@@init"):
             raise self.err("InvalidSquirrelSyntax: expected '@@init'")
         self.skip_trivia()
@@ -1435,6 +1693,112 @@ def parse_fields(body: String) raises -> List[Field]:
                 modifier=modifier,
             )
         )
+        _ = bs.try_consume(",")
+
+    return fields^
+
+
+def unqualify_self_type_params(type_str: String, type_params: List[TypeParam]) -> String:
+    """Collapses `Self.T` back to bare `T` wherever `T` names one of
+    `type_params`'s own parameters, applied to a generic plain struct's
+    own field types right after parsing -- both a hand-written one
+    (`parse_hand_written_plain_struct`, where `Self.T` is the *only* form
+    real Mojo accepts in its own body) and a shorthand one
+    (`parse_plain_struct`, where an author might still write `Self.T`
+    even though bare `T` is the intended, simpler style there). Either
+    way, the extracted `type_str` feeds `codegen.
+    emit_plain_struct_from_json`'s generated `from_json` companion,
+    always a *free function*, where `Self` doesn't exist at all
+    (confirmed the reverse case -- a free function referencing its own
+    type parameter bare -- compiles and runs correctly with no
+    qualification at all); a literal `Optional[Self.T]` local there
+    wouldn't compile, and for the shorthand case specifically, leaving an
+    already-qualified `Self.T` in place would also get double-qualified
+    right back to `Self.Self.T` when `emit_plain_struct` adds its own
+    `Self.` prefix on the way to generating the struct's own body
+    (confirmed both failure modes directly). No-op when `type_params` is
+    empty, the overwhelmingly common, non-generic case. `codegen.
+    _qualify_type_params_with_self` is the exact reverse, applied when
+    *generating* a struct's own body instead of extracting one already
+    written (by hand, or normalized from shorthand) that might already
+    carry the qualification."""
+    if len(type_params) == 0:
+        return type_str
+    var out = String()
+    var bytes = type_str.as_bytes()
+    var i = 0
+    var n = len(bytes)
+    while i < n:
+        if is_ident_char(bytes[i]):
+            var start = i
+            while i < n and is_ident_char(bytes[i]):
+                i += 1
+            var word = String(type_str[byte = start : i])
+            if word == "Self" and i < n and bytes[i] == UInt8(ord(".")):
+                var after_dot = i + 1
+                var j = after_dot
+                while j < n and is_ident_char(bytes[j]):
+                    j += 1
+                var next_word = String(type_str[byte = after_dot : j])
+                var matched = False
+                for tp in type_params:
+                    if tp.name == next_word:
+                        matched = True
+                        break
+                if matched:
+                    out += next_word
+                    i = j
+                    continue
+            out += word
+        else:
+            out += String(type_str[byte = i : i + 1])
+            i += 1
+    return out^
+
+
+def parse_hand_written_struct_fields(body: String) -> List[Field]:
+    """Best-effort extraction of a hand-written plain struct's own `var
+    name: Type` field declarations from its body -- unlike `parse_fields`
+    (`@@struct`/shorthand-plain-struct syntax: no `var` keyword, `@@`-marked
+    relation fields, comma/newline-terminated types with no method bodies
+    mixed in), a hand-written struct's fields are ordinary, already-valid
+    Mojo (`var name: Type`), and its body can contain arbitrary methods
+    afterward that this parser has no business trying to understand.
+    Stops at the first token that isn't the `var` keyword (matching the
+    universal Mojo convention -- and this project's own `emit_plain_struct`
+    codegen -- of declaring every field before any method), rather than
+    requiring the whole body to consist of field declarations; never
+    raises; a name or type this can't make sense of just stops the scan
+    there; whatever fields were found before that point are still fields
+    it correctly understood. Every field's `type_str` is already a real,
+    concrete Mojo type (no `@@` marking possible here -- a hand-written
+    struct's own relation field, if any, is already spelled out as
+    `EntityHandle[sqrrl__<Name>TableState]` by hand), so `modifier` is
+    always `FieldModifier.NONE` -- `unique`/`forwardonly`/`multi`/`ordered`
+    are relation-table storage concepts with nothing to mean for a plain
+    struct's own value fields."""
+    var bs = Scanner(body)
+    var fields = List[Field]()
+    while True:
+        bs.skip_trivia()
+        if bs.at_end():
+            break
+        if not (bs.starts_with("var") and not is_ident_char(bs.peek_at(3))):
+            break
+        bs.pos += 3
+        bs.skip_trivia()
+        var name = bs.scan_ident()
+        if name.byte_length() == 0:
+            break
+        bs.skip_trivia()
+        if not bs.try_consume(":"):
+            break
+        bs.skip_trivia()
+        var type_str = bs.scan_type()
+        if type_str.byte_length() == 0:
+            break
+        fields.append(Field(name=name, type_str=type_str, modifier=FieldModifier.NONE))
+        bs.skip_trivia()
         _ = bs.try_consume(",")
 
     return fields^

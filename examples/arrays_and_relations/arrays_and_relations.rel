@@ -11,7 +11,7 @@ from squirrel_runtime.entity import EntityHandle
 
 
 
-def hire(mut sqrrl__world: sqrrl__Squirrel, title: String, dept: EntityHandle[sqrrl__DepartmentTableState]) -> EntityHandle[sqrrl__EmployeeTableState]:
+def hire(mut sqrrl__world: sqrrl__World, title: String, dept: EntityHandle[sqrrl__DepartmentTableState]) -> EntityHandle[sqrrl__EmployeeTableState]:
     # Ordinary, hand-written Mojo -- not a @@-marked construct/call at all
     # -- returning a plain, untracked EntityHandle to show it can still be
     # retroactively marked afterward.

@@ -2,7 +2,9 @@ from squirrel_runtime.entity import Table, EntityHandle, EntityInner, TableState
 from squirrel_runtime.rel import Rel, UniqueRel, ForwardOnlyRel, MultiRel, OrderedRel
 from std.collections import Set
 from std.os import abort
-from sqrrl__Squirrel import sqrrl__init, sqrrl__Squirrel
+from sqrrl__world import sqrrl__init, sqrrl__World
+from sqrrl__json import sqrrl__to_json, sqrrl__from_json
+from squirrel_runtime.json import sqrrl__JsonScanner
 
 
 struct sqrrl__PersonTableState(TableStateLike, Movable, ImplicitlyDeletable):
@@ -26,6 +28,12 @@ struct sqrrl__PersonTable(Movable):
 
     def create(mut self, email: String, name: String) raises -> EntityHandle[sqrrl__PersonTableState]:
         var e = self.table.create()
+        self.table.state[].state.email.put(e.id(), email)
+        self.table.state[].state.name.put(e.id(), name)
+        return e
+
+    def sqrrl__create_with_id(mut self, sqrrl__id: UInt32, email: String, name: String) raises -> EntityHandle[sqrrl__PersonTableState]:
+        var e = self.table.create_with_id(sqrrl__id)
         self.table.state[].state.email.put(e.id(), email)
         self.table.state[].state.name.put(e.id(), name)
         return e
@@ -57,6 +65,50 @@ struct sqrrl__PersonTable(Movable):
         for id in ids:
             out.append(self.table.handle_for(id))
         return out^
+
+    def to_json(self, e: EntityHandle[sqrrl__PersonTableState]) -> String:
+        var out = String("{")
+        out += "\"email\":" + sqrrl__to_json(self.get_email(e))
+        out += ","
+        out += "\"name\":" + sqrrl__to_json(self.get_name(e))
+        out += "}"
+        return out^
+
+    def from_json(mut self, mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__PersonTableState]:
+        var sqrrl__parsed_email: Optional[String] = None
+        var sqrrl__parsed_name: Optional[String] = None
+        sc.expect_byte(UInt8(ord("{")))
+        if not sc.try_consume_byte(UInt8(ord("}"))):
+            while True:
+                var sqrrl__key = sc.parse_json_string()
+                sc.expect_byte(UInt8(ord(":")))
+                if sqrrl__key == "email":
+                    sqrrl__parsed_email = sqrrl__from_json[String](sc)
+                elif sqrrl__key == "name":
+                    sqrrl__parsed_name = sqrrl__from_json[String](sc)
+                if sc.try_consume_byte(UInt8(ord(","))):
+                    continue
+                sc.expect_byte(UInt8(ord("}")))
+                break
+        return self.create(sqrrl__parsed_email.take(), sqrrl__parsed_name.take())
+
+    def sqrrl__from_json_with_id(mut self, sqrrl__id: UInt32, mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__PersonTableState]:
+        var sqrrl__parsed_email: Optional[String] = None
+        var sqrrl__parsed_name: Optional[String] = None
+        sc.expect_byte(UInt8(ord("{")))
+        if not sc.try_consume_byte(UInt8(ord("}"))):
+            while True:
+                var sqrrl__key = sc.parse_json_string()
+                sc.expect_byte(UInt8(ord(":")))
+                if sqrrl__key == "email":
+                    sqrrl__parsed_email = sqrrl__from_json[String](sc)
+                elif sqrrl__key == "name":
+                    sqrrl__parsed_name = sqrrl__from_json[String](sc)
+                if sc.try_consume_byte(UInt8(ord(","))):
+                    continue
+                sc.expect_byte(UInt8(ord("}")))
+                break
+        return self.sqrrl__create_with_id(sqrrl__id, sqrrl__parsed_email.take(), sqrrl__parsed_name.take())
 def main() raises:
     var sqrrl__world = sqrrl__init();
     var sqrrl__alice = sqrrl__world.Person.create(email = "alice@example.com", name = "alice");

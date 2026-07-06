@@ -3,9 +3,12 @@ from std.hashlib import Hasher
 
 from squirrel_runtime.entity.table_state_like import TableStateLike
 from squirrel_runtime.entity.entity_inner import EntityInner
+from squirrel_runtime.json import sqrrl__JsonSerializable
 
 
-struct EntityHandle[State: TableStateLike & Movable & ImplicitlyDeletable](ImplicitlyCopyable, ImplicitlyDeletable, Hashable, Equatable):
+struct EntityHandle[State: TableStateLike & Movable & ImplicitlyDeletable](
+    ImplicitlyCopyable, ImplicitlyDeletable, Hashable, Equatable, sqrrl__JsonSerializable
+):
     """A distinct wrapper around `ArcPointer[EntityInner[State]]`, rather
     than a bare alias, so it can conform to `Hashable`/`Equatable` by id --
     needed so `Rel[EntityHandle[SomeState]]` (a relation field) can use it
@@ -40,6 +43,18 @@ struct EntityHandle[State: TableStateLike & Movable & ImplicitlyDeletable](Impli
 
     def id(self) -> UInt32:
         return self._inner[]._id
+
+    def sqrrl__to_json(self) -> String:
+        """A relation field serializes as the referenced entity's bare id
+        -- not its own fields (reflecting `_inner` would expose table-
+        internal storage, not the target entity's data) and not the
+        target entity's *contents* either (that would inline a whole
+        copy of it at every reference, duplicating data and losing the
+        sharing a relation is for). Reconstructing a live handle from
+        this id on the way back in needs the *target's own table*, so
+        that half of the round trip is handled by generated code at the
+        relation field's own call site, not here."""
+        return String(self.id())
 
     def count(self) -> Int:
         return Int(self._inner.count())

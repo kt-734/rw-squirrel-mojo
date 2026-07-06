@@ -57,7 +57,9 @@ def test_convert_directory_end_to_end() raises:
     assert_true(isfile(join(root, "person.mojo")))
     assert_true(isfile(join(root, "sub", "employee.mojo")))
     assert_true(isfile(join(root, "sub", "__init__.mojo")))
-    assert_true(isfile(join(root, "sqrrl__Squirrel.mojo")))
+    assert_true(isfile(join(root, "sqrrl__world.mojo")))
+    assert_true(isfile(join(root, "sqrrl__json.mojo")))
+    assert_true(isfile(join(root, "squirrel_runtime", "json.mojo")))
     assert_true(isfile(join(root, "squirrel_runtime", "id_allocator.mojo")))
     assert_true(isfile(join(root, "squirrel_runtime", "rel", "__init__.mojo")))
     assert_true(isfile(join(root, "squirrel_runtime", "rel", "rel.mojo")))
@@ -78,15 +80,183 @@ def test_convert_directory_end_to_end() raises:
     assert_true("from sub.employee import sqrrl__EmployeeTableState" in generated)
     assert_true("struct sqrrl__PersonTableState(TableStateLike, Movable, ImplicitlyDeletable):" in generated)
     # No script in this file touches sqrrl__world -- shouldn't import it.
-    assert_true("from sqrrl__Squirrel import" not in generated)
+    assert_true("from sqrrl__world import" not in generated)
+    # `from_json` lives on the struct's own table (`emit_table_json_methods`),
+    # not on `sqrrl__World` -- Person's own relation field (`@@employee:
+    # @@Employee`) needs Employee's table threaded in as an explicit
+    # sibling parameter, which crosses a file boundary here (Employee is
+    # declared in sub/employee.rel), so its own Table type needs importing
+    # too, not just its TableState.
+    assert_true("from sub.employee import sqrrl__EmployeeTable" in generated)
+    assert_true(
+        "def from_json(mut self, mut sqrrl__tbl_Employee: sqrrl__EmployeeTable,"
+        " mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__PersonTableState]:"
+        in generated
+    )
+    assert_true(
+        "sqrrl__parsed_employee ="
+        " sqrrl__tbl_Employee.table.handle_for(UInt32(sc.parse_json_int()))"
+        in generated
+    )
 
-    var sf = open(join(root, "sqrrl__Squirrel.mojo"), "r")
-    var squirrel_generated = sf.read()
+    var ef = open(join(root, "sub", "employee.mojo"), "r")
+    var employee_generated = ef.read()
+    ef.close()
+    # Employee has no relation fields of its own, so its own from_json
+    # needs no sibling-table parameters beyond `mut self, mut sc`.
+    assert_true(
+        "def from_json(mut self, mut sc: sqrrl__JsonScanner) raises ->"
+        " EntityHandle[sqrrl__EmployeeTableState]:" in employee_generated
+    )
+
+    var sf = open(join(root, "sqrrl__world.mojo"), "r")
+    var world_generated = sf.read()
     sf.close()
-    assert_true("from person import sqrrl__PersonTable" in squirrel_generated)
-    assert_true("from sub.employee import sqrrl__EmployeeTable" in squirrel_generated)
-    assert_true("struct sqrrl__Squirrel(Movable):" in squirrel_generated)
-    assert_true("def sqrrl__init() -> sqrrl__Squirrel:" in squirrel_generated)
+    assert_true("from person import sqrrl__PersonTable" in world_generated)
+    assert_true("from sub.employee import sqrrl__EmployeeTable" in world_generated)
+    assert_true("struct sqrrl__World(Movable):" in world_generated)
+    assert_true("def sqrrl__init() -> sqrrl__World:" in world_generated)
+
+    var jf = open(join(root, "sqrrl__json.mojo"), "r")
+    var json_generated = jf.read()
+    jf.close()
+    assert_true("def sqrrl__to_json[T: AnyType](value: T) -> String:" in json_generated)
+    assert_true(
+        "def sqrrl__from_json[T: Copyable & ImplicitlyDeletable](mut sc:"
+        " sqrrl__JsonScanner) raises -> T:" in json_generated
+    )
+
+    _rmtree(root)
+
+
+def test_convert_directory_generates_json_container_dispatch() raises:
+    """A `List[String]` field project-wide gets its own `elif T ==
+    List[String]:` branch in the generated `sqrrl__json.mojo`, delegating
+    to `list_to_json`/`list_from_json` (static helpers imported from
+    `squirrel_runtime.json`, not generated here) -- there's no way to ask
+    Mojo's own type system "is `T` a container of anything" generically,
+    so `build_json_container_types` has to enumerate every concrete
+    combination the schema actually uses, project-wide."""
+    var root = "test/tmp_driver_json_container_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var person_rel = open(join(root, "person.rel"), "w")
+    person_rel.write("@@struct @@Person:\n    tags: List[String]\n\n")
+    person_rel.close()
+
+    convert_directory(".", root)
+
+    var jf = open(join(root, "sqrrl__json.mojo"), "r")
+    var json_generated = jf.read()
+    jf.close()
+    assert_true("elif T == List[String]:" in json_generated)
+    assert_true("return list_to_json(rebind[List[String]](value).copy())" in json_generated)
+    assert_true("return rebind[T](list_from_json[String](sc)).copy()" in json_generated)
+    assert_true(
+        "from squirrel_runtime.json import sqrrl__JsonScanner, sqrrl__escape_json_string,"
+        " sqrrl__JsonSerializable, list_to_json, list_from_json, set_to_json, set_from_json,"
+        " optional_to_json, optional_from_json, dict_to_json, dict_from_json" in json_generated
+    )
+
+    var rf = open(join(root, "squirrel_runtime", "json.mojo"), "r")
+    var runtime_json = rf.read()
+    rf.close()
+    assert_true("def list_to_json[X: Copyable](lst: List[X]) -> String:" in runtime_json)
+
+    _rmtree(root)
+
+
+def test_convert_directory_registers_nested_container_types() raises:
+    """A *doubly*-nested container field (`Optional[List[String]]`) used
+    to only ever get the outer `Optional[List[String]]` registered --
+    `optional_from_json`'s own generated body calls
+    `sqrrl__from_json[List[String]]` internally, which had no dispatch
+    branch of its own, crashing the whole compilation ("struct_field_types
+    requires a struct type") the moment such a field was actually
+    serialized. Nothing to do with generics or plain structs at all --
+    confirmed with a bare `@@struct` field. `_collect_json_container_types`
+    now registers every nesting level, not just the outermost one."""
+    var root = "test/tmp_driver_nested_container_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var foo_rel = open(join(root, "foo.rel"), "w")
+    foo_rel.write("@@struct @@Foo:\n    bar: Optional[List[String]]\n\n")
+    foo_rel.close()
+
+    convert_directory(".", root)
+
+    var jf = open(join(root, "sqrrl__json.mojo"), "r")
+    var json_generated = jf.read()
+    jf.close()
+    assert_true("elif T == Optional[List[String]]:" in json_generated)
+    assert_true("elif T == List[String]:" in json_generated)
+
+    _rmtree(root)
+
+
+def test_convert_directory_registers_generic_instantiations_container_types() raises:
+    """A generic plain struct's own field (`listfield: Optional[List[T]]`
+    inside `struct Example[T]:`) is abstract until instantiated -- used
+    elsewhere as a concrete instantiation (`items: Example[String]`),
+    both `Optional[List[String]]` and `List[String]` (the substituted,
+    concrete shape of `Example`'s own field) need registering project-
+    wide, even though `Example[String]` itself is handled by its own
+    dedicated `sqrrl__Example_from_json[T]` companion, not this shared
+    dispatcher -- nothing else would ever discover them otherwise."""
+    var root = "test/tmp_driver_generic_container_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var example_rel = open(join(root, "example.rel"), "w")
+    example_rel.write("struct Example[T] { listfield: Optional[List[Self.T]] }\n")
+    example_rel.close()
+
+    var holder_rel = open(join(root, "holder.rel"), "w")
+    holder_rel.write("@@struct @@Holder:\n    name: String\n    forwardonly items: Example[String]\n\n")
+    holder_rel.close()
+
+    convert_directory(".", root)
+
+    var jf = open(join(root, "sqrrl__json.mojo"), "r")
+    var json_generated = jf.read()
+    jf.close()
+    # Example[String] itself never gets a dispatcher branch -- its own
+    # companion handles it directly.
+    assert_true("Example[String]" not in json_generated)
+    assert_true("elif T == Optional[List[String]]:" in json_generated)
+    assert_true("elif T == List[String]:" in json_generated)
+
+    _rmtree(root)
+
+
+def test_convert_directory_registers_dict_element_types() raises:
+    """`Dict[K, V]`'s own two element types (unlike every other
+    container's one) both need registering independently, not just the
+    first -- `Dict[String, List[Int]]` needs `List[Int]` registered too,
+    the same way `Optional[List[String]]` needs `List[String]`
+    registered alongside itself."""
+    var root = "test/tmp_driver_dict_container_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var foo_rel = open(join(root, "foo.rel"), "w")
+    foo_rel.write("@@struct @@Foo:\n    nested: Dict[String, List[Int]]\n\n")
+    foo_rel.close()
+
+    convert_directory(".", root)
+
+    var jf = open(join(root, "sqrrl__json.mojo"), "r")
+    var json_generated = jf.read()
+    jf.close()
+    assert_true("elif T == Dict[String, List[Int]]:" in json_generated)
+    assert_true("elif T == List[Int]:" in json_generated)
+    assert_true("return dict_to_json(rebind[Dict[String, List[Int]]](value).copy())" in json_generated)
 
     _rmtree(root)
 
@@ -163,7 +333,7 @@ def test_convert_directory_handles_a_script_alongside_its_struct() raises:
     var f = open(join(root, "greeter.mojo"), "r")
     var generated = f.read()
     f.close()
-    assert_true("from sqrrl__Squirrel import sqrrl__init, sqrrl__Squirrel" in generated)
+    assert_true("from sqrrl__world import sqrrl__init, sqrrl__World" in generated)
     assert_true("var sqrrl__world = sqrrl__init();" in generated)
     assert_true('var sqrrl__alice = sqrrl__world.Person.create(name = "alice", age = 30);' in generated)
     assert_true("sqrrl__world.Person.set_age(sqrrl__alice, 31);" in generated)
@@ -462,7 +632,7 @@ def test_convert_directory_generates_real_struct_from_shorthand_plain_struct() r
     var f = open(join(root, "note.mojo"), "r")
     var generated = f.read()
     f.close()
-    assert_true("struct Note(ImplicitlyCopyable, Movable, ImplicitlyDeletable):" in generated)
+    assert_true("struct Note(Copyable, Movable, ImplicitlyDeletable):" in generated)
     assert_true("var author: EntityHandle[sqrrl__EmployeeTableState]" in generated)
     assert_true("var text: String" in generated)
 
@@ -498,6 +668,177 @@ def test_convert_directory_imports_cross_file_plain_struct_field() raises:
     var generated = f.read()
     f.close()
     assert_true("from address import Address" in generated)
+
+    _rmtree(root)
+
+
+def test_convert_directory_generates_from_json_for_hand_written_plain_struct() raises:
+    """A *hand-written* (non-shorthand) plain struct used to be entirely
+    invisible to `from_json` codegen -- `discover_plain_structs` only ever
+    recognized the brace-shorthand form, so a field typed as `Address`
+    here fell through to the shared `sqrrl__from_json[T]` dispatcher's
+    generic fallback, which raises at runtime (`unsupported type --
+    structs use their own generated from_json`) since reflection can't
+    write into an arbitrary field. `build_plain_struct_fields` now also
+    scans for the hand-written form directly (`Scanner.
+    find_next_hand_written_plain_struct_decl`/`parse_hand_written_plain_struct`),
+    so `Address` gets its own `sqrrl__Address_from_json` free-function
+    companion in `sqrrl__json.mojo` (alongside the rest of JSON
+    serialization's generated code, not `sqrrl__world.mojo` -- see
+    `build_json_module_source`), same as a shorthand plain struct's."""
+    var root = "test/tmp_driver_hand_written_from_json_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var address_rel = open(join(root, "address.rel"), "w")
+    address_rel.write(
+        "struct Address(Copyable, Movable, ImplicitlyDeletable):\n"
+        "    var city: String\n"
+        "\n"
+        "    def __init__(out self, var city: String):\n"
+        "        self.city = city^\n"
+    )
+    address_rel.close()
+
+    var person_rel = open(join(root, "person.rel"), "w")
+    person_rel.write("@@struct @@Person:\n    name: String\n    home: Address\n\n")
+    person_rel.close()
+
+    convert_directory(".", root)
+
+    var jf = open(join(root, "sqrrl__json.mojo"), "r")
+    var json_generated = jf.read()
+    jf.close()
+    assert_true(
+        "def sqrrl__Address_from_json(mut sc: sqrrl__JsonScanner) raises -> Address:"
+        in json_generated
+    )
+    assert_true("var sqrrl__parsed_city: Optional[String] = None" in json_generated)
+    assert_true("sqrrl__parsed_city = sqrrl__from_json[String](sc)" in json_generated)
+    assert_true("return Address(sqrrl__parsed_city.take())" in json_generated)
+
+    var f = open(join(root, "person.mojo"), "r")
+    var generated = f.read()
+    f.close()
+    # Person's own `home` field now routes through the generated
+    # companion instead of the shared dispatcher's dead-end fallback --
+    # and person.mojo actually imports it (the bug this closes: nothing
+    # ever imported a plain struct's own from_json companion by name into
+    # the file that calls it, so this call used to fail to compile at all
+    # -- "use of unknown declaration 'sqrrl__Address_from_json'").
+    assert_true("from sqrrl__json import sqrrl__Address_from_json" in generated)
+    assert_true("sqrrl__parsed_home = sqrrl__Address_from_json(sc)" in generated)
+
+    _rmtree(root)
+
+
+def test_convert_directory_generates_from_json_for_generic_plain_struct() raises:
+    """A generic shorthand plain struct (`struct Box[T] { value: T }`)
+    gets a generic `sqrrl__Box_from_json[T: Bound](...)` companion in
+    `sqrrl__json.mojo`, and an `@@struct` field naming a *concrete
+    instantiation* of it (`price: Box[UInt32]`) routes to it with the
+    instantiation's own type argument forwarded
+    (`sqrrl__Box_from_json[UInt32](sc)`), not the shared
+    `sqrrl__from_json[T]` dispatcher (which has no way to reconstruct an
+    arbitrary struct at all)."""
+    var root = "test/tmp_driver_generic_plain_struct_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var box_rel = open(join(root, "box.rel"), "w")
+    box_rel.write("struct Box[T] { value: T }\n")
+    box_rel.close()
+
+    var product_rel = open(join(root, "product.rel"), "w")
+    product_rel.write("@@struct @@Product:\n    name: String\n    price: Box[UInt32]\n\n")
+    product_rel.close()
+
+    convert_directory(".", root)
+
+    var jf = open(join(root, "sqrrl__json.mojo"), "r")
+    var json_generated = jf.read()
+    jf.close()
+    assert_true(
+        "def sqrrl__Box_from_json[T: Copyable & ImplicitlyDeletable]"
+        "(mut sc: sqrrl__JsonScanner) raises -> Box[T]:" in json_generated
+    )
+    assert_true("sqrrl__parsed_value = sqrrl__from_json[T](sc)" in json_generated)
+    assert_true("return Box[T](sqrrl__parsed_value.take())" in json_generated)
+
+    var f = open(join(root, "product.mojo"), "r")
+    var generated = f.read()
+    f.close()
+    assert_true("from sqrrl__json import sqrrl__Box_from_json" in generated)
+    assert_true("var sqrrl__parsed_price: Optional[Box[UInt32]] = None" in generated)
+    assert_true("sqrrl__parsed_price = sqrrl__Box_from_json[UInt32](sc)" in generated)
+
+    _rmtree(root)
+
+
+def test_convert_directory_generates_from_json_for_hand_written_plain_struct_with_relation_field() raises:
+    """A hand-written plain struct can embed a relation field too, spelled
+    out by hand as `EntityHandle[sqrrl__<Name>TableState]` (there's no
+    `@@`-marked shorthand available to a real Mojo struct body) --
+    `codegen.recover_relation_type_str` reverses that back to the pseudo
+    `@@Employee` shape `_relation_field_shape`/`_collect_relation_targets`
+    already understand, so `Note`'s own generated `from_json` companion
+    gets a `sqrrl__tbl_Employee: sqrrl__EmployeeTable` parameter, and the
+    *owning* struct's own `from_json` threads it through transitively, the
+    same as it would for a shorthand plain struct's relation field."""
+    var root = "test/tmp_driver_hand_written_relation_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var employee_rel = open(join(root, "employee.rel"), "w")
+    employee_rel.write("@@struct @@Employee:\n    title: String\n\n")
+    employee_rel.close()
+
+    var note_rel = open(join(root, "note.rel"), "w")
+    note_rel.write(
+        "struct Note(Copyable, Movable, ImplicitlyDeletable):\n"
+        "    var author: EntityHandle[sqrrl__EmployeeTableState]\n"
+        "    var text: String\n"
+        "\n"
+        "    def __init__(out self, var author: EntityHandle[sqrrl__EmployeeTableState], var text: String):\n"
+        "        self.author = author^\n"
+        "        self.text = text^\n"
+    )
+    note_rel.close()
+
+    var report_rel = open(join(root, "report.rel"), "w")
+    report_rel.write("@@struct @@Report:\n    forwardonly note: Note\n\n")
+    report_rel.close()
+
+    convert_directory(".", root)
+
+    var jf = open(join(root, "sqrrl__json.mojo"), "r")
+    var json_generated = jf.read()
+    jf.close()
+    assert_true(
+        "def sqrrl__Note_from_json(mut sqrrl__tbl_Employee: sqrrl__EmployeeTable,"
+        " mut sc: sqrrl__JsonScanner) raises -> Note:" in json_generated
+    )
+    assert_true(
+        "sqrrl__parsed_author ="
+        " sqrrl__tbl_Employee.table.handle_for(UInt32(sc.parse_json_int()))"
+        in json_generated
+    )
+
+    var f = open(join(root, "report.mojo"), "r")
+    var generated = f.read()
+    f.close()
+    assert_true("from sqrrl__json import sqrrl__Note_from_json" in generated)
+    assert_true(
+        "def from_json(mut self, mut sqrrl__tbl_Employee: sqrrl__EmployeeTable,"
+        " mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__ReportTableState]:"
+        in generated
+    )
+    assert_true(
+        "sqrrl__parsed_note = sqrrl__Note_from_json(sqrrl__tbl_Employee, sc)" in generated
+    )
 
     _rmtree(root)
 
@@ -563,7 +904,7 @@ def test_convert_directory_imports_cross_file_return_type() raises:
     f.close()
     assert_true("from department import sqrrl__DepartmentTableState" in generated)
     assert_true(
-        "def sqrrl__make_department(mut sqrrl__world: sqrrl__Squirrel) raises"
+        "def sqrrl__make_department(mut sqrrl__world: sqrrl__World) raises"
         " -> EntityHandle[sqrrl__DepartmentTableState]:" in generated
     )
 
@@ -678,7 +1019,7 @@ def test_convert_directory_recognizes_multi_param_container_return_type() raises
 def test_convert_directory_rejects_multiple_init_calls() raises:
     """Calling `@@init()` more than once anywhere in the project used to
     compile and run fine, silently creating a second, disconnected
-    `sqrrl__Squirrel` instead of sharing the one the rest of the program
+    `sqrrl__World` instead of sharing the one the rest of the program
     uses -- a footgun with no error at all. `@@init()` is meant to be
     called exactly once; every other function should receive the result
     via `@@` in its own parameters instead."""

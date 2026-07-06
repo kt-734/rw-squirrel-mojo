@@ -34,6 +34,19 @@ struct Table[State: TableStateLike & Movable & ImplicitlyDeletable](Movable):
         self.state[].store_weak_ref(id, weak)
         return handle
 
+    def create_with_id(mut self, id: UInt32) raises -> EntityHandle[Self.State]:
+        """Like `create`, but reserves a caller-chosen id instead of
+        auto-allocating one -- the one caller is `sqrrl__world_from_json`
+        reconstructing a `sqrrl__World` from a JSON dump, where an
+        entity's id has to match whatever a relation field elsewhere in
+        the dump already serialized it as (see `IdAllocator.alloc_specific`).
+        Raises if `id` is already live."""
+        self.state[].alloc_specific_id(id)
+        var handle = EntityHandle[Self.State](EntityInner[Self.State](_id=id, _table=self.state))
+        var weak = ArcPointer[EntityInner[Self.State]].WeakPointer(downgrade=handle._inner)
+        self.state[].store_weak_ref(id, weak)
+        return handle
+
     def is_live(self, id: UInt32) -> Bool:
         return self.state[].is_live(id)
 

@@ -2,6 +2,9 @@ from squirrel_runtime.entity import Table, EntityHandle, EntityInner, TableState
 from squirrel_runtime.rel import Rel, UniqueRel, ForwardOnlyRel, MultiRel, OrderedRel
 from std.collections import Set
 from std.os import abort
+from sqrrl__json import sqrrl__to_json, sqrrl__from_json
+from squirrel_runtime.json import sqrrl__JsonScanner
+from sqrrl__json import sqrrl__Address_from_json
 
 
 struct sqrrl__AuditLogTableState(TableStateLike, Movable, ImplicitlyDeletable):
@@ -24,6 +27,12 @@ struct sqrrl__AuditLogTable(Movable):
 
     def create(mut self, message: String) -> EntityHandle[sqrrl__AuditLogTableState]:
         var e = self.table.create()
+        self.table.state[].state.message.put(e.id(), message)
+        self.keepalive.add(e.copy())
+        return e
+
+    def sqrrl__create_with_id(mut self, sqrrl__id: UInt32, message: String) raises -> EntityHandle[sqrrl__AuditLogTableState]:
+        var e = self.table.create_with_id(sqrrl__id)
         self.table.state[].state.message.put(e.id(), message)
         self.keepalive.add(e.copy())
         return e
@@ -51,3 +60,39 @@ struct sqrrl__AuditLogTable(Movable):
         for id in ids:
             out.append(self.table.handle_for(id))
         return out^
+
+    def to_json(self, e: EntityHandle[sqrrl__AuditLogTableState]) -> String:
+        var out = String("{")
+        out += "\"message\":" + sqrrl__to_json(self.get_message(e))
+        out += "}"
+        return out^
+
+    def from_json(mut self, mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__AuditLogTableState]:
+        var sqrrl__parsed_message: Optional[String] = None
+        sc.expect_byte(UInt8(ord("{")))
+        if not sc.try_consume_byte(UInt8(ord("}"))):
+            while True:
+                var sqrrl__key = sc.parse_json_string()
+                sc.expect_byte(UInt8(ord(":")))
+                if sqrrl__key == "message":
+                    sqrrl__parsed_message = sqrrl__from_json[String](sc)
+                if sc.try_consume_byte(UInt8(ord(","))):
+                    continue
+                sc.expect_byte(UInt8(ord("}")))
+                break
+        return self.create(sqrrl__parsed_message.take())
+
+    def sqrrl__from_json_with_id(mut self, sqrrl__id: UInt32, mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__AuditLogTableState]:
+        var sqrrl__parsed_message: Optional[String] = None
+        sc.expect_byte(UInt8(ord("{")))
+        if not sc.try_consume_byte(UInt8(ord("}"))):
+            while True:
+                var sqrrl__key = sc.parse_json_string()
+                sc.expect_byte(UInt8(ord(":")))
+                if sqrrl__key == "message":
+                    sqrrl__parsed_message = sqrrl__from_json[String](sc)
+                if sc.try_consume_byte(UInt8(ord(","))):
+                    continue
+                sc.expect_byte(UInt8(ord("}")))
+                break
+        return self.sqrrl__create_with_id(sqrrl__id, sqrrl__parsed_message.take())

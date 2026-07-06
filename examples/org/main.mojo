@@ -2,7 +2,7 @@ from squirrel_runtime.entity import Table, EntityHandle, EntityInner, TableState
 from squirrel_runtime.rel import Rel, UniqueRel, ForwardOnlyRel, MultiRel, OrderedRel
 from std.collections import Set
 from std.os import abort
-from sqrrl__Squirrel import sqrrl__init, sqrrl__Squirrel
+from sqrrl__world import sqrrl__init, sqrrl__World
 
 
 from logic.factories import sqrrl__make_department, sqrrl__hire, sqrrl__make_person, sqrrl__make_team

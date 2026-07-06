@@ -2,7 +2,7 @@ from schema.address import Address
 from logic.factories import @@make_department, @@hire, @@hire_team, @@log
 
 
-def promote(mut sqrrl__world: sqrrl__Squirrel, e: EntityHandle[sqrrl__EmployeeTableState], new_title: String) -> EntityHandle[sqrrl__EmployeeTableState]:
+def promote(mut sqrrl__world: sqrrl__World, e: EntityHandle[sqrrl__EmployeeTableState], new_title: String) -> EntityHandle[sqrrl__EmployeeTableState]:
     # Ordinary, hand-written Mojo -- not a @@-marked call at all -- returning
     # a plain, untracked EntityHandle to show it can still be retroactively
     # marked afterward, same as arrays_and_relations' own `hire`.
@@ -15,8 +15,8 @@ def main() raises:
     var @@eng = @@make_department("Engineering");
     var @@sales = @@make_department("Sales");
 
-    var @@alice_emp = @@hire("Alice", "alice@example.com", "Engineer", @@eng);
-    var @@bob_emp = @@hire("Bob", "bob@example.com", "Sales Rep", @@sales);
+    var @@alice_emp = @@hire("Alice", "alice@example.com", "Engineer", 5, @@eng);
+    var @@bob_emp = @@hire("Bob", "bob@example.com", "Sales Rep", 2, @@sales);
 
     var @@alice = @@Person { .name = "Alice", .home = Address("Springfield"), .@@job = @@alice_emp };
     var @@bob = @@Person { .name = "Bob", .home = Address("Shelbyville"), .@@job = @@bob_emp };
@@ -42,8 +42,19 @@ def main() raises:
     var names = List[String]();
     names.append("Carol");
     names.append("Dave");
-    var @@sales_team = @@hire_team(names, "@example.com", @@sales);
+    var @@sales_team = @@hire_team(names, "@example.com", 3, @@sales);
     print("sales team size (via hire_team):", len(@@sales_team));
+
+    # ordered field: years_employed keeps a sorted index alongside the
+    # usual per-id storage, giving range queries (greater_than/less_than/
+    # at_least/at_most/between) a plain unique/multi field can't answer in
+    # better than a full linear scan. Alice=5, Bob=2, Carol=3, Dave=4.
+    print("more than 3 years:", len(@@Employee.for_years_employed_greater_than(3)));
+    print("at least 3 years:", len(@@Employee.for_years_employed_at_least(3)));
+    print("less than 3 years:", len(@@Employee.for_years_employed_less_than(3)));
+    print("3 to 4 years inclusive:", len(@@Employee.for_years_employed_between(3, 4)));
+    for @@e in @@Employee.for_years_employed(3):
+        print("exactly 3 years:", @@e.title);
 
     # Retroactive marking: a value from ordinary hand-written Mojo, marked
     # @@ after the fact via an explicit type annotation.

@@ -2,6 +2,9 @@ from squirrel_runtime.entity import Table, EntityHandle, EntityInner, TableState
 from squirrel_runtime.rel import Rel, UniqueRel, ForwardOnlyRel, MultiRel, OrderedRel
 from std.collections import Set
 from std.os import abort
+from sqrrl__json import sqrrl__to_json, sqrrl__from_json
+from squirrel_runtime.json import sqrrl__JsonScanner
+from sqrrl__json import sqrrl__Address_from_json
 
 
 struct sqrrl__ProjectTableState(TableStateLike, Movable, ImplicitlyDeletable):
@@ -25,6 +28,11 @@ struct sqrrl__ProjectTable(Movable):
         self.table.state[].state.name.put(e.id(), name)
         return e
 
+    def sqrrl__create_with_id(mut self, sqrrl__id: UInt32, name: String) raises -> EntityHandle[sqrrl__ProjectTableState]:
+        var e = self.table.create_with_id(sqrrl__id)
+        self.table.state[].state.name.put(e.id(), name)
+        return e
+
     def all(self) -> Set[EntityHandle[sqrrl__ProjectTableState]]:
         return self.table.all()
 
@@ -41,3 +49,39 @@ struct sqrrl__ProjectTable(Movable):
         for id in ids:
             out.append(self.table.handle_for(id))
         return out^
+
+    def to_json(self, e: EntityHandle[sqrrl__ProjectTableState]) -> String:
+        var out = String("{")
+        out += "\"name\":" + sqrrl__to_json(self.get_name(e))
+        out += "}"
+        return out^
+
+    def from_json(mut self, mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__ProjectTableState]:
+        var sqrrl__parsed_name: Optional[String] = None
+        sc.expect_byte(UInt8(ord("{")))
+        if not sc.try_consume_byte(UInt8(ord("}"))):
+            while True:
+                var sqrrl__key = sc.parse_json_string()
+                sc.expect_byte(UInt8(ord(":")))
+                if sqrrl__key == "name":
+                    sqrrl__parsed_name = sqrrl__from_json[String](sc)
+                if sc.try_consume_byte(UInt8(ord(","))):
+                    continue
+                sc.expect_byte(UInt8(ord("}")))
+                break
+        return self.create(sqrrl__parsed_name.take())
+
+    def sqrrl__from_json_with_id(mut self, sqrrl__id: UInt32, mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__ProjectTableState]:
+        var sqrrl__parsed_name: Optional[String] = None
+        sc.expect_byte(UInt8(ord("{")))
+        if not sc.try_consume_byte(UInt8(ord("}"))):
+            while True:
+                var sqrrl__key = sc.parse_json_string()
+                sc.expect_byte(UInt8(ord(":")))
+                if sqrrl__key == "name":
+                    sqrrl__parsed_name = sqrrl__from_json[String](sc)
+                if sc.try_consume_byte(UInt8(ord(","))):
+                    continue
+                sc.expect_byte(UInt8(ord("}")))
+                break
+        return self.sqrrl__create_with_id(sqrrl__id, sqrrl__parsed_name.take())

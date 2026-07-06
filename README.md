@@ -14,7 +14,7 @@ through untouched.
 ## Quick start
 
 Compile every `.rel` file under a directory into `.mojo` (writing each
-generated file alongside its source, plus a shared `sqrrl__Squirrel.mojo`
+generated file alongside its source, plus a shared `sqrrl__world.mojo`
 and a copy of the runtime):
 
 ```sh
@@ -252,7 +252,7 @@ print(@@alice.@@job.@@dept.name);
 
 **`@@`-marked functions** — marking a function's own *name* with `@@`
 (`def @@name(...)`, not a parameter) auto-threads the world through it: its
-definition gets `mut sqrrl__world: sqrrl__Squirrel` inserted as its first
+definition gets `mut sqrrl__world: sqrrl__World` inserted as its first
 parameter, and every call site gets `sqrrl__world` inserted as its first
 argument — silently, on both ends, so neither the signature nor the call
 needs to mention it explicitly. This is how you build reusable entity
@@ -373,6 +373,50 @@ currently allocated), so it finds every live entity regardless of *why*
 it's alive: a relation elsewhere, a local handle, or `keepalive`. Every
 struct gets `all()`; only a `keepalive`-tagged one also gets the `Set`
 field and `dont_keepalive`.
+
+## JSON serialization
+
+Every `@@struct` gets `to_json`/`from_json` on its table, and every plain
+struct (shorthand or hand-written) serializes automatically — no
+annotation needed anywhere:
+
+```
+var json = @@Employee.to_json(@@alice);        # -> String
+print(json);
+
+var sc = sqrrl__JsonScanner(json);
+var @@rebuilt = @@Employee.from_json(sc);      # -> EntityHandle[...]
+```
+
+`sqrrl__JsonScanner` is the one runtime type you construct directly —
+wrap the source text in one to hand to `from_json`.
+
+A relation field (`@@dept: @@Department`) serializes as the referenced
+entity's bare id, not its contents — reconstructing it looks that id up
+in `Department`'s own table, which the compiler threads into `from_json`
+automatically as an extra argument (invisible at the call site above) for
+every distinct struct a `@@struct`'s own relation fields reach, direct or
+through an embedded plain struct's own relation field, so the target must
+already exist (same requirement `create` has
+for any relation field). `List`/`Set`/`Optional`-wrapped relation fields
+(`List[@@Employee]`, a `multi` field, ...) work the same way, one id per
+element. `unique` fields still enforce their constraint through
+`from_json` — reconstructing a duplicate while the original is alive
+raises `UniqueConstraintViolation`, same as `create` would.
+
+Plain-struct fields (leaf, `List[String]`, a nested plain struct, ...)
+serialize/deserialize with **no code generated for them at all** for a
+struct's own `to_json` — reflection walks its fields generically.
+Reconstructing one (`from_json`) does need a generated companion, for
+both shorthand and *hand-written* plain structs alike — a hand-written
+struct's own fields are extracted structurally (its leading `var name:
+Type` declarations, stopping at its first method) rather than parsed the
+way `.rel`-declared syntax is, and a relation field embedded in one has
+to be spelled out by hand too (`EntityHandle[sqrrl__EmployeeTableState]`,
+there being no `@@`-marked shorthand available inside real Mojo), which
+gets reversed back to the ordinary relation-field machinery
+automatically. Every shape (shorthand or hand-written plain structs,
+leaves, containers, relations, arbitrarily nested) round-trips correctly.
 
 ## Project layout
 

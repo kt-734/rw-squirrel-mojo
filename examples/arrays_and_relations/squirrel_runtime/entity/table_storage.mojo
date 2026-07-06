@@ -50,6 +50,9 @@ struct TableStorage[State: TableStateLike & Movable & ImplicitlyDeletable](Movab
     def alloc_id(mut self) -> UInt32:
         return self.ids.alloc()
 
+    def alloc_specific_id(mut self, id: UInt32) raises:
+        self.ids.alloc_specific(id)
+
     def free_id(mut self, id: UInt32):
         self.ids.free(id)
 

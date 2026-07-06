@@ -2,7 +2,11 @@ from squirrel_runtime.entity import Table, EntityHandle, EntityInner, TableState
 from squirrel_runtime.rel import Rel, UniqueRel, ForwardOnlyRel, MultiRel, OrderedRel
 from std.collections import Set
 from std.os import abort
+from sqrrl__json import sqrrl__to_json, sqrrl__from_json
+from squirrel_runtime.json import sqrrl__JsonScanner
+from sqrrl__json import sqrrl__Address_from_json
 from schema.project import sqrrl__ProjectTableState
+from schema.project import sqrrl__ProjectTable
 
 
 struct sqrrl__DepartmentTableState(TableStateLike, Movable, ImplicitlyDeletable):
@@ -29,6 +33,13 @@ struct sqrrl__DepartmentTable(Movable):
 
     def create(mut self, name: String, tags: List[String], projects: Set[EntityHandle[sqrrl__ProjectTableState]]) -> EntityHandle[sqrrl__DepartmentTableState]:
         var e = self.table.create()
+        self.table.state[].state.name.put(e.id(), name)
+        self.table.state[].state.tags.put(e.id(), tags)
+        self.table.state[].state.projects.put(e.id(), projects)
+        return e
+
+    def sqrrl__create_with_id(mut self, sqrrl__id: UInt32, name: String, tags: List[String], projects: Set[EntityHandle[sqrrl__ProjectTableState]]) raises -> EntityHandle[sqrrl__DepartmentTableState]:
+        var e = self.table.create_with_id(sqrrl__id)
         self.table.state[].state.name.put(e.id(), name)
         self.table.state[].state.tags.put(e.id(), tags)
         self.table.state[].state.projects.put(e.id(), projects)
@@ -78,3 +89,73 @@ struct sqrrl__DepartmentTable(Movable):
         for id in ids:
             out.append(self.table.handle_for(id))
         return out^
+
+    def to_json(self, e: EntityHandle[sqrrl__DepartmentTableState]) -> String:
+        var out = String("{")
+        out += "\"name\":" + sqrrl__to_json(self.get_name(e))
+        out += ","
+        out += "\"tags\":" + sqrrl__to_json(self.get_tags(e))
+        out += ","
+        out += "\"projects\":" + sqrrl__to_json(self.get_projects(e))
+        out += "}"
+        return out^
+
+    def from_json(mut self, mut sqrrl__tbl_Project: sqrrl__ProjectTable, mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__DepartmentTableState]:
+        var sqrrl__parsed_name: Optional[String] = None
+        var sqrrl__parsed_tags: Optional[List[String]] = None
+        var sqrrl__parsed_projects: Optional[Set[EntityHandle[sqrrl__ProjectTableState]]] = None
+        sc.expect_byte(UInt8(ord("{")))
+        if not sc.try_consume_byte(UInt8(ord("}"))):
+            while True:
+                var sqrrl__key = sc.parse_json_string()
+                sc.expect_byte(UInt8(ord(":")))
+                if sqrrl__key == "name":
+                    sqrrl__parsed_name = sqrrl__from_json[String](sc)
+                elif sqrrl__key == "tags":
+                    sqrrl__parsed_tags = sqrrl__from_json[List[String]](sc)
+                elif sqrrl__key == "projects":
+                    var sqrrl__parsed_projects_tmp = Set[EntityHandle[sqrrl__ProjectTableState]]()
+                    sc.expect_byte(UInt8(ord("[")))
+                    if not sc.try_consume_byte(UInt8(ord("]"))):
+                        while True:
+                            sqrrl__parsed_projects_tmp.add(sqrrl__tbl_Project.table.handle_for(UInt32(sc.parse_json_int())))
+                            if sc.try_consume_byte(UInt8(ord(","))):
+                                continue
+                            sc.expect_byte(UInt8(ord("]")))
+                            break
+                    sqrrl__parsed_projects = sqrrl__parsed_projects_tmp^
+                if sc.try_consume_byte(UInt8(ord(","))):
+                    continue
+                sc.expect_byte(UInt8(ord("}")))
+                break
+        return self.create(sqrrl__parsed_name.take(), sqrrl__parsed_tags.take(), sqrrl__parsed_projects.take())
+
+    def sqrrl__from_json_with_id(mut self, mut sqrrl__tbl_Project: sqrrl__ProjectTable, sqrrl__id: UInt32, mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__DepartmentTableState]:
+        var sqrrl__parsed_name: Optional[String] = None
+        var sqrrl__parsed_tags: Optional[List[String]] = None
+        var sqrrl__parsed_projects: Optional[Set[EntityHandle[sqrrl__ProjectTableState]]] = None
+        sc.expect_byte(UInt8(ord("{")))
+        if not sc.try_consume_byte(UInt8(ord("}"))):
+            while True:
+                var sqrrl__key = sc.parse_json_string()
+                sc.expect_byte(UInt8(ord(":")))
+                if sqrrl__key == "name":
+                    sqrrl__parsed_name = sqrrl__from_json[String](sc)
+                elif sqrrl__key == "tags":
+                    sqrrl__parsed_tags = sqrrl__from_json[List[String]](sc)
+                elif sqrrl__key == "projects":
+                    var sqrrl__parsed_projects_tmp = Set[EntityHandle[sqrrl__ProjectTableState]]()
+                    sc.expect_byte(UInt8(ord("[")))
+                    if not sc.try_consume_byte(UInt8(ord("]"))):
+                        while True:
+                            sqrrl__parsed_projects_tmp.add(sqrrl__tbl_Project.table.handle_for(UInt32(sc.parse_json_int())))
+                            if sc.try_consume_byte(UInt8(ord(","))):
+                                continue
+                            sc.expect_byte(UInt8(ord("]")))
+                            break
+                    sqrrl__parsed_projects = sqrrl__parsed_projects_tmp^
+                if sc.try_consume_byte(UInt8(ord(","))):
+                    continue
+                sc.expect_byte(UInt8(ord("}")))
+                break
+        return self.sqrrl__create_with_id(sqrrl__id, sqrrl__parsed_name.take(), sqrrl__parsed_tags.take(), sqrrl__parsed_projects.take())

@@ -4,6 +4,8 @@ from std.os.path import dirname, isdir, isfile, join
 from squirrel_compiler.parser import (
     Scanner,
     ParsedStruct,
+    Field,
+    TypeParam,
     FieldModifier,
     is_ident_char,
     is_wrapped_relation_type,
@@ -15,7 +17,16 @@ from squirrel_compiler.codegen import (
     transform_source,
     encode_container_type,
     is_container_type,
+    container_wrapper_of,
     container_element_of,
+    emit_field_type,
+    emit_json_module,
+    emit_plain_struct_from_json,
+    relation_targets_for,
+    recover_relation_type_str,
+    qualify_type_params_with_self,
+    substitute_type_params,
+    split_top_level_type_args,
 )
 
 
@@ -198,6 +209,281 @@ def build_ordered_fields(discovery: DiscoveryResult) -> Dict[String, List[String
     return ordered_fields^
 
 
+def build_plain_struct_fields(
+    plain_structs: List[DiscoveredStruct],
+    rel_files: List[String],
+    mut plain_struct_type_params: Dict[String, List[TypeParam]],
+) raises -> Dict[String, List[Field]]:
+    """Plain struct name -> its own parsed field list, project-wide --
+    what `emit_table`/`emit_plain_struct_from_json`/
+    `_emit_from_json_field_parse` need to tell "a plain-struct-typed
+    field" apart from a leaf/container one, and to recurse into *its*
+    own fields to collect relation targets transitively (a plain struct
+    embedded by value can itself embed a relation field, or another
+    plain struct that does -- see `_collect_relation_targets` in
+    `codegen.mojo`). `plain_struct_type_params` (`mut`, populated
+    alongside in the same pass rather than re-scanning separately) is the
+    matching plain struct name -> its own `[T: Bound, ...]` type-parameter
+    list, non-empty only for a *generic* plain struct
+    (`emit_plain_struct_from_json`'s own doc comment covers how that
+    reaches its generated companion).
+
+    `plain_structs` (`discover_plain_structs`, shorthand-form only) covers
+    every `struct Name { field: Type, ... }`; this also scans `rel_files`
+    a second time for the hand-written form (`struct Name(Traits...):`/
+    `struct Name:`, an ordinary Mojo struct `discover_plain_structs`
+    doesn't recognize at all) via
+    `Scanner.find_next_hand_written_plain_struct_decl`/
+    `parse_hand_written_plain_struct` -- its fields are already
+    real, converted Mojo types (never `@@`-marked shorthand, since a
+    hand-written struct's own relation field, if any, has to be spelled
+    out as `EntityHandle[sqrrl__<Name>TableState]` directly), so each
+    one's `type_str` is passed through `codegen.recover_relation_type_str`
+    first -- reversing that conversion back to the pseudo `@@Type`/
+    `List[@@Type]`/... shorthand `_relation_field_shape`/
+    `_collect_relation_targets`/`_emit_from_json_field_parse` already
+    expect, letting a hand-written struct's relation field (if any) flow
+    through that same, single code path with nothing struct-flavor-
+    specific to maintain downstream. This is what closes the one
+    documented gap in JSON support: before this, a hand-written plain
+    struct's own `from_json` reconstruction always raised at runtime
+    (`sqrrl__from_json: unsupported type`) since its fields were entirely
+    unknown to this compiler."""
+    var out = Dict[String, List[Field]]()
+    for ps in plain_structs:
+        out[ps.parsed.name] = ps.parsed.fields.copy()
+        plain_struct_type_params[ps.parsed.name] = ps.parsed.type_params.copy()
+
+    for path in rel_files:
+        var f = open(path, "r")
+        var source = f.read()
+        f.close()
+        var sc = Scanner(source)
+        try:
+            while sc.find_next_hand_written_plain_struct_decl():
+                var parsed = sc.parse_hand_written_plain_struct()
+                var fields = List[Field]()
+                for field in parsed.fields:
+                    fields.append(
+                        Field(
+                            name=field.name,
+                            type_str=recover_relation_type_str(field.type_str),
+                            modifier=field.modifier,
+                        )
+                    )
+                out[parsed.name] = fields^
+                plain_struct_type_params[parsed.name] = parsed.type_params.copy()
+        except e:
+            raise Error(path + ": " + String(e))
+
+    return out^
+
+
+def build_relation_targets(
+    discovery: DiscoveryResult, plain_struct_fields: Dict[String, List[Field]]
+) raises -> Dict[String, List[String]]:
+    """`@@struct` name -> the distinct target struct names its own
+    `from_json` needs a live table for, direct or transitive through an
+    embedded plain struct's own relation field (`relation_targets_for` in
+    `codegen.mojo`) -- what the `@@Type.from_json(...)` call-site rewrite
+    (`rewrite_markers`) needs to inject the right `sqrrl__world.Target`
+    arguments, without re-deriving them from raw field lists at every
+    call site."""
+    var out = Dict[String, List[String]]()
+    for ds in discovery.structs:
+        out[ds.parsed.name] = relation_targets_for(ds.parsed.fields, plain_struct_fields)
+    return out^
+
+
+def _collect_json_container_types(
+    t: String,
+    plain_struct_fields: Dict[String, List[Field]],
+    plain_struct_type_params: Dict[String, List[TypeParam]],
+    mut seen: Dict[String, Bool],
+    mut out: List[String],
+) raises:
+    """Registers `t` as a needed JSON container-dispatch branch (`elif T
+    == Wrapper[Element]:`, `emit_json_module`) if it's a real container
+    (`List`/`Set`/`Optional`/`Dict`), then recurses into whatever it's
+    built from:
+
+    - Its own element type(s), each of which can itself be another
+      container -- `Optional[List[String]]` needs *both*
+      `Optional[List[String]]` and `List[String]` registered, since
+      `optional_from_json`'s own generated body calls
+      `sqrrl__from_json[List[String]]` internally, and that call has no
+      dispatch branch of its own otherwise (confirmed this exact failure
+      with a real, non-generic `Optional[List[String]]` field -- nothing
+      to do with generics at all, a pre-existing gap this closes for
+      every struct, not just ones involving a generic plain struct).
+      `Dict[K, V]` is the one wrapper with *two* element types rather
+      than one, both split apart by `split_top_level_type_args` (not
+      just the first) and recursed into independently -- `Dict[String,
+      List[Int]]` needs `List[Int]` registered too, exactly the same
+      way.
+    - A concrete instantiation of a generic plain struct
+      (`Example[String]`) isn't itself registered here -- it's fully
+      handled by its own dedicated `sqrrl__Example_from_json[T]`
+      companion, not this shared dispatcher -- but whatever concrete
+      container types *its own* fields need once instantiated still have
+      to be registered project-wide, since nothing else would ever
+      discover them: `Example`'s own declared field (`liste: List[T]`)
+      is abstract until substituted, so each of its fields is run
+      through `substitute_type_params` (its own type arguments, split by
+      `split_top_level_type_args`) and recursed into the same way.
+
+    No-op for a bare relation (`EntityHandle[...]`, handled via
+    `sqrrl__JsonSerializable` directly) or a leaf (not container-shaped
+    at all)."""
+    if not is_container_type(t):
+        return
+    var wrapper = container_wrapper_of(t)
+    var element = container_element_of(t)
+    if wrapper == "EntityHandle":
+        return
+    if wrapper in plain_struct_fields:
+        var type_params = (
+            plain_struct_type_params[wrapper].copy() if wrapper in plain_struct_type_params else List[TypeParam]()
+        )
+        var type_args = split_top_level_type_args(element)
+        for field in plain_struct_fields[wrapper]:
+            var substituted = substitute_type_params(emit_field_type(field), type_params, type_args)
+            _collect_json_container_types(substituted, plain_struct_fields, plain_struct_type_params, seen, out)
+        return
+    if t not in seen:
+        seen[t] = True
+        out.append(t)
+    for arg in split_top_level_type_args(element):
+        _collect_json_container_types(arg, plain_struct_fields, plain_struct_type_params, seen, out)
+
+
+def build_json_container_types(
+    discovery: DiscoveryResult,
+    plain_structs: List[DiscoveredStruct],
+    plain_struct_fields: Dict[String, List[Field]],
+    plain_struct_type_params: Dict[String, List[TypeParam]],
+) raises -> List[String]:
+    """Every distinct `Wrapper[Element]` field type (`List[String]`,
+    `Set[UInt32]`, `List[EntityHandle[sqrrl__EmployeeTableState]]`, ...)
+    needed anywhere in the project's schema -- `@@struct` fields and
+    plain-struct fields alike, both already rewritten through
+    `emit_field_type` (so a `multi` field's `Set[...]` wrapping and a
+    relation field's `@@Type` -> `EntityHandle[...]` rewrite are already
+    applied the same way `emit_table`/`emit_plain_struct` themselves see
+    them), transitively through nested containers and generic plain
+    struct instantiations alike (`_collect_json_container_types`).
+    `emit_json_module` needs this list to know exactly which `elif T ==
+    Wrapper[Element]:` branches `sqrrl__to_json`/`sqrrl__from_json` need
+    -- there's no way to ask Mojo's own type system "is `T` a container
+    of *anything*" generically (confirmed: comparing a bare,
+    unparameterized `List` against `T` crashes the compiler outright), so
+    the generated dispatcher has to enumerate every concrete combination
+    the schema actually needs instead. Deduplicated (`Dict` used purely
+    as a set) since the same combination (`List[String]`, say) can easily
+    be needed by more than one struct.
+
+    A generic plain struct's own field (`liste: List[T]` inside `struct
+    Example[T]:`) is skipped here directly -- `t` there is `T`'s own
+    placeholder, not a real type, so registering it would generate a
+    nonsensical `elif T == List[T]:` branch (confirmed: raises "'List'
+    parameter 'T' has 'Movable' type, but value has type 'AnyType'").
+    `qualify_type_params_with_self` changing `t` at all is exactly "does
+    `t` reference one of `ps`'s own parameters" -- reused here as that
+    check rather than writing a second, near-identical scan. Its
+    concrete instantiations (`Example[String]`, used as some *other*
+    field's type) are what actually reach `Example`'s own fields, via
+    `_collect_json_container_types`'s substitution branch."""
+    var seen = Dict[String, Bool]()
+    var out = List[String]()
+    for ds in discovery.structs:
+        for field in ds.parsed.fields:
+            _collect_json_container_types(
+                emit_field_type(field), plain_struct_fields, plain_struct_type_params, seen, out
+            )
+    for ps in plain_structs:
+        for field in ps.parsed.fields:
+            var t = emit_field_type(field)
+            if len(ps.parsed.type_params) > 0 and qualify_type_params_with_self(t, ps.parsed.type_params) != t:
+                continue
+            _collect_json_container_types(t, plain_struct_fields, plain_struct_type_params, seen, out)
+    return out^
+
+
+def build_json_module_source(
+    discovery: DiscoveryResult,
+    container_types: List[String],
+    plain_struct_fields: Dict[String, List[Field]],
+    plain_struct_type_params: Dict[String, List[TypeParam]],
+    cross_file_symbols: Dict[String, String],
+) raises -> String:
+    """Assembles the full content of `sqrrl__json.mojo`: fixed imports
+    (`Set`, `EntityHandle`, the runtime's `sqrrl__JsonScanner`/
+    `sqrrl__escape_json_string`/`sqrrl__JsonSerializable`, and the
+    container helpers `list_to_json`/`list_from_json`/`set_to_json`/
+    `set_from_json`/`optional_to_json`/`optional_from_json`/
+    `dict_to_json`/`dict_from_json` -- imported unconditionally rather
+    than only the ones this project's own `container_types` actually
+    reference, the same simplicity tradeoff the per-struct `Table`
+    imports below already make; an unused generic import costs nothing,
+    since Mojo only instantiates a generic function where it's actually
+    called), one `from
+    <module> import sqrrl__<Name>TableState, sqrrl__<Name>Table` per
+    `@@struct` declared anywhere in the project (mirroring
+    `emit_world_module`'s own per-struct `Table` import loop --
+    unconditional rather than scanning for which ones `container_types`
+    actually references, the same simplicity tradeoff `emit_world_module`
+    already makes; the `Table` half specifically is what lets a plain
+    struct's own `from_json` companion below take a `sqrrl__tbl_<Target>:
+    sqrrl__<Target>Table` parameter for any relation field it embeds,
+    direct or through another plain struct), one `from <module> import
+    <Name>` per plain struct project-wide too (`cross_file_symbols`,
+    `build_cross_file_symbols` -- every entry that isn't a `Table`/
+    `TableState` is a plain struct name; needed since a companion's own
+    `-> Address:` return type and `Address(...)` constructor call
+    reference the plain struct type *by name*, not just its fields'
+    types), `emit_json_module`'s own generated dispatcher body, and
+    finally every plain struct's own `sqrrl__<Name>_from_json`
+    free-function companion (`plain_struct_fields`,
+    `driver.build_plain_struct_fields` -- shorthand and hand-written alike)
+    -- this is JSON serialization's one, single home: the generic
+    `sqrrl__to_json`/`sqrrl__from_json` dispatch, the container helpers, and
+    every plain struct's own reconstruction companion, all in the one file
+    a struct-declaring file already imports from unconditionally (see
+    `emit_file`'s own `sqrrl__to_json`/`from_json` import check), rather
+    than splitting the latter off into `sqrrl__world.mojo` for no
+    reason connected to what `sqrrl__World` itself is for (the shared
+    table aggregate)."""
+    var out = String()
+    out += "from std.collections import Set\n"
+    out += "from squirrel_runtime.entity import EntityHandle\n"
+    out += (
+        "from squirrel_runtime.json import sqrrl__JsonScanner, sqrrl__escape_json_string,"
+        " sqrrl__JsonSerializable, list_to_json, list_from_json, set_to_json, set_from_json,"
+        " optional_to_json, optional_from_json, dict_to_json, dict_from_json\n"
+    )
+    for ds in discovery.structs:
+        var table_name = sqrrl_prefixed(ds.parsed.name) + "Table"
+        var state_name = sqrrl_prefixed(ds.parsed.name) + "TableState"
+        out += String(t"from {ds.module_path} import {state_name}, {table_name}\n")
+    for symbol in cross_file_symbols.keys():
+        if not symbol.endswith("TableState") and not symbol.endswith("Table"):
+            out += String(t"from {cross_file_symbols[symbol]} import {symbol}\n")
+    out += "\n\n"
+    out += emit_json_module(container_types)
+
+    for name in plain_struct_fields.keys():
+        out += "\n\n"
+        var type_params = (
+            plain_struct_type_params[name].copy() if name in plain_struct_type_params else List[TypeParam]()
+        )
+        out += emit_plain_struct_from_json(
+            ParsedStruct(name=name, fields=plain_struct_fields[name].copy(), type_params=type_params^),
+            plain_struct_fields,
+        )
+
+    return out^
+
+
 def build_function_returns(rel_files: List[String]) raises -> Dict[String, String]:
     """Function name -> the `@@Type` it returns, for every `def @@funcName(
     ...) -> @@Type:` signature project-wide (a def's own signature is
@@ -309,7 +595,7 @@ def discover_plain_structs(rel_files: List[String], target_root: String) raises 
 
 def check_single_init_call(rel_files: List[String]) raises:
     """Rejects more than one `@@init()` call across the whole project.
-    Each call independently constructs its own `sqrrl__Squirrel` -- nothing
+    Each call independently constructs its own `sqrrl__World` -- nothing
     else stops a second one from silently creating a disconnected "world"
     instead of sharing the one everything else uses (confirmed: a second
     `@@init()` compiles and runs fine, producing two independent tables
@@ -515,10 +801,19 @@ def build_cross_file_symbols(
     brace-shorthand body (needed to actually parse fields for
     `check_no_relation_cycles`), so a *real*, hand-written Mojo plain
     struct (the only kind that actually compiles) would otherwise never
-    get imported cross-file at all."""
+    get imported cross-file at all.
+
+    Also registers `sqrrl__<Name>Table` (not just `...TableState`) for
+    every `@@struct` -- needed since a struct's own generated `from_json`
+    (`emit_table_json_methods`) now takes a `sqrrl__tbl_<Target>:
+    sqrrl__<Target>Table` parameter per relation target, which can name a
+    struct declared in a different file from the one generating the
+    call, same cross-file gap `...TableState` already closes for a
+    relation field's own `EntityHandle[...]`."""
     var symbol_of = Dict[String, String]()
     for ds in discovery.structs:
         symbol_of[sqrrl_prefixed(ds.parsed.name) + "TableState"] = ds.module_path
+        symbol_of[sqrrl_prefixed(ds.parsed.name) + "Table"] = ds.module_path
     for path in rel_files:
         var module_path = module_path_for(path, target_root)
         var f = open(path, "r")
@@ -533,8 +828,53 @@ def build_cross_file_symbols(
     return symbol_of^
 
 
-def emit_squirrel_module(discovery: DiscoveryResult) raises -> String:
-    """Emits `sqrrl__Squirrel.mojo`'s content: `sqrrl__Squirrel`, the single
+def _topo_visit_struct(
+    name: String,
+    discovery: DiscoveryResult,
+    relation_targets: Dict[String, List[String]],
+    by_name: Dict[String, Int],
+    mut visited: Dict[String, Bool],
+    mut order: List[DiscoveredStruct],
+) raises:
+    if name in visited:
+        return
+    visited[name] = True
+    if name in relation_targets:
+        for dep in relation_targets[name]:
+            _topo_visit_struct(dep, discovery, relation_targets, by_name, visited, order)
+    if name in by_name:
+        order.append(discovery.structs[by_name[name]].copy())
+
+
+def _topo_sort_structs(
+    discovery: DiscoveryResult, relation_targets: Dict[String, List[String]]
+) raises -> List[DiscoveredStruct]:
+    """Every `@@struct`, ordered so a struct always comes *after* every
+    other struct its own fields relation-target (`relation_targets`,
+    `build_relation_targets` -- direct or transitive through an embedded
+    plain struct's own relation field, same set `from_json`'s own sibling-
+    table parameters are built from). `sqrrl__world_from_json`'s own
+    reconstruction (`emit_world_module`) needs this: a relation field
+    resolves via `Table.handle_for(id)`, which only works if that id is
+    already live in the *target* table, so `sqrrl__World.to_json` has to
+    write each struct's entities in this same order for a later
+    `sqrrl__world_from_json` to read them back correctly (a single
+    forward pass over the JSON text, not a DOM -- see that function's own
+    doc comment). Plain DFS postorder rather than Kahn's algorithm: no
+    in-degree bookkeeping needed since `check_no_relation_cycles` already
+    guarantees this graph is acyclic before this ever runs."""
+    var by_name = Dict[String, Int]()
+    for i in range(len(discovery.structs)):
+        by_name[discovery.structs[i].parsed.name] = i
+    var visited = Dict[String, Bool]()
+    var order = List[DiscoveredStruct]()
+    for ds in discovery.structs:
+        _topo_visit_struct(ds.parsed.name, discovery, relation_targets, by_name, visited, order)
+    return order^
+
+
+def emit_world_module(discovery: DiscoveryResult, relation_targets: Dict[String, List[String]]) raises -> String:
+    """Emits `sqrrl__world.mojo`'s content: `sqrrl__World`, the single
     aggregate holding one table per `@@struct` declared anywhere in the
     project, plus `sqrrl__init()`, the one factory a script calls (via
     `@@init()`) to obtain it. Built project-wide, in its own file, rather
@@ -546,17 +886,75 @@ def emit_squirrel_module(discovery: DiscoveryResult) raises -> String:
     former cross-file gap for script-level table references (see
     `emit_file`'s doc comment): `sqrrl__world.TypeName` works the same
     regardless of which file declared `TypeName`, since every table hangs
-    off this one aggregate rather than a file-local variable."""
+    off this one aggregate rather than a file-local variable.
+
+    A single struct's own `from_json` is still a method on its own
+    `sqrrl__<Name>Table` (`emit_table_json_methods`, in its declaring
+    file) -- nothing here duplicates that. What *does* live here is the
+    whole-`sqrrl__World` snapshot: `sqrrl__World.to_json(self) -> String`
+    (every table's every live entity, each tagged with its own id --
+    unlike a lone entity's own `to_json`, which never needs its *own* id,
+    only what it references) and the free-function counterpart
+    `sqrrl__world_from_json(mut sc: sqrrl__JsonScanner) raises ->
+    sqrrl__World` (paralleling `sqrrl__init`'s own factory shape, since
+    reconstruction builds a fresh `sqrrl__World` rather than mutating an
+    existing one). Each table's entities are recreated via
+    `sqrrl__from_json_with_id` (`emit_table_json_methods`'s twin to its
+    own `from_json`, `self.sqrrl__create_with_id(id, ...)` in place of
+    `self.create(...)`) so a relation field elsewhere in the dump,
+    already serialized as another entity's *original* id, still resolves
+    correctly once that entity comes back -- landing it at a fresh,
+    auto-allocated id instead (`self.create(...)`) would silently break
+    every such reference. `_topo_sort_structs` is what makes a single
+    forward scan of the JSON text sufficient for this: `to_json` writes
+    each struct's own entities only after every struct it relation-
+    targets, so by the time `sqrrl__world_from_json` reaches a given
+    struct's array, every table `Table.handle_for` might need to reach
+    into for it has already been fully populated -- an unknown/misplaced
+    key still isn't defended against, same "trust the input" convention
+    every other generated `from_json` already follows (see
+    `emit_table_json_methods`'s own doc comment).
+
+    A non-`keepalive` struct also gets one `sqrrl__reloaded_<Name>:
+    List[EntityHandle[...]]` field on `sqrrl__World` itself, populated
+    only by `sqrrl__world_from_json` (empty, at essentially no cost,
+    after `sqrrl__init`) -- without it, an entity `sqrrl__create_with_id`
+    just reconstructed would die the instant its return value is
+    discarded, the same way any entity in this framework does once
+    nothing holds a strong reference to it (confirmed: a relation field
+    elsewhere keeps its own *referenced* entities alive via its own
+    stored `EntityHandle` copies, but that doesn't exist yet for an
+    entity still mid-reconstruction here, and plenty of structs are
+    never relation-targeted at all). Appending each reconstructed handle
+    immediately, rather than discarding it, is what lets a *later*
+    struct in the dump (relation-targeting an *earlier* one, per
+    `_topo_sort_structs`) still find it alive when its own `from_json`
+    resolves that reference -- and keeps it alive afterward too, for as
+    long as the returned `sqrrl__World` itself lives, same as a script's
+    own local `var` would for a freshly-`create`d entity. A `keepalive`
+    struct needs no such field: `sqrrl__create_with_id` already does
+    `self.keepalive.add(e.copy())` (mirroring `create`, see
+    `codegen.emit_table`), which already keeps every entity it
+    reconstructs alive on its own -- a second, world-level retention
+    would just double the bookkeeping for nothing."""
     var out = String()
     for ds in discovery.structs:
         var table_name = sqrrl_prefixed(ds.parsed.name) + "Table"
-        out += String(t"from {ds.module_path} import {table_name}\n")
+        var state_name = sqrrl_prefixed(ds.parsed.name) + "TableState"
+        out += String(t"from {ds.module_path} import {table_name}, {state_name}\n")
+    out += "from squirrel_runtime.json import sqrrl__JsonScanner\n"
+    out += "from squirrel_runtime.entity import EntityHandle\n"
 
     out += "\n\n"
-    out += "struct sqrrl__Squirrel(Movable):\n"
+    out += "struct sqrrl__World(Movable):\n"
     for ds in discovery.structs:
         var table_name = sqrrl_prefixed(ds.parsed.name) + "Table"
         out += String(t"    var {ds.parsed.name}: {table_name}\n")
+    for ds in discovery.structs:
+        if ds.parsed.is_keepalive:
+            continue
+        var state_name = sqrrl_prefixed(ds.parsed.name) + "TableState"
+        out += String(t"    var sqrrl__reloaded_{ds.parsed.name}: List[EntityHandle[{state_name}]]\n")
     out += "\n"
     out += "    def __init__(out self):\n"
     if len(discovery.structs) == 0:
@@ -564,10 +962,90 @@ def emit_squirrel_module(discovery: DiscoveryResult) raises -> String:
     for ds in discovery.structs:
         var table_name = sqrrl_prefixed(ds.parsed.name) + "Table"
         out += String(t"        self.{ds.parsed.name} = {table_name}()\n")
+    for ds in discovery.structs:
+        if ds.parsed.is_keepalive:
+            continue
+        var state_name = sqrrl_prefixed(ds.parsed.name) + "TableState"
+        out += String(t"        self.sqrrl__reloaded_{ds.parsed.name} = List[EntityHandle[{state_name}]]()\n")
+
+    var ordered = _topo_sort_structs(discovery, relation_targets)
+
+    out += "\n"
+    out += "    def to_json(self) -> String:\n"
+    out += '        var out = String("{")\n'
+    var first = True
+    for ds in ordered:
+        if not first:
+            out += '        out += ","\n'
+        first = False
+        out += String(t'        out += "\\"{ds.parsed.name}\\":["\n')
+        out += String(t"        var sqrrl__first_{ds.parsed.name} = True\n")
+        out += String(t"        for sqrrl__e in self.{ds.parsed.name}.all():\n")
+        out += String(t"            if not sqrrl__first_{ds.parsed.name}:\n")
+        out += '                out += ","\n'
+        out += String(t"            sqrrl__first_{ds.parsed.name} = False\n")
+        out += String(
+            t'            out += "[" + String(sqrrl__e.id()) + "," + self.{ds.parsed.name}.to_json(sqrrl__e) + "]"\n'
+        )
+        out += '        out += "]"\n'
+    out += '        out += "}"\n'
+    out += "        return out^\n"
 
     out += "\n\n"
-    out += "def sqrrl__init() -> sqrrl__Squirrel:\n"
-    out += "    return sqrrl__Squirrel()\n"
+    out += "def sqrrl__init() -> sqrrl__World:\n"
+    out += "    return sqrrl__World()\n"
+
+    out += "\n\n"
+    out += "def sqrrl__world_from_json(mut sc: sqrrl__JsonScanner) raises -> sqrrl__World:\n"
+    out += "    var sqrrl__world = sqrrl__World()\n"
+    out += '    sc.expect_byte(UInt8(ord("{")))\n'
+    if len(discovery.structs) == 0:
+        out += '    _ = sc.try_consume_byte(UInt8(ord("}")))\n'
+    else:
+        out += '    if not sc.try_consume_byte(UInt8(ord("}"))):\n'
+        out += "        while True:\n"
+        out += "            var sqrrl__key = sc.parse_json_string()\n"
+        out += '            sc.expect_byte(UInt8(ord(":")))\n'
+        var first_key = True
+        for ds in discovery.structs:
+            var keyword = "if" if first_key else "elif"
+            first_key = False
+            out += String(t'            {keyword} sqrrl__key == "{ds.parsed.name}":\n')
+            out += '                sc.expect_byte(UInt8(ord("[")))\n'
+            out += '                if not sc.try_consume_byte(UInt8(ord("]"))):\n'
+            out += "                    while True:\n"
+            out += '                        sc.expect_byte(UInt8(ord("[")))\n'
+            out += "                        var sqrrl__id = UInt32(sc.parse_json_int())\n"
+            out += '                        sc.expect_byte(UInt8(ord(",")))\n'
+            var targets = relation_targets[ds.parsed.name].copy() if ds.parsed.name in relation_targets else List[String]()
+            var injected = String()
+            for t in targets:
+                injected += String(t"sqrrl__world.{t}, ")
+            if ds.parsed.is_keepalive:
+                # Already retained by its own `self.keepalive`
+                # (`sqrrl__create_with_id` mirrors `create`'s own
+                # `self.keepalive.add(e.copy())`) -- nothing here needs
+                # the returned handle.
+                out += String(
+                    t"                        _ ="
+                    t" sqrrl__world.{ds.parsed.name}.sqrrl__from_json_with_id({injected}sqrrl__id, sc)\n"
+                )
+            else:
+                out += String(
+                    t"                        var sqrrl__e ="
+                    t" sqrrl__world.{ds.parsed.name}.sqrrl__from_json_with_id({injected}sqrrl__id, sc)\n"
+                )
+                out += String(t"                        sqrrl__world.sqrrl__reloaded_{ds.parsed.name}.append(sqrrl__e^)\n")
+            out += '                        sc.expect_byte(UInt8(ord("]")))\n'
+            out += '                        if sc.try_consume_byte(UInt8(ord(","))):\n'
+            out += "                            continue\n"
+            out += '                        sc.expect_byte(UInt8(ord("]")))\n'
+            out += "                        break\n"
+        out += '            if sc.try_consume_byte(UInt8(ord(","))):\n'
+        out += "                continue\n"
+        out += '            sc.expect_byte(UInt8(ord("}")))\n'
+        out += "            break\n"
+    out += "    return sqrrl__world^\n"
     return out
 
 
@@ -607,6 +1085,8 @@ def emit_file(
     unique_fields: Dict[String, List[String]],
     ordered_fields: Dict[String, List[String]],
     cross_file_symbols: Dict[String, String],
+    plain_struct_fields: Dict[String, List[Field]],
+    relation_targets: Dict[String, List[String]],
 ) raises -> String:
     """Pass 2: emits the generated Mojo source for `path` (a single `.rel`
     file, module `module_path`), prefixed with the runtime imports, an
@@ -618,8 +1098,8 @@ def emit_file(
     three failed with "use of unknown declaration" before this was general
     rather than only covering relation fields inside a struct declared in
     this same file) -- and, if this file's script body touches
-    `sqrrl__world` at all, a `from sqrrl__Squirrel import sqrrl__init,
-    sqrrl__Squirrel` line (see `emit_squirrel_module`).
+    `sqrrl__world` at all, a `from sqrrl__world import sqrrl__init,
+    sqrrl__World` line (see `emit_world_module`).
 
     The struct-definition and script-body rewriting itself is
     `transform_source`'s job, run once over the whole file -- it handles
@@ -636,13 +1116,37 @@ def emit_file(
     a `@@Type.for_<field>(...)`/`@@Type.create(...)` table-level call, and
     `ordered_fields` (`build_ordered_fields`, project-wide) tells that same
     call site whether such a call instead returns `Set[EntityHandle[...]]`
-    (an `ordered` field's own six query methods)."""
+    (an `ordered` field's own six query methods). Also imports
+    `sqrrl__to_json`/`sqrrl__from_json` (from the project-wide generated
+    `sqrrl__json.mojo`, see `build_json_module_source`) whenever this
+    file's own generated `to_json`/`from_json` methods (per `@@struct`)
+    reference them -- every struct gets these two methods
+    unconditionally, so this is really "does this file declare a struct
+    at all", checked the same way the `sqrrl__world` import above is.
+    That same condition also imports every plain struct's own
+    `sqrrl__<Name>_from_json` companion (`plain_struct_fields`,
+    `build_plain_struct_fields`, shorthand and hand-written alike, all
+    generated into `sqrrl__json.mojo` alongside the dispatcher itself)
+    unconditionally -- a struct's own `from_json` can route any
+    plain-struct-typed field to *any* of them by name
+    (`_emit_from_json_field_parse`), so there's no cheaper check than
+    "this file has a struct with a `from_json` at all" that's still
+    correct, same simplicity tradeoff as importing every `Table`/
+    `TableState` unconditionally rather than scanning field-by-field."""
     var f = open(path, "r")
     var source = f.read()
     f.close()
     var transformed: String
     try:
-        transformed = transform_source(source, relation_schema, function_returns, unique_fields, ordered_fields)
+        transformed = transform_source(
+            source,
+            relation_schema,
+            function_returns,
+            unique_fields,
+            ordered_fields,
+            plain_struct_fields,
+            relation_targets,
+        )
     except e:
         raise Error(path + ": " + String(e))
 
@@ -654,7 +1158,26 @@ def emit_file(
     out += "from std.collections import Set\n"
     out += "from std.os import abort\n"
     if "sqrrl__world" in transformed:
-        out += "from sqrrl__Squirrel import sqrrl__init, sqrrl__Squirrel\n"
+        out += "from sqrrl__world import sqrrl__init, sqrrl__World\n"
+    if (
+        "sqrrl__to_json" in transformed
+        or "sqrrl__from_json" in transformed
+        or "sqrrl__JsonScanner" in transformed
+    ):
+        # A struct-declaring file needs `sqrrl__to_json`/`sqrrl__from_json`
+        # because its own generated `to_json`/`from_json` methods
+        # (`emit_table_json_methods`) call them; a *script*-only file
+        # needs `sqrrl__JsonScanner` if it constructs one directly to
+        # call some other file's `@@Type.to_json`/`for_json` itself
+        # (matching `sqrrl__world`'s own `"sqrrl__world" in transformed`
+        # check just above) -- either substring appearing is reason
+        # enough to import both, same as `Rel`/`UniqueRel`/... are
+        # always imported together regardless of which ones a specific
+        # file actually uses.
+        out += "from sqrrl__json import sqrrl__to_json, sqrrl__from_json\n"
+        out += "from squirrel_runtime.json import sqrrl__JsonScanner\n"
+        for plain_struct_name in plain_struct_fields.keys():
+            out += String(t"from sqrrl__json import sqrrl__{plain_struct_name}_from_json\n")
 
     for symbol in cross_file_symbols.keys():
         var target_module = cross_file_symbols[symbol]
@@ -674,11 +1197,33 @@ def ensure_init_files(rel_files: List[String], target_root: String) raises:
     treats a directory as an importable package if it has one (confirmed:
     `from sub.employee import EmployeeTableState` failed with "unable to
     locate module 'sub'" until `sub/__init__.mojo` existed), same
-    requirement `squirrel_runtime`/`squirrel_compiler` already have."""
+    requirement `squirrel_runtime`/`squirrel_compiler` already have.
+
+    `target_root` itself never gets one, deliberately -- every generated
+    file that reaches across directories (`sqrrl__world.mojo`/
+    `sqrrl__json.mojo`'s own per-struct imports, a relation field's
+    cross-file `Table`/`TableState`) does so via bare top-level names
+    (`schema.person`, `sqrrl__EmployeeTable`) resolved against `target_root`
+    itself as an `-I` search root -- an `__init__.mojo` sitting directly in
+    that root would turn the root into a package in its own right, which
+    breaks resolving any of its own flat sibling files as top-level modules
+    (confirmed: `sqrrl__world.mojo` importing `schema.person` failed with
+    "unable to locate module 'schema'" the moment `target_root`'s own
+    `__init__.mojo` existed, in both `mojo run` and the language server).
+    Trims a trailing slash first -- `dirname(path)` never has one, so
+    `target_root` needing an exact string match against it would otherwise
+    silently stop excluding the root the moment a caller passed one in
+    (confirmed: `target_root` passed as `"examples/kitchen_sink/"` instead
+    of `"examples/kitchen_sink"` never matched `dir`, so the loop walked
+    one directory too far and wrote the exact `__init__.mojo` this is
+    trying to prevent)."""
+    var root = target_root
+    if root.endswith("/"):
+        root = String(root[byte=0 : root.byte_length() - 1])
     var seen = List[String]()
     for path in rel_files:
         var dir = dirname(path)
-        while dir != target_root and dir not in seen:
+        while dir != root and dir not in seen:
             seen.append(dir)
             var init_path = join(dir, "__init__.mojo")
             if not isfile(init_path):
@@ -727,10 +1272,10 @@ def _copy_tree(src_dir: String, dest_dir: String) raises:
 def convert_directory(this_project_root: String, target_root: String) raises:
     """Walks `target_root` for `.rel` files, writes a generated `.mojo` file
     alongside each one (resolving cross-file relation imports along the
-    way), writes the project-wide `sqrrl__Squirrel.mojo`
-    (`emit_squirrel_module`), and copies `squirrel_runtime` into
+    way), writes the project-wide `sqrrl__world.mojo`
+    (`emit_world_module`), and copies `squirrel_runtime` into
     `target_root`. Mirrors `main.zig`'s `pub fn main`, minus the init/deinit
-    aggregator -- `sqrrl__Squirrel` is a plain instance a script obtains via
+    aggregator -- `sqrrl__World` is a plain instance a script obtains via
     `@@init()` and threads by hand, so there's no static lifecycle to
     aggregate."""
     var rel_files = find_rel_files(target_root)
@@ -744,12 +1289,26 @@ def convert_directory(this_project_root: String, target_root: String) raises:
     var unique_fields = build_unique_fields(discovery)
     var ordered_fields = build_ordered_fields(discovery)
     var cross_file_symbols = build_cross_file_symbols(discovery, rel_files, target_root)
+    var plain_struct_type_params = Dict[String, List[TypeParam]]()
+    var plain_struct_fields = build_plain_struct_fields(plain_structs, rel_files, plain_struct_type_params)
+    var relation_targets = build_relation_targets(discovery, plain_struct_fields)
 
-    var squirrel_module = emit_squirrel_module(discovery)
-    var squirrel_path = join(target_root, "sqrrl__Squirrel.mojo")
-    var sf = open(squirrel_path, "w")
-    sf.write(squirrel_module)
+    var world_module = emit_world_module(discovery, relation_targets)
+    var world_path = join(target_root, "sqrrl__world.mojo")
+    var sf = open(world_path, "w")
+    sf.write(world_module)
     sf.close()
+
+    var json_container_types = build_json_container_types(
+        discovery, plain_structs, plain_struct_fields, plain_struct_type_params
+    )
+    var json_module = build_json_module_source(
+        discovery, json_container_types, plain_struct_fields, plain_struct_type_params, cross_file_symbols
+    )
+    var json_path = join(target_root, "sqrrl__json.mojo")
+    var jf = open(json_path, "w")
+    jf.write(json_module)
+    jf.close()
 
     var converted = 0
     for path in rel_files:
@@ -763,6 +1322,8 @@ def convert_directory(this_project_root: String, target_root: String) raises:
             unique_fields,
             ordered_fields,
             cross_file_symbols,
+            plain_struct_fields,
+            relation_targets,
         )
         var out_path = mojo_output_path(path)
 

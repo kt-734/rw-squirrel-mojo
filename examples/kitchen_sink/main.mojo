@@ -2,7 +2,7 @@ from squirrel_runtime.entity import Table, EntityHandle, EntityInner, TableState
 from squirrel_runtime.rel import Rel, UniqueRel, ForwardOnlyRel, MultiRel, OrderedRel
 from std.collections import Set
 from std.os import abort
-from sqrrl__Squirrel import sqrrl__init, sqrrl__Squirrel
+from sqrrl__world import sqrrl__init, sqrrl__World
 from schema.audit_log import sqrrl__AuditLogTableState
 from schema.employee import sqrrl__EmployeeTableState
 from schema.address import Address
@@ -12,7 +12,7 @@ from schema.address import Address
 from logic.factories import sqrrl__make_department, sqrrl__hire, sqrrl__hire_team, sqrrl__log
 
 
-def promote(mut sqrrl__world: sqrrl__Squirrel, e: EntityHandle[sqrrl__EmployeeTableState], new_title: String) -> EntityHandle[sqrrl__EmployeeTableState]:
+def promote(mut sqrrl__world: sqrrl__World, e: EntityHandle[sqrrl__EmployeeTableState], new_title: String) -> EntityHandle[sqrrl__EmployeeTableState]:
     # Ordinary, hand-written Mojo -- not a @@-marked call at all -- returning
     # a plain, untracked EntityHandle to show it can still be retroactively
     # marked afterward, same as arrays_and_relations' own `hire`.
@@ -25,8 +25,8 @@ def main() raises:
     var sqrrl__eng = sqrrl__make_department(sqrrl__world, "Engineering");
     var sqrrl__sales = sqrrl__make_department(sqrrl__world, "Sales");
 
-    var sqrrl__alice_emp = sqrrl__hire(sqrrl__world, "Alice", "alice@example.com", "Engineer", sqrrl__eng);
-    var sqrrl__bob_emp = sqrrl__hire(sqrrl__world, "Bob", "bob@example.com", "Sales Rep", sqrrl__sales);
+    var sqrrl__alice_emp = sqrrl__hire(sqrrl__world, "Alice", "alice@example.com", "Engineer", 5, sqrrl__eng);
+    var sqrrl__bob_emp = sqrrl__hire(sqrrl__world, "Bob", "bob@example.com", "Sales Rep", 2, sqrrl__sales);
 
     var sqrrl__alice = sqrrl__world.Person.create(name = "Alice", home = Address("Springfield"), job = sqrrl__alice_emp);
     var sqrrl__bob = sqrrl__world.Person.create(name = "Bob", home = Address("Shelbyville"), job = sqrrl__bob_emp);
@@ -52,8 +52,19 @@ def main() raises:
     var names = List[String]();
     names.append("Carol");
     names.append("Dave");
-    var sqrrl__sales_team = sqrrl__hire_team(sqrrl__world, names, "@example.com", sqrrl__sales);
+    var sqrrl__sales_team = sqrrl__hire_team(sqrrl__world, names, "@example.com", 3, sqrrl__sales);
     print("sales team size (via hire_team):", len(sqrrl__sales_team));
+
+    # ordered field: years_employed keeps a sorted index alongside the
+    # usual per-id storage, giving range queries (greater_than/less_than/
+    # at_least/at_most/between) a plain unique/multi field can't answer in
+    # better than a full linear scan. Alice=5, Bob=2, Carol=3, Dave=4.
+    print("more than 3 years:", len(sqrrl__world.Employee.for_years_employed_greater_than(3)));
+    print("at least 3 years:", len(sqrrl__world.Employee.for_years_employed_at_least(3)));
+    print("less than 3 years:", len(sqrrl__world.Employee.for_years_employed_less_than(3)));
+    print("3 to 4 years inclusive:", len(sqrrl__world.Employee.for_years_employed_between(3, 4)));
+    for sqrrl__e in  sqrrl__world.Employee.for_years_employed(3):
+        print("exactly 3 years:", sqrrl__world.Employee.get_title(sqrrl__e));
 
     # Retroactive marking: a value from ordinary hand-written Mojo, marked
     # @@ after the fact via an explicit type annotation.
@@ -124,8 +135,8 @@ def main() raises:
         sqrrl__world.Employee.get_title(sqrrl__found_by_email), sqrrl__world.Project.get_name(sqrrl__website), sqrrl__world.Project.get_name(sqrrl__onboarding),
     );
 
-def sqrrl__test(mut sqrrl__world: sqrrl__Squirrel) -> Set[EntityHandle[sqrrl__AuditLogTableState]]:
+def sqrrl__test(mut sqrrl__world: sqrrl__World) -> Set[EntityHandle[sqrrl__AuditLogTableState]]:
     return Set[EntityHandle[sqrrl__AuditLogTableState]]()
 
-def sqrrl__test2(mut sqrrl__world: sqrrl__Squirrel) -> Dict[EntityHandle[sqrrl__AuditLogTableState], EntityHandle[sqrrl__EmployeeTableState]]:
+def sqrrl__test2(mut sqrrl__world: sqrrl__World) -> Dict[EntityHandle[sqrrl__AuditLogTableState], EntityHandle[sqrrl__EmployeeTableState]]:
     return Dict[EntityHandle[sqrrl__AuditLogTableState], EntityHandle[sqrrl__EmployeeTableState]]()
