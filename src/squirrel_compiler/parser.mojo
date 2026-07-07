@@ -303,12 +303,16 @@ struct ParsedStruct(Copyable, Movable):
     """One `@@struct [keepalive] @@Name: <indented fields>` declaration (or
     a plain `struct Name { field: Type, ... }` / a hand-written `struct
     Name(Traits...):`, neither of which ever sets `is_keepalive`).
-    `is_keepalive` gets the generated table a `keepalive:
-    Set[EntityHandle[...]]` (holding a strong reference to every entity
-    `create` makes, so it survives past whatever scope constructed it), a
-    `dont_keepalive(e)` method to release one back to ordinary refcounted
-    lifetime, and an `all()` method returning the current keepalive set --
-    see `emit_table`.
+    Every generated table gets a `keepalive: Set[EntityHandle[...]]` field
+    and a `dont_keepalive(e)` method to release an entry from it, whether
+    or not `is_keepalive` is set (`sqrrl__world_from_json` relies on a
+    non-`keepalive` table's own `keepalive` set too, to retain whatever it
+    reconstructs -- see `emit_world_module`); `is_keepalive` only
+    controls whether *ordinary* `create`/`sqrrl__create_with_id`
+    automatically add every entity to it (holding a strong reference, so
+    it survives past whatever scope constructed it) -- see `emit_table`.
+    `all()` (unconditional, regardless of `is_keepalive`) returns every
+    currently-live entity via the table's own id allocator, not this set.
 
     `type_params` (only ever non-empty for a plain struct -- an `@@struct`
     is never generic) is its own `[T: Bound, ...]` list, if any -- see
@@ -467,6 +471,7 @@ struct MarkerKind(ImplicitlyCopyable, Movable, Equatable):
     comptime RETURN_TYPE = Self(8)
     comptime PLAIN_STRUCT = Self(9)
     comptime FOR_ENTITY_LOOP = Self(10)
+    comptime INIT_FROM_JSON = Self(11)
 
     def __eq__(self, other: Self) -> Bool:
         return self.value == other.value
@@ -844,24 +849,33 @@ struct Scanner(Movable):
         self.pos = save
         return matched
 
-    def find_next_init_call(mut self) -> Bool:
-        """Advances to the start of the next `@@init()` call at real-code
-        depth -- used only to *count* occurrences project-wide
-        (`driver.check_single_init_call`), not to parse or consume anything
-        else about the surrounding source, so it doesn't need the full
-        marker-dispatch loop `transform_source` runs. Returns False
-        (leaving `self.pos` at the end) if there isn't one."""
+    def find_next_init_call(mut self) -> MarkerKind:
+        """Advances to the start of the next `@@init()`/`@@init_from_json(
+        ...)` call at real-code depth -- used only to *count* occurrences
+        project-wide (`driver.check_single_init_call`, which treats either
+        form as "the one call that obtains `sqrrl__world`" and rejects more
+        than one total), not to parse or consume anything else about the
+        surrounding source, so it doesn't need the full marker-dispatch
+        loop `transform_source` runs. Returns `MarkerKind.NONE` (leaving
+        `self.pos` at the end) if there isn't one, otherwise
+        `MarkerKind.INIT` or `MarkerKind.INIT_FROM_JSON`, whichever
+        matched, with `self.pos` left at its start (matching
+        `find_next_marker`'s own convention) for the caller to parse and
+        consume."""
         while True:
             self.skip_trivia()
             if self.at_end():
-                return False
+                return MarkerKind.NONE
             if self.starts_with("@@"):
                 var marker_start = self.pos
                 self.pos += 2
                 var ident = self.scan_ident()
                 if ident == "init" and self.peek_empty_call_follows():
                     self.pos = marker_start
-                    return True
+                    return MarkerKind.INIT
+                if ident == "init_from_json":
+                    self.pos = marker_start
+                    return MarkerKind.INIT_FROM_JSON
                 self.pos = marker_start + 2
                 continue
             self.pos += 1
@@ -1167,11 +1181,17 @@ struct Scanner(Movable):
         `.destroy()` to fill; a `.rel` script just stops referencing an
         entity when it's done, same as any other Mojo value.
 
-        Four more kinds beyond the original four, all driven by Mojo having
+        Five more kinds beyond the original four, all driven by Mojo having
         no mutable global/static state (see `Table`'s doc comment in
         `entity.mojo`): `@@init()` (`MarkerKind.INIT`) is the explicit call
-        a script makes to obtain `sqrrl__World`'s shared instance,
-        `@@name(` (`MarkerKind.WORLD_FUNC`, e.g. `def @@make_department(a:
+        a script makes to obtain `sqrrl__World`'s shared instance.
+        `@@init_from_json(json)` (`MarkerKind.INIT_FROM_JSON`) is its
+        reload counterpart, obtaining that same shared instance by
+        reconstructing it from a JSON dump (`sqrrl__world_from_json`)
+        instead of building an empty one -- checked *before* the ordinary
+        `@@name(`/`MarkerKind.WORLD_FUNC` case below, since it would
+        otherwise look identical (a `@@`-marked name immediately followed
+        by `(`). `@@name(` (`MarkerKind.WORLD_FUNC`, e.g. `def @@make_department(a:
         Int)` or, at a call site, `@@make_department(x)`) marks a function
         whose *own name* -- not a separate parameter -- signals that it
         needs `sqrrl__world`: a definition gets it auto-inserted as its
@@ -1247,6 +1267,9 @@ struct Scanner(Movable):
                 if ident == "init" and self.peek_empty_call_follows():
                     self.pos = marker_start
                     return MarkerKind.INIT
+                if ident == "init_from_json":
+                    self.pos = marker_start
+                    return MarkerKind.INIT_FROM_JSON
                 self.skip_trivia()
                 var kind: MarkerKind
                 if self.peek() == UInt8(ord("{")):
@@ -1510,6 +1533,47 @@ struct Scanner(Movable):
         self.skip_trivia()
         if not self.try_consume(")"):
             raise self.err("InvalidSquirrelSyntax: '@@init' takes no arguments")
+
+    def parse_init_from_json(mut self) raises -> String:
+        """Requires `self.pos` at the `@@` of `@@init_from_json(<expr>)`,
+        e.g. right after `find_next_marker` returns
+        `MarkerKind.INIT_FROM_JSON` -- `@@init()`'s reload counterpart,
+        taking one `String` argument (a JSON dump, however the caller
+        obtained it: a literal, a variable, a function call, ...) instead
+        of none. Returns that argument's raw text, trimmed, unparsed
+        otherwise -- codegen splices it straight into
+        `sqrrl__world_from_json(sqrrl__JsonScanner(<expr>))`, so whatever
+        expression shape Mojo itself accepts there just works, the same
+        way `@@Type { ... }` construct field values are never themselves
+        parsed as anything but opaque text."""
+        if not self.try_consume("@@init_from_json"):
+            raise self.err("InvalidSquirrelSyntax: expected '@@init_from_json'")
+        self.skip_trivia()
+        if not self.try_consume("("):
+            raise self.err("InvalidSquirrelSyntax: expected '(' after '@@init_from_json'")
+        self.skip_trivia()
+        var start = self.pos
+        var depth = 0
+        while not self.at_end():
+            var before = self.pos
+            self.skip_non_code()
+            if self.pos != before:
+                continue
+            var b = self.peek()
+            if b == UInt8(ord("(")) or b == UInt8(ord("[")) or b == UInt8(ord("{")):
+                depth += 1
+            elif b == UInt8(ord(")")) or b == UInt8(ord("]")) or b == UInt8(ord("}")):
+                if depth == 0:
+                    break
+                depth -= 1
+            self.pos += 1
+        if self.at_end():
+            raise self.err("InvalidSquirrelSyntax: unterminated '@@init_from_json(...)' call")
+        var raw = String(self.source[byte = start : self.pos]).strip()
+        if raw.byte_length() == 0:
+            raise self.err("InvalidSquirrelSyntax: '@@init_from_json' requires one argument")
+        self.pos += 1  # consume ')'
+        return String(raw)
 
     def parse_world_func(mut self) raises -> String:
         """Requires `self.pos` at the `@@` of `@@name(`, e.g. right after

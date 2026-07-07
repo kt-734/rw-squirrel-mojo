@@ -28,9 +28,11 @@ struct sqrrl__PersonTableState(TableStateLike, Movable, ImplicitlyDeletable):
 
 struct sqrrl__PersonTable(Movable):
     var table: Table[sqrrl__PersonTableState]
+    var keepalive: Set[EntityHandle[sqrrl__PersonTableState]]
 
     def __init__(out self):
         self.table = Table[sqrrl__PersonTableState](sqrrl__PersonTableState())
+        self.keepalive = Set[EntityHandle[sqrrl__PersonTableState]]()
 
     def create(mut self, name: String, home: Address, job: EntityHandle[sqrrl__EmployeeTableState]) -> EntityHandle[sqrrl__PersonTableState]:
         var e = self.table.create()
@@ -48,6 +50,13 @@ struct sqrrl__PersonTable(Movable):
 
     def all(self) -> Set[EntityHandle[sqrrl__PersonTableState]]:
         return self.table.all()
+
+    def dont_keepalive(mut self, e: EntityHandle[sqrrl__PersonTableState]) -> Bool:
+        try:
+            self.keepalive.remove(e)
+            return True
+        except:
+            return False
 
     def get_name(self, e: EntityHandle[sqrrl__PersonTableState]) -> String:
         var got = self.table.state[].state.name.get_fwd(e.id())
@@ -136,3 +145,29 @@ struct sqrrl__PersonTable(Movable):
                 sc.expect_byte(UInt8(ord("}")))
                 break
         return self.sqrrl__create_with_id(sqrrl__id, sqrrl__parsed_name.take(), sqrrl__parsed_home.take(), sqrrl__parsed_job.take())
+
+    def all_to_json(self) -> String:
+        var out = String("[")
+        var sqrrl__first = True
+        for sqrrl__e in self.all():
+            if not sqrrl__first:
+                out += ","
+            sqrrl__first = False
+            out += "[" + String(sqrrl__e.id()) + "," + self.to_json(sqrrl__e) + "]"
+        out += "]"
+        return out^
+
+    def all_from_json(mut self, mut sqrrl__tbl_Employee: sqrrl__EmployeeTable, mut sc: sqrrl__JsonScanner) raises:
+        sc.expect_byte(UInt8(ord("[")))
+        if not sc.try_consume_byte(UInt8(ord("]"))):
+            while True:
+                sc.expect_byte(UInt8(ord("[")))
+                var sqrrl__id = UInt32(sc.parse_json_int())
+                sc.expect_byte(UInt8(ord(",")))
+                var sqrrl__e = self.sqrrl__from_json_with_id(sqrrl__tbl_Employee, sqrrl__id, sc)
+                self.keepalive.add(sqrrl__e^)
+                sc.expect_byte(UInt8(ord("]")))
+                if sc.try_consume_byte(UInt8(ord(","))):
+                    continue
+                sc.expect_byte(UInt8(ord("]")))
+                break

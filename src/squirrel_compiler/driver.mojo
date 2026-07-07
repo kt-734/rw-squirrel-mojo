@@ -7,6 +7,7 @@ from squirrel_compiler.parser import (
     Field,
     TypeParam,
     FieldModifier,
+    MarkerKind,
     is_ident_char,
     is_wrapped_relation_type,
     relation_target_of,
@@ -594,18 +595,19 @@ def discover_plain_structs(rel_files: List[String], target_root: String) raises 
 
 
 def check_single_init_call(rel_files: List[String]) raises:
-    """Rejects more than one `@@init()` call across the whole project.
-    Each call independently constructs its own `sqrrl__World` -- nothing
-    else stops a second one from silently creating a disconnected "world"
-    instead of sharing the one everything else uses (confirmed: a second
-    `@@init()` compiles and runs fine, producing two independent tables
-    instead of the single shared one the whole `sqrrl__world`/`@@`
-    threading design assumes). `@@init()` is meant to be called exactly
-    once, wherever the top of the call chain is (typically `main()`), with
-    `@@` threading the result everywhere else -- so a second call anywhere
-    in the project is always a mistake (calling `@@init()` again instead
-    of adding `@@` to a function's own parameters), never a legitimate
-    need for two worlds."""
+    """Rejects more than one `@@init()`/`@@init_from_json(...)` call
+    across the whole project, in any combination. Each call independently
+    constructs its own `sqrrl__World` -- nothing else stops a second one
+    from silently creating a disconnected "world" instead of sharing the
+    one everything else uses (confirmed: a second `@@init()` compiles and
+    runs fine, producing two independent tables instead of the single
+    shared one the whole `sqrrl__world`/`@@` threading design assumes).
+    One of the two forms is meant to be called exactly once, wherever the
+    top of the call chain is (typically `main()`), with `@@` threading the
+    result everywhere else -- so a second call anywhere in the project,
+    whether it's another `@@init()`, another `@@init_from_json(...)`, or
+    one of each, is always a mistake, never a legitimate need for two
+    worlds."""
     var call_sites = List[String]()
     for path in rel_files:
         var f = open(path, "r")
@@ -613,8 +615,14 @@ def check_single_init_call(rel_files: List[String]) raises:
         f.close()
 
         var sc = Scanner(source)
-        while sc.find_next_init_call():
-            sc.parse_init()
+        while True:
+            var kind = sc.find_next_init_call()
+            if kind == MarkerKind.NONE:
+                break
+            if kind == MarkerKind.INIT:
+                sc.parse_init()
+            else:
+                _ = sc.parse_init_from_json()
             call_sites.append(path)
 
     if len(call_sites) > 1:
@@ -624,13 +632,14 @@ def check_single_init_call(rel_files: List[String]) raises:
                 files += ", "
             files += call_sites[i]
         raise Error(
-            "InvalidSquirrelSyntax: @@init() called "
+            "InvalidSquirrelSyntax: @@init()/@@init_from_json(...) called "
             + String(len(call_sites))
             + " times across the project ("
             + files
             + ") -- it should be called exactly once (typically in the"
             " entry point); thread the result to every other function via"
-            " '@@' in its parameters instead of calling @@init() again"
+            " '@@' in its parameters instead of calling @@init()/"
+            "@@init_from_json(...) again"
         )
 
 
@@ -888,73 +897,50 @@ def emit_world_module(discovery: DiscoveryResult, relation_targets: Dict[String,
     regardless of which file declared `TypeName`, since every table hangs
     off this one aggregate rather than a file-local variable.
 
-    A single struct's own `from_json` is still a method on its own
-    `sqrrl__<Name>Table` (`emit_table_json_methods`, in its declaring
-    file) -- nothing here duplicates that. What *does* live here is the
-    whole-`sqrrl__World` snapshot: `sqrrl__World.to_json(self) -> String`
-    (every table's every live entity, each tagged with its own id --
-    unlike a lone entity's own `to_json`, which never needs its *own* id,
-    only what it references) and the free-function counterpart
-    `sqrrl__world_from_json(mut sc: sqrrl__JsonScanner) raises ->
-    sqrrl__World` (paralleling `sqrrl__init`'s own factory shape, since
-    reconstruction builds a fresh `sqrrl__World` rather than mutating an
-    existing one). Each table's entities are recreated via
-    `sqrrl__from_json_with_id` (`emit_table_json_methods`'s twin to its
-    own `from_json`, `self.sqrrl__create_with_id(id, ...)` in place of
-    `self.create(...)`) so a relation field elsewhere in the dump,
-    already serialized as another entity's *original* id, still resolves
-    correctly once that entity comes back -- landing it at a fresh,
-    auto-allocated id instead (`self.create(...)`) would silently break
-    every such reference. `_topo_sort_structs` is what makes a single
-    forward scan of the JSON text sufficient for this: `to_json` writes
-    each struct's own entities only after every struct it relation-
-    targets, so by the time `sqrrl__world_from_json` reaches a given
-    struct's array, every table `Table.handle_for` might need to reach
-    into for it has already been fully populated -- an unknown/misplaced
-    key still isn't defended against, same "trust the input" convention
-    every other generated `from_json` already follows (see
-    `emit_table_json_methods`'s own doc comment).
+    A single struct's own `to_json`/`from_json`, and the whole-table
+    `all_to_json`/`all_from_json` built on top of them, are methods on its
+    own `sqrrl__<Name>Table` (`emit_table_json_methods`, in its declaring
+    file) -- nothing here duplicates any of that per-struct machinery.
+    What *does* live here is the whole-`sqrrl__World` snapshot:
+    `sqrrl__World.to_json(self) -> String` (just `"Name":` plus
+    `self.Name.all_to_json()` per struct, comma-joined) and the free-
+    function counterpart `sqrrl__world_from_json(mut sc:
+    sqrrl__JsonScanner) raises -> sqrrl__World` (paralleling
+    `sqrrl__init`'s own factory shape, since reconstruction builds a fresh
+    `sqrrl__World` rather than mutating an existing one) -- just one
+    `sqrrl__world.Name.all_from_json(...)` call per struct, each passed
+    whichever sibling `sqrrl__world.Target` tables its own relation fields
+    need (`relation_targets`, same technique `rewrite_markers` already
+    uses to inject `sqrrl__world.Target` arguments at an ordinary
+    `@@Type.from_json(...)` call site).
 
-    A non-`keepalive` struct also gets one `sqrrl__reloaded_<Name>:
-    List[EntityHandle[...]]` field on `sqrrl__World` itself, populated
-    only by `sqrrl__world_from_json` (empty, at essentially no cost,
-    after `sqrrl__init`) -- without it, an entity `sqrrl__create_with_id`
-    just reconstructed would die the instant its return value is
-    discarded, the same way any entity in this framework does once
-    nothing holds a strong reference to it (confirmed: a relation field
-    elsewhere keeps its own *referenced* entities alive via its own
-    stored `EntityHandle` copies, but that doesn't exist yet for an
-    entity still mid-reconstruction here, and plenty of structs are
-    never relation-targeted at all). Appending each reconstructed handle
-    immediately, rather than discarding it, is what lets a *later*
-    struct in the dump (relation-targeting an *earlier* one, per
-    `_topo_sort_structs`) still find it alive when its own `from_json`
-    resolves that reference -- and keeps it alive afterward too, for as
-    long as the returned `sqrrl__World` itself lives, same as a script's
-    own local `var` would for a freshly-`create`d entity. A `keepalive`
-    struct needs no such field: `sqrrl__create_with_id` already does
-    `self.keepalive.add(e.copy())` (mirroring `create`, see
-    `codegen.emit_table`), which already keeps every entity it
-    reconstructs alive on its own -- a second, world-level retention
-    would just double the bookkeeping for nothing."""
+    `_topo_sort_structs` is what makes a single forward scan of the JSON
+    text sufficient for `sqrrl__world_from_json`: `to_json` writes each
+    struct's own entities only after every struct it relation-targets, so
+    by the time `sqrrl__world_from_json` reaches a given struct's array,
+    every table `Table.handle_for` (inside `all_from_json` ->
+    `sqrrl__from_json_with_id`) might need to reach into has already been
+    fully populated -- an unknown/misplaced key still isn't defended
+    against, same "trust the input" convention every other generated
+    `from_json` already follows. `all_from_json` itself is what lands
+    each reconstructed entity back on its *original* id
+    (`sqrrl__from_json_with_id` -> `self.sqrrl__create_with_id(id, ...)`,
+    not `self.create(...)`) and retains it in the table's own `keepalive`
+    set immediately (see `emit_table_json_methods`'s own doc comment for
+    why both matter) -- entirely `emit_table_json_methods`'s concern, not
+    this function's."""
     var out = String()
     for ds in discovery.structs:
         var table_name = sqrrl_prefixed(ds.parsed.name) + "Table"
         var state_name = sqrrl_prefixed(ds.parsed.name) + "TableState"
         out += String(t"from {ds.module_path} import {table_name}, {state_name}\n")
     out += "from squirrel_runtime.json import sqrrl__JsonScanner\n"
-    out += "from squirrel_runtime.entity import EntityHandle\n"
 
     out += "\n\n"
     out += "struct sqrrl__World(Movable):\n"
     for ds in discovery.structs:
         var table_name = sqrrl_prefixed(ds.parsed.name) + "Table"
         out += String(t"    var {ds.parsed.name}: {table_name}\n")
-    for ds in discovery.structs:
-        if ds.parsed.is_keepalive:
-            continue
-        var state_name = sqrrl_prefixed(ds.parsed.name) + "TableState"
-        out += String(t"    var sqrrl__reloaded_{ds.parsed.name}: List[EntityHandle[{state_name}]]\n")
     out += "\n"
     out += "    def __init__(out self):\n"
     if len(discovery.structs) == 0:
@@ -962,11 +948,6 @@ def emit_world_module(discovery: DiscoveryResult, relation_targets: Dict[String,
     for ds in discovery.structs:
         var table_name = sqrrl_prefixed(ds.parsed.name) + "Table"
         out += String(t"        self.{ds.parsed.name} = {table_name}()\n")
-    for ds in discovery.structs:
-        if ds.parsed.is_keepalive:
-            continue
-        var state_name = sqrrl_prefixed(ds.parsed.name) + "TableState"
-        out += String(t"        self.sqrrl__reloaded_{ds.parsed.name} = List[EntityHandle[{state_name}]]()\n")
 
     var ordered = _topo_sort_structs(discovery, relation_targets)
 
@@ -978,16 +959,9 @@ def emit_world_module(discovery: DiscoveryResult, relation_targets: Dict[String,
         if not first:
             out += '        out += ","\n'
         first = False
-        out += String(t'        out += "\\"{ds.parsed.name}\\":["\n')
-        out += String(t"        var sqrrl__first_{ds.parsed.name} = True\n")
-        out += String(t"        for sqrrl__e in self.{ds.parsed.name}.all():\n")
-        out += String(t"            if not sqrrl__first_{ds.parsed.name}:\n")
-        out += '                out += ","\n'
-        out += String(t"            sqrrl__first_{ds.parsed.name} = False\n")
         out += String(
-            t'            out += "[" + String(sqrrl__e.id()) + "," + self.{ds.parsed.name}.to_json(sqrrl__e) + "]"\n'
+            t'        out += "\\"{ds.parsed.name}\\":" + self.{ds.parsed.name}.all_to_json()\n'
         )
-        out += '        out += "]"\n'
     out += '        out += "}"\n'
     out += "        return out^\n"
 
@@ -1011,36 +985,13 @@ def emit_world_module(discovery: DiscoveryResult, relation_targets: Dict[String,
             var keyword = "if" if first_key else "elif"
             first_key = False
             out += String(t'            {keyword} sqrrl__key == "{ds.parsed.name}":\n')
-            out += '                sc.expect_byte(UInt8(ord("[")))\n'
-            out += '                if not sc.try_consume_byte(UInt8(ord("]"))):\n'
-            out += "                    while True:\n"
-            out += '                        sc.expect_byte(UInt8(ord("[")))\n'
-            out += "                        var sqrrl__id = UInt32(sc.parse_json_int())\n"
-            out += '                        sc.expect_byte(UInt8(ord(",")))\n'
             var targets = relation_targets[ds.parsed.name].copy() if ds.parsed.name in relation_targets else List[String]()
             var injected = String()
             for t in targets:
                 injected += String(t"sqrrl__world.{t}, ")
-            if ds.parsed.is_keepalive:
-                # Already retained by its own `self.keepalive`
-                # (`sqrrl__create_with_id` mirrors `create`'s own
-                # `self.keepalive.add(e.copy())`) -- nothing here needs
-                # the returned handle.
-                out += String(
-                    t"                        _ ="
-                    t" sqrrl__world.{ds.parsed.name}.sqrrl__from_json_with_id({injected}sqrrl__id, sc)\n"
-                )
-            else:
-                out += String(
-                    t"                        var sqrrl__e ="
-                    t" sqrrl__world.{ds.parsed.name}.sqrrl__from_json_with_id({injected}sqrrl__id, sc)\n"
-                )
-                out += String(t"                        sqrrl__world.sqrrl__reloaded_{ds.parsed.name}.append(sqrrl__e^)\n")
-            out += '                        sc.expect_byte(UInt8(ord("]")))\n'
-            out += '                        if sc.try_consume_byte(UInt8(ord(","))):\n'
-            out += "                            continue\n"
-            out += '                        sc.expect_byte(UInt8(ord("]")))\n'
-            out += "                        break\n"
+            out += String(
+                t"                sqrrl__world.{ds.parsed.name}.all_from_json({injected}sc)\n"
+            )
         out += '            if sc.try_consume_byte(UInt8(ord(","))):\n'
         out += "                continue\n"
         out += '            sc.expect_byte(UInt8(ord("}")))\n'
@@ -1099,7 +1050,7 @@ def emit_file(
     rather than only covering relation fields inside a struct declared in
     this same file) -- and, if this file's script body touches
     `sqrrl__world` at all, a `from sqrrl__world import sqrrl__init,
-    sqrrl__World` line (see `emit_world_module`).
+    sqrrl__World, sqrrl__world_from_json` line (see `emit_world_module`).
 
     The struct-definition and script-body rewriting itself is
     `transform_source`'s job, run once over the whole file -- it handles
@@ -1158,7 +1109,7 @@ def emit_file(
     out += "from std.collections import Set\n"
     out += "from std.os import abort\n"
     if "sqrrl__world" in transformed:
-        out += "from sqrrl__world import sqrrl__init, sqrrl__World\n"
+        out += "from sqrrl__world import sqrrl__init, sqrrl__World, sqrrl__world_from_json\n"
     if (
         "sqrrl__to_json" in transformed
         or "sqrrl__from_json" in transformed

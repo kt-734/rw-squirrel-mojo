@@ -700,17 +700,27 @@ def test_multi_plain_field_uses_element_type_not_list() raises:
 
 
 def test_all_generated_unconditionally() raises:
-    """Every struct gets `all()`, whether or not it's `keepalive`-tagged --
-    a thin delegate to `Table.all()` (which walks the id allocator directly,
-    not any one field's own index), so a struct with no `keepalive` tag
-    still gets a working enumeration of whatever's currently alive."""
+    """Every struct gets `all()`, `keepalive`, and `dont_keepalive`,
+    whether or not it's `keepalive`-tagged. `all()` is a thin delegate to
+    `Table.all()` (which walks the id allocator directly, not any one
+    field's own index). `keepalive`/`dont_keepalive` exist on every table
+    too, not just `keepalive`-tagged ones -- `sqrrl__world_from_json`
+    relies on a *non*-tagged table's own `keepalive` set to retain
+    whatever it reconstructs (see `driver.emit_world_module`). Only
+    `create`'s own automatic `self.keepalive.add(...)` stays conditional
+    on `is_keepalive` -- a non-tagged struct's own `create` never touches
+    its (still-present) `keepalive` set on its own."""
     var sc = Scanner("@@struct @@Foo:\n    name: String\n")
     assert_true(sc.find_next_struct_decl())
     var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
 
     assert_true("def all(self) -> Set[EntityHandle[sqrrl__FooTableState]]:" in out)
     assert_true("return self.table.all()" in out)
-    assert_true("keepalive" not in out)
+    assert_true("var keepalive: Set[EntityHandle[sqrrl__FooTableState]]" in out)
+    assert_true(
+        "def dont_keepalive(mut self, e: EntityHandle[sqrrl__FooTableState]) -> Bool:" in out
+    )
+    assert_true("self.keepalive.add(e.copy())" not in out)
 
 
 def test_keepalive_struct_gets_keepalive_field_and_dont_keepalive() raises:
@@ -719,8 +729,11 @@ def test_keepalive_struct_gets_keepalive_field_and_dont_keepalive() raises:
     `TableState` would create a self-cycle (each kept-alive handle's own
     `ArcPointer` points back at the very `TableStorage` holding the set that
     holds it), leaking the whole table forever the moment anything was kept
-    alive. `create` adds every new entity to it by default; `dont_keepalive`
-    is the opt-out, releasing one back to ordinary refcounted lifetime."""
+    alive. Every table gets this field regardless of `is_keepalive` (see
+    `test_all_generated_unconditionally`) -- what's specific to `keepalive`
+    is `create` adding every new entity to it *automatically*.
+    `dont_keepalive` is the opt-out, releasing one back to ordinary
+    refcounted lifetime."""
     var sc = Scanner("@@struct keepalive @@Foo:\n    name: String\n")
     assert_true(sc.find_next_struct_decl())
     var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())

@@ -1,0 +1,7 @@
+struct Profile {
+    contact: ContactInfo,
+    nicknames: Optional[List[String]],
+    scores: Dict[String, Int],
+    rating: Box[UInt32],
+    coordinates: Pair[Int, Int],
+}

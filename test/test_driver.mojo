@@ -1048,8 +1048,75 @@ def test_convert_directory_rejects_multiple_init_calls() raises:
     )
     main_rel.close()
 
-    with assert_raises(contains="@@init() called 2 times"):
+    with assert_raises(contains="@@init()/@@init_from_json(...) called 2 times"):
         convert_directory(".", root)
+
+    _rmtree(root)
+
+
+def test_convert_directory_rejects_init_and_init_from_json_together() raises:
+    """`@@init()` and `@@init_from_json(...)` are two forms of the same
+    thing -- obtaining `sqrrl__world`'s one shared instance -- so one of
+    each, anywhere in the project, is rejected exactly like two of either
+    alone would be."""
+    var root = "test/tmp_driver_mixed_init_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var schema_rel = open(join(root, "schema.rel"), "w")
+    schema_rel.write("@@struct @@Department:\n    name: String\n\n")
+    schema_rel.close()
+
+    var main_rel = open(join(root, "main.rel"), "w")
+    main_rel.write(
+        "def main() raises:\n"
+        "    @@init();\n"
+        "    var dump = String(\"{}\");\n"
+        "    reload(dump);\n"
+        "\n"
+        "def reload(dump: String) raises:\n"
+        "    @@init_from_json(dump);\n"
+    )
+    main_rel.close()
+
+    with assert_raises(contains="@@init()/@@init_from_json(...) called 2 times"):
+        convert_directory(".", root)
+
+    _rmtree(root)
+
+
+def test_convert_directory_generates_init_from_json() raises:
+    """`@@init_from_json(json)` desugars to `var sqrrl__world =
+    sqrrl__world_from_json(sqrrl__JsonScanner(json))` -- `@@init()`'s
+    reload counterpart, obtaining the same shared `sqrrl__world` binding
+    from a JSON dump instead of an empty `sqrrl__World()`."""
+    var root = "test/tmp_driver_init_from_json_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var schema_rel = open(join(root, "schema.rel"), "w")
+    schema_rel.write("@@struct @@Department:\n    name: String\n\n")
+    schema_rel.close()
+
+    var main_rel = open(join(root, "main.rel"), "w")
+    main_rel.write(
+        "def main(dump: String) raises:\n"
+        "    @@init_from_json(dump);\n"
+        '    var @@d = @@Department { .name = "engineering" };\n'
+        "    print(@@d.name);\n"
+    )
+    main_rel.close()
+
+    convert_directory(".", root)
+
+    var f = open(join(root, "main.mojo"), "r")
+    var generated = f.read()
+    f.close()
+    assert_true("var sqrrl__scanner = sqrrl__JsonScanner(dump)" in generated)
+    assert_true("var sqrrl__world = sqrrl__world_from_json(sqrrl__scanner)" in generated)
+    assert_true("from sqrrl__world import sqrrl__init, sqrrl__World, sqrrl__world_from_json" in generated)
 
     _rmtree(root)
 

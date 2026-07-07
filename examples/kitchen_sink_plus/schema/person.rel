@@ -1,0 +1,4 @@
+@@struct @@Person:
+    name: String
+    forwardonly home: Address
+    @@job: @@Employee

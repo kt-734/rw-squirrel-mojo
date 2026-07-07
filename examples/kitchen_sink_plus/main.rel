@@ -1,0 +1,196 @@
+from schema.money import Money
+from schema.address import Address
+from schema.contact_info import ContactInfo
+from schema.box import Box
+from schema.pair import Pair
+from schema.profile import Profile
+from schema.assignment import Assignment
+from logic.factories import @@make_vendor, @@make_project, @@make_department, @@hire, @@hire_team, @@make_team, @@log
+from squirrel_runtime.json import sqrrl__JsonScanner
+
+
+def promote(mut sqrrl__world: sqrrl__World, e: EntityHandle[sqrrl__EmployeeTableState], new_title: String) -> EntityHandle[sqrrl__EmployeeTableState]:
+    # Ordinary, hand-written Mojo -- not a @@-marked call -- to show a
+    # value can still be retroactively marked afterward.
+    sqrrl__world.Employee.set_title(e, new_title)
+    return e
+
+
+def main() raises:
+    # `@@init_from_json(json)` is `@@init()`'s reload counterpart --
+    # obtains the same shared `sqrrl__world` binding, but by reconstructing
+    # it from a JSON dump instead of building an empty one. A real app
+    # would pass in a previously-saved dump; an empty object bootstraps an
+    # empty world exactly like `@@init()` would, just by going through the
+    # JSON-parsing path for real instead of skipping it.
+    var seed = String("{}");
+    @@init_from_json(seed);
+
+    # ---- deep dependency chain: Vendor -> Project -> Department -> Employee -> Person -> Team ----
+    var @@acme = @@make_vendor("Acme Supplies");
+    var @@globex = @@make_vendor("Globex Corp");
+
+    var @@website = @@make_project("Website Revamp", 3, @@acme, 500000);
+    var @@onboarding = @@make_project("Onboarding Redesign", 1, @@globex, 250000);
+
+    var @@eng = @@make_department("Engineering");
+    var @@sales = @@make_department("Sales");
+
+    _ = @@eng.add_to_projects(@@website);
+    _ = @@Department.add_to_projects(@@eng, @@onboarding);
+    _ = @@Department.add_to_projects(@@sales, @@onboarding);
+    print("eng project count:", len(@@Department.get_projects(@@eng)));
+    print("departments running onboarding:", len(@@Department.for_projects(@@onboarding)));
+
+    # Set-wrapped *ordinary* relation field (not `multi`) -- a whole Set
+    # assigned/read at once, unlike `multi`'s one-member-at-a-time API.
+    var @@eng_vendors = Set[@@Vendor]();
+    @@eng_vendors.add(@@acme);
+    @@eng_vendors.add(@@globex);
+    @@Department.set_vendors(@@eng, @@eng_vendors);
+    print("eng vendor count (Set-wrapped ordinary field):", len(@@Department.get_vendors(@@eng)));
+
+    # `multi` on a *plain* (non-relation) field -- Set[String]-backed.
+    _ = @@Department.add_to_skills(@@eng, "mojo");
+    _ = @@Department.add_to_skills(@@eng, "distributed-systems");
+    print("eng skills:", len(@@Department.get_skills(@@eng)));
+    print("departments with mojo skill:", len(@@Department.for_skills("mojo")));
+
+    var @@alice_emp = @@hire("Alice", "alice@example.com", "Engineer", 5, @@eng);
+    var @@bob_emp = @@hire("Bob", "bob@example.com", "Sales Rep", 2, @@sales);
+
+    var @@alice = @@Person { .name = "Alice", .home = Address("1 Elm St", "Springfield"), .@@job = @@alice_emp };
+    var @@bob = @@Person { .name = "Bob", .home = Address("2 Oak St", "Shelbyville"), .@@job = @@bob_emp };
+
+    # Multi-hop chain, four levels deep: Person -> Employee -> Department -> Project.
+    print("alice works in:", @@alice.@@job.@@dept.name);
+
+    # unique field's own for_<field> -- raises variant.
+    var @@found_by_email = @@Employee.for_email("bob@example.com");
+    print("found by email, title:", @@found_by_email.title);
+
+    var @@eng_team = @@Employee.for_dept(@@eng);
+    print("eng team size (via for_dept):", len(@@eng_team));
+    print("first member title before promotion:", @@eng_team[0].title);
+    @@eng_team[0].title = "Staff Engineer";
+    print("first member title after write-through-index:", @@eng_team[0].title);
+
+    var names = List[String]();
+    names.append("Carol");
+    names.append("Dave");
+    var @@sales_team = @@hire_team(names, "@example.com", 3, @@sales);
+    print("sales team size (via hire_team):", len(@@sales_team));
+
+    # ordered field on Employee.
+    print("more than 3 years:", len(@@Employee.for_years_employed_greater_than(3)));
+    print("at least 3 years:", len(@@Employee.for_years_employed_at_least(3)));
+    print("less than 3 years:", len(@@Employee.for_years_employed_less_than(3)));
+    print("3 to 4 years inclusive:", len(@@Employee.for_years_employed_between(3, 4)));
+
+    # ordered field on Project too -- the same modifier on a completely
+    # different struct's own numeric field.
+    print("projects with priority >= 2:", len(@@Project.for_priority_at_least(2)));
+    for @@p in @@Project.for_priority_between(1, 3):
+        print("project in priority range:", @@p.name);
+
+    var raw = promote(sqrrl__world, @@bob_emp, "Senior Sales Rep");
+    var @@promoted_bob: @@Employee = raw;
+    print("bob's new title (retroactively marked):", @@promoted_bob.title);
+
+    var tags = List[String]();
+    tags.append("fast-paced");
+    tags.append("hybrid");
+    @@Department.set_tags(@@eng, tags);
+    print("eng tags count (forwardonly field):", len(@@Department.get_tags(@@eng)));
+
+    @@alice.@@job.title = "Junior Engineer";
+    print("alice's job title after hop-chain write:", @@alice.@@job.title);
+
+    # A team: plain struct embedding a relation (`Assignment.@@person`),
+    # an ordinary List-wrapped relation field, and an Optional-wrapped one.
+    var @@platform_team = @@make_team("Platform", @@alice, "Tech Lead");
+    var members = List[@@Person]();
+    members.append(@@alice);
+    members.append(@@bob);
+    @@Team.set_members(@@platform_team, members);
+    print("platform team member count:", len(@@Team.get_members(@@platform_team)));
+    print("platform team lead role:", @@Team.get_lead(@@platform_team).role);
+
+    @@Team.set_advisor(@@platform_team, @@promoted_bob);
+    if @@Team.get_advisor(@@platform_team):
+        print("platform team advisor:", @@Employee.get_title(@@Team.get_advisor(@@platform_team).value()));
+
+    # keepalive: AuditLog entities survive with no local var and no
+    # relation field pointing at them, purely via `keepalive`.
+    @@log("started");
+    @@log("did a thing");
+    @@log("finished");
+    print("audit log entries kept alive:", len(@@AuditLog.all()));
+    for @@entry in @@AuditLog.all():
+        print("audit log entry:", @@entry.message);
+
+    # ---- deep plain-struct nesting + generics, through Employee.profile ----
+    var profile = @@Employee.get_profile(@@alice_emp);
+    profile.contact.emails.append("alice@work.example.com");
+    profile.scores["mojo"] = 97;
+    profile.scores["systems"] = 88;
+    profile.nicknames = List[String]();
+    profile.nicknames.value().append("Ali");
+    profile.rating = Box[UInt32](5);
+    profile.coordinates = Pair[Int, Int](10, -3);
+    @@Employee.set_profile(@@alice_emp, profile);
+
+    var got_profile = @@Employee.get_profile(@@alice_emp);
+    print("alice's city (deep nested plain struct):", got_profile.contact.home.city);
+    print("alice's email count:", len(got_profile.contact.emails));
+    print("alice's mojo score (Dict field):", got_profile.scores["mojo"]);
+    print("alice's rating (generic Box[UInt32]):", got_profile.rating.value);
+    print("alice's coordinates (generic Pair[Int, Int]):", got_profile.coordinates.first, got_profile.coordinates.second);
+    print("alice's nickname count (Optional[List[String]]):", len(got_profile.nicknames.value()));
+
+    # ---- per-entity JSON round trip ----
+    # Project has no `unique` field, so reconstructing a second copy
+    # alongside the still-live original is unremarkable.
+    var project_json = @@Project.to_json(@@website);
+    print("website as json:", project_json);
+    var sc = sqrrl__JsonScanner(project_json);
+    var @@rebuilt_website = @@Project.from_json(sc);
+    print("rebuilt website's name:", @@rebuilt_website.name);
+    print("rebuilt website's priority:", @@rebuilt_website.priority);
+
+    # Employee's own `unique email` still enforces its constraint through
+    # `from_json`, exactly like `create` -- reconstructing alice's JSON
+    # while the original @@alice_emp is still alive (it is: @@alice.@@job
+    # holds it) raises the same `UniqueConstraintViolation` a duplicate
+    # `create` would.
+    var employee_json = @@Employee.to_json(@@alice_emp);
+    print("alice as json:", employee_json);
+    var sc2 = sqrrl__JsonScanner(employee_json);
+    try:
+        var @@rebuilt_alice = @@Employee.from_json(sc2);
+        print("ERROR: expected UniqueConstraintViolation, got", @@rebuilt_alice.title);
+    except e:
+        print("reconstructing alice while the original lives raised:", e);
+
+    # ---- whole-world JSON round trip -- `sqrrl__world` itself, threaded
+    # by hand, since to_json/sqrrl__world_from_json aren't @@-marked
+    # constructs (see ADVANCED_FEATURES.md). ----
+    var world_json = sqrrl__world.to_json();
+    print("whole world byte length:", world_json.byte_length());
+    var sc3 = sqrrl__JsonScanner(world_json);
+    var reloaded = sqrrl__world_from_json(sc3);
+    print("reloaded department count:", len(reloaded.Department.all()));
+    print("reloaded employee count:", len(reloaded.Employee.all()));
+    var reloaded_alice = reloaded.Employee.for_email("alice@example.com");
+    print("reloaded alice's dept:", reloaded.Department.get_name(reloaded.Employee.get_dept(reloaded_alice)));
+    print("reloaded alice's rating survived:", reloaded.Employee.get_profile(reloaded_alice).rating.value);
+    print("reloaded audit log count:", len(reloaded.AuditLog.all()));
+
+    print(
+        "keep alive:",
+        @@alice.name, @@bob.name, @@eng.name, @@sales.name,
+        @@alice_emp.title, @@bob_emp.title, @@promoted_bob.title,
+        @@sales_team[0].title, @@sales_team[1].title,
+        @@found_by_email.title, @@website.name, @@onboarding.name,
+        @@platform_team.name,
+    );

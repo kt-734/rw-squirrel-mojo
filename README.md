@@ -62,6 +62,23 @@ def main() raises:
     print(@@alice.name, @@alice.age);
 ```
 
+`@@init_from_json(json)` is `@@init()`'s reload counterpart — obtains the
+same shared world, but by reconstructing it from a previous
+`sqrrl__world.to_json()` dump (see "JSON serialization" below) instead of
+building an empty one:
+
+```
+def main(dump: String) raises:
+    @@init_from_json(dump);
+    print(@@Person.all());
+```
+
+Exactly one of `@@init()`/`@@init_from_json(...)`, combined, may appear
+anywhere in a project — same reasoning as `@@init()` alone: either one
+independently constructs its own `sqrrl__World`, and nothing stops a
+second call from silently creating a disconnected one instead of sharing
+the one everything else uses.
+
 **Relation fields** — a field typed `@@Type` points at another entity
 (refcounted: the target stays alive as long as anything points at it).
 `for_<field>` is the reverse lookup:
@@ -314,7 +331,7 @@ Every `@@struct` produces two Mojo structs:
 | `add_to_<field>` | `(e, value: ElementType) -> Bool` | `multi` fields only — `True` if newly added, `False` if already a member |
 | `remove_from_<field>` | `(e, value: ElementType) -> Bool` | `multi` fields only — `True` if it was actually removed |
 | `all` | `() -> Set[EntityHandle[...]]` | every currently-live entity in the table — generated for every struct, `keepalive` or not (see below) |
-| `dont_keepalive` | `(e) -> Bool` | `keepalive`-tagged structs only — see below |
+| `dont_keepalive` | `(e) -> Bool` | generated for every struct too, `keepalive` or not — see below |
 
 `for_<field>`'s signature and behavior depend on that field's own modifier:
 
@@ -356,6 +373,12 @@ refcounted lifetime (`True` if it was actually in the set); if nothing else
 references it at that point, it's destroyed immediately, same as letting
 any other last handle drop.
 
+Every table gets the `keepalive` field and `dont_keepalive` regardless of
+whether its own struct is `keepalive`-tagged — `create` only *auto*-adds
+to it for a tagged struct, but the field itself is also what
+`sqrrl__world_from_json` (see "JSON serialization" below) uses to retain
+whatever it reconstructs for a non-tagged struct too.
+
 ```
 @@struct keepalive @@Project:
     name: String
@@ -370,9 +393,7 @@ print("all projects:", len(@@Project.all()));
 `all()` itself doesn't depend on `keepalive` at all — it walks the table's
 own id allocator directly (`Table.all()`, one pass, checking which ids are
 currently allocated), so it finds every live entity regardless of *why*
-it's alive: a relation elsewhere, a local handle, or `keepalive`. Every
-struct gets `all()`; only a `keepalive`-tagged one also gets the `Set`
-field and `dont_keepalive`.
+it's alive: a relation elsewhere, a local handle, or `keepalive`.
 
 ## JSON serialization
 
@@ -418,6 +439,34 @@ gets reversed back to the ordinary relation-field machinery
 automatically. Every shape (shorthand or hand-written plain structs,
 leaves, containers, relations, arbitrarily nested) round-trips correctly.
 
+**Whole-world serialization** — `sqrrl__world` itself (not any one
+`@@struct`) also has `to_json`/a reload counterpart, for dumping and
+restoring everything at once rather than one entity at a time. Neither is
+`@@`-marked sugar — thread `sqrrl__world` by hand (see
+[`ADVANCED_FEATURES.md`](ADVANCED_FEATURES.md)), or use `@@init_from_json`
+(above) for the reload half specifically:
+
+```
+var dump = sqrrl__world.to_json();     # -> String, every table's every live entity
+
+var sc = sqrrl__JsonScanner(dump);
+var reloaded = sqrrl__world_from_json(sc);   # -> sqrrl__World, a fresh one
+```
+
+Every entity's own id is embedded alongside its fields in this dump
+(unlike a lone entity's own `to_json`, which never needs its *own* id,
+only what it references) — `sqrrl__world_from_json` lands each
+reconstructed entity back on that exact id, not a freshly auto-allocated
+one, since a relation field elsewhere in the dump is only ever a bare id
+and would otherwise resolve to the wrong row (or nothing) the moment any
+entity anywhere had ever been deleted. Reconstruction proceeds in
+dependency order (whichever structs a given struct's own relation fields
+target, reconstructed first), so by the time any entity's relation field
+is resolved, its target is already live in the reloaded world. Every
+reconstructed entity is retained via its own table's `keepalive` set (see
+above) for as long as the reloaded `sqrrl__World` lives, whether or not
+that struct is itself `keepalive`-tagged.
+
 ## Project layout
 
 ```
@@ -431,7 +480,11 @@ src/squirrel_runtime/    the runtime every generated file imports:
                           the per-field storage backing each modifier above)
 src/main.mojo            CLI entry point: `mojo run -I src src/main.mojo <dir>`
 examples/                see kitchen_sink for a tour of every feature;
-                          the others are smaller, single-feature examples
+                          kitchen_sink_plus goes further still -- deep
+                          relation chains, diamonds, generic plain
+                          structs, deeply nested containers, and the
+                          whole-world JSON dump/reload; the rest are
+                          smaller, single-feature examples
 test/                    one test file per compiler/runtime module
 ```
 

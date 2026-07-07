@@ -19,9 +19,11 @@ struct sqrrl__DepartmentTableState(TableStateLike, Movable, ImplicitlyDeletable)
 
 struct sqrrl__DepartmentTable(Movable):
     var table: Table[sqrrl__DepartmentTableState]
+    var keepalive: Set[EntityHandle[sqrrl__DepartmentTableState]]
 
     def __init__(out self):
         self.table = Table[sqrrl__DepartmentTableState](sqrrl__DepartmentTableState())
+        self.keepalive = Set[EntityHandle[sqrrl__DepartmentTableState]]()
 
     def create(mut self, name: String) -> EntityHandle[sqrrl__DepartmentTableState]:
         var e = self.table.create()
@@ -35,6 +37,13 @@ struct sqrrl__DepartmentTable(Movable):
 
     def all(self) -> Set[EntityHandle[sqrrl__DepartmentTableState]]:
         return self.table.all()
+
+    def dont_keepalive(mut self, e: EntityHandle[sqrrl__DepartmentTableState]) -> Bool:
+        try:
+            self.keepalive.remove(e)
+            return True
+        except:
+            return False
 
     def get_name(self, e: EntityHandle[sqrrl__DepartmentTableState]) -> String:
         var got = self.table.state[].state.name.get_fwd(e.id())
@@ -85,3 +94,29 @@ struct sqrrl__DepartmentTable(Movable):
                 sc.expect_byte(UInt8(ord("}")))
                 break
         return self.sqrrl__create_with_id(sqrrl__id, sqrrl__parsed_name.take())
+
+    def all_to_json(self) -> String:
+        var out = String("[")
+        var sqrrl__first = True
+        for sqrrl__e in self.all():
+            if not sqrrl__first:
+                out += ","
+            sqrrl__first = False
+            out += "[" + String(sqrrl__e.id()) + "," + self.to_json(sqrrl__e) + "]"
+        out += "]"
+        return out^
+
+    def all_from_json(mut self, mut sc: sqrrl__JsonScanner) raises:
+        sc.expect_byte(UInt8(ord("[")))
+        if not sc.try_consume_byte(UInt8(ord("]"))):
+            while True:
+                sc.expect_byte(UInt8(ord("[")))
+                var sqrrl__id = UInt32(sc.parse_json_int())
+                sc.expect_byte(UInt8(ord(",")))
+                var sqrrl__e = self.sqrrl__from_json_with_id(sqrrl__id, sc)
+                self.keepalive.add(sqrrl__e^)
+                sc.expect_byte(UInt8(ord("]")))
+                if sc.try_consume_byte(UInt8(ord(","))):
+                    continue
+                sc.expect_byte(UInt8(ord("]")))
+                break

@@ -241,13 +241,20 @@ def emit_table(parsed: ParsedStruct, plain_struct_fields: Dict[String, List[Fiel
     out += "\n\n"
     out += String(t"struct {table_name}(Movable):\n")
     out += String(t"    var table: Table[{state_name}]\n")
-    if parsed.is_keepalive:
-        out += String(t"    var keepalive: Set[EntityHandle[{state_name}]]\n")
+    # Every table gets a `keepalive` set, not just `keepalive`-tagged
+    # structs -- `create`/`sqrrl__create_with_id` still only *auto*-add to
+    # it when `is_keepalive` (below), but a non-tagged struct's own table
+    # still needs somewhere to retain entities `sqrrl__from_json_with_id`
+    # reconstructs (`emit_world_module`'s `sqrrl__world_from_json`): those
+    # have no relation field pointing at them yet and aren't
+    # `keepalive`-tagged, so without this they'd die the instant their
+    # return value is otherwise discarded, same as any entity in this
+    # framework does once nothing holds a strong reference to it.
+    out += String(t"    var keepalive: Set[EntityHandle[{state_name}]]\n")
     out += "\n"
     out += "    def __init__(out self):\n"
     out += String(t"        self.table = Table[{state_name}]({state_name}())\n")
-    if parsed.is_keepalive:
-        out += String(t"        self.keepalive = Set[EntityHandle[{state_name}]]()\n")
+    out += String(t"        self.keepalive = Set[EntityHandle[{state_name}]]()\n")
     out += "\n"
 
     var any_unique = False
@@ -309,16 +316,15 @@ def emit_table(parsed: ParsedStruct, plain_struct_fields: Dict[String, List[Fiel
     out += "\n"
     out += String(t"    def all(self) -> Set[EntityHandle[{state_name}]]:\n")
     out += "        return self.table.all()\n"
-    if parsed.is_keepalive:
-        out += "\n"
-        out += String(
-            t"    def dont_keepalive(mut self, e: EntityHandle[{state_name}]) -> Bool:\n"
-        )
-        out += "        try:\n"
-        out += "            self.keepalive.remove(e)\n"
-        out += "            return True\n"
-        out += "        except:\n"
-        out += "            return False\n"
+    out += "\n"
+    out += String(
+        t"    def dont_keepalive(mut self, e: EntityHandle[{state_name}]) -> Bool:\n"
+    )
+    out += "        try:\n"
+    out += "            self.keepalive.remove(e)\n"
+    out += "            return True\n"
+    out += "        except:\n"
+    out += "            return False\n"
 
     for f in parsed.fields:
         var field_type = emit_field_type(f)
@@ -783,6 +789,64 @@ def emit_table_json_methods(
     for f in parsed.fields:
         out += String(t", sqrrl__parsed_{f.name}.take()")
     out += ")\n"
+
+    # `all_to_json`/`all_from_json` -- the whole-table counterpart to a
+    # single entity's own `to_json`/`from_json`, used only by
+    # `sqrrl__World.to_json`/`sqrrl__world_from_json` (`emit_world_module`)
+    # so the per-table "array of [id, entity json] pairs" shape (and its
+    # parsing) is written once here rather than re-spelled inline once per
+    # struct at the world level. `all_to_json` needs no sibling-table
+    # params (a single entity's own `to_json` never does either); returns
+    # just the bracketed array, not `"Name":[...]` -- the key itself is
+    # the one thing only the world level knows to attach. `all_from_json`
+    # is the exact reverse: parses that same array, reconstructing each
+    # entity via `sqrrl__from_json_with_id` (landing it back on its
+    # original id) and retaining it immediately in `self.keepalive` (see
+    # `emit_table`'s own doc comment) unless `is_keepalive` already does
+    # that automatically inside `sqrrl__create_with_id`.
+    out += "\n"
+    out += "    def all_to_json(self) -> String:\n"
+    out += '        var out = String("[")\n'
+    out += "        var sqrrl__first = True\n"
+    out += "        for sqrrl__e in self.all():\n"
+    out += "            if not sqrrl__first:\n"
+    out += '                out += ","\n'
+    out += "            sqrrl__first = False\n"
+    out += (
+        '            out += "[" + String(sqrrl__e.id()) + "," + self.to_json(sqrrl__e) + "]"\n'
+    )
+    out += '        out += "]"\n'
+    out += "        return out^\n"
+
+    out += "\n"
+    out += String(
+        t"    def all_from_json(mut self{_relation_target_params(targets)}, mut sc:"
+        t" sqrrl__JsonScanner) raises:\n"
+    )
+    out += '        sc.expect_byte(UInt8(ord("[")))\n'
+    out += '        if not sc.try_consume_byte(UInt8(ord("]"))):\n'
+    out += "            while True:\n"
+    out += '                sc.expect_byte(UInt8(ord("[")))\n'
+    out += "                var sqrrl__id = UInt32(sc.parse_json_int())\n"
+    out += '                sc.expect_byte(UInt8(ord(",")))\n'
+    var target_args = _relation_target_args(targets)
+    if target_args.byte_length() > 0:
+        target_args += ", "
+    if parsed.is_keepalive:
+        out += String(
+            t"                _ = self.sqrrl__from_json_with_id({target_args}sqrrl__id, sc)\n"
+        )
+    else:
+        out += String(
+            t"                var sqrrl__e ="
+            t" self.sqrrl__from_json_with_id({target_args}sqrrl__id, sc)\n"
+        )
+        out += "                self.keepalive.add(sqrrl__e^)\n"
+    out += '                sc.expect_byte(UInt8(ord("]")))\n'
+    out += '                if sc.try_consume_byte(UInt8(ord(","))):\n'
+    out += "                    continue\n"
+    out += '                sc.expect_byte(UInt8(ord("]")))\n'
+    out += "                break\n"
     return out^
 
 
@@ -1559,9 +1623,16 @@ def rewrite_markers(
     before. But table *instances* now all live in one place: the generated,
     project-wide `sqrrl__World` (see `driver.emit_world_module`) --
     there's no per-file, per-type table variable anymore. A script obtains
-    it explicitly, once per function that needs it, one of two ways:
-    `@@init()` becomes `var sqrrl__world = sqrrl__init()`, or a function
-    whose own name is marked (`@@name(`, `MarkerKind.WORLD_FUNC`) gets
+    it explicitly, once per function that needs it, one of three ways:
+    `@@init()` becomes `var sqrrl__world = sqrrl__init()`,
+    `@@init_from_json(json)` becomes `var sqrrl__scanner =
+    sqrrl__JsonScanner(json); var sqrrl__world =
+    sqrrl__world_from_json(sqrrl__scanner)` (reload instead of a fresh,
+    empty world -- `json`'s own text is spliced in verbatim, unparsed,
+    same as any other construct's field value; the scanner needs its own
+    `var` first since `sqrrl__world_from_json` takes it `mut`, and a
+    temporary can't bind to that directly), or a function whose own name
+    is marked (`@@name(`, `MarkerKind.WORLD_FUNC`) gets
     `sqrrl__world` auto-inserted as its first parameter (a definition) or
     first argument (a call site), silently -- `def @@make_department(a:
     Int)` becomes `def sqrrl__make_department(mut sqrrl__world:
@@ -1647,6 +1718,20 @@ def rewrite_markers(
         elif kind == MarkerKind.INIT:
             sc.parse_init()
             out += "var sqrrl__world = sqrrl__init()"
+            world_available = True
+            pending_decl = None
+            pending_for_loop_decl = None
+
+        elif kind == MarkerKind.INIT_FROM_JSON:
+            var json_expr = sc.parse_init_from_json()
+            # `sqrrl__world_from_json` takes `mut sc: sqrrl__JsonScanner`
+            # -- a temporary `sqrrl__JsonScanner(...)` can't bind to a
+            # mutable parameter directly, so it needs its own `var` first,
+            # same as any hand-written call site would.
+            out += String(
+                t"var sqrrl__scanner = sqrrl__JsonScanner({json_expr}); var sqrrl__world ="
+                t" sqrrl__world_from_json(sqrrl__scanner)"
+            )
             world_available = True
             pending_decl = None
             pending_for_loop_decl = None
