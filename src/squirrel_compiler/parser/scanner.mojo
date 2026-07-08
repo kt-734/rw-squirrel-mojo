@@ -1035,11 +1035,18 @@ struct Scanner(Movable):
                 # expected, so this can't collide with one).
                 self.pos = save
                 return FieldAccess(
-                    entity=entity, hops=List[String](), field="", write_value=None, is_call=False, index_expr=index_expr
+                    entity=entity,
+                    hops=List[String](),
+                    field="",
+                    field_marked=False,
+                    write_value=None,
+                    is_call=False,
+                    index_expr=index_expr,
                 )
 
         var hops = List[String]()
         var field: String
+        var field_marked: Bool
         while True:
             self.skip_trivia()
             if not self.try_consume("."):
@@ -1060,9 +1067,10 @@ struct Scanner(Movable):
                 # next); anything else ends it here, with *this* hop as the
                 # terminal `field` instead of an intermediate one --
                 # `@@alice.@@dept` (nothing after) reads the relation
-                # itself, the same as `@@alice.dept` (no trailing `@@`)
-                # does; marking it is optional, purely documenting that the
-                # caller expects a relation there.
+                # itself, marked (`field_marked`) the same way an
+                # intermediate hop always is -- unlike a bare `.dept`,
+                # which is an ordinary, untracked field read regardless of
+                # what `dept`'s own type happens to be.
                 var save = self.pos
                 self.skip_trivia()
                 if self.peek() == UInt8(ord(".")):
@@ -1071,10 +1079,12 @@ struct Scanner(Movable):
                     continue
                 self.pos = save
                 field = hop
+                field_marked = True
                 break
             field = self.scan_ident()
             if field.byte_length() == 0:
                 raise self.err("InvalidSquirrelSyntax: expected field name")
+            field_marked = False
             break
         var after_field = self.pos
 
@@ -1082,14 +1092,26 @@ struct Scanner(Movable):
         if self.peek() == UInt8(ord("(")):
             self.pos = after_field
             return FieldAccess(
-                entity=entity, hops=hops^, field=field, write_value=None, is_call=True, index_expr=index_expr
+                entity=entity,
+                hops=hops^,
+                field=field,
+                field_marked=field_marked,
+                write_value=None,
+                is_call=True,
+                index_expr=index_expr,
             )
 
         var is_write = self.peek() == UInt8(ord("=")) and self.peek_at(1) != UInt8(ord("="))
         if not is_write:
             self.pos = after_field
             return FieldAccess(
-                entity=entity, hops=hops^, field=field, write_value=None, is_call=False, index_expr=index_expr
+                entity=entity,
+                hops=hops^,
+                field=field,
+                field_marked=field_marked,
+                write_value=None,
+                is_call=False,
+                index_expr=index_expr,
             )
 
         self.pos += 1  # consume '='
@@ -1130,6 +1152,7 @@ struct Scanner(Movable):
             entity=entity,
             hops=hops^,
             field=field,
+            field_marked=field_marked,
             write_value=String(value.strip()),
             is_call=False,
             index_expr=index_expr,

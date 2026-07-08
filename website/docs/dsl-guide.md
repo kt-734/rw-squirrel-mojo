@@ -81,10 +81,12 @@ var @@team = @@Employee.for_dept(@@eng)          # List[EntityHandle[...]], inde
 var @@alices_dept = @@Employee.get_dept(@@alice) # a single tracked Department
 ```
 
-`@@alice.@@dept` (or, equivalently, `@@alice.dept` — marking the last hop is
-optional) reads the same field via instance syntax instead, with identical
-tracking: a plain, unmarked variable is rejected the same way binding
-`for_<field>`/`create` to one is.
+`@@alice.@@dept` reads the same field via instance syntax instead, with
+identical tracking: a plain, unmarked variable is rejected the same way
+binding `for_<field>`/`create` to one is. Marking the last hop is required,
+not stylistic — there's no plain `@@alice.dept` spelling for a relation
+field, only `@@alice.@@dept`; `@@` on a hop always means "this is a
+relation," the same way it does everywhere else.
 
 ## Indexing and iterating
 

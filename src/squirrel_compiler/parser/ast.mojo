@@ -190,6 +190,14 @@ struct FieldAccess(Copyable, Movable):
     only distinguishes them syntactically, same as it already does for a
     write (`field =`) vs. a read (bare `field`).
 
+    `field_marked` is true when the terminal `field` itself was reached via
+    a `.@@name` segment with nothing further after it (`@@alice.@@dept`)
+    rather than a plain `.name` (`@@alice.dept`) -- both parse to the same
+    `field`, but codegen (not this parser) requires the two to agree with
+    whether `field` actually names a relation: a relation must be marked to
+    be read this way, a plain field must not be, so the `@@` marking on the
+    very last hop stays meaningful instead of becoming cosmetic.
+
     `index_expr` holds the raw text between `[` and `]` when `entity` is
     immediately followed by that instead of `.` -- `@@people[0].name`,
     indexing into a container-typed `@@`-tracked variable (see
@@ -203,6 +211,7 @@ struct FieldAccess(Copyable, Movable):
     var entity: String
     var hops: List[String]
     var field: String
+    var field_marked: Bool
     var write_value: Optional[String]
     var is_call: Bool
     var index_expr: Optional[String]

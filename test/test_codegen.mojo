@@ -927,10 +927,10 @@ def test_transform_source_rewrites_terminal_relation_hop_as_tracked_read() raise
     assert_true("print(sqrrl__world.Employee.get_title(sqrrl__e));" in out)
 
 
-def test_transform_source_rewrites_unmarked_terminal_hop_the_same_way() raises:
-    """`@@alice.employee` (no `@@` on the terminal segment at all) reads
-    and tracks identically to `@@alice.@@employee` -- marking the last hop
-    is purely optional documentation, not a different code path."""
+def test_transform_source_rejects_unmarked_terminal_hop_for_a_relation_field() raises:
+    """`@@alice.employee` (no `@@` on the terminal segment) is rejected --
+    there's no plain spelling for a relation field, only `.@@employee`;
+    marking the last hop is required, not optional documentation."""
     var source = String(
         "@@struct @@Employee:\n    title: String\n\n"
         "\n"
@@ -941,11 +941,28 @@ def test_transform_source_rewrites_unmarked_terminal_hop_the_same_way() raises:
         "    @@init();\n"
         '    var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
         "    var @@e = @@alice.employee;\n"
-        "    print(@@e.title);\n"
     )
-    var out = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
-    assert_true("var sqrrl__e = sqrrl__world.Person.get_employee(sqrrl__alice);" in out)
-    assert_true("print(sqrrl__world.Employee.get_title(sqrrl__e));" in out)
+    with assert_raises():
+        _ = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
+
+
+def test_transform_source_rejects_marked_terminal_hop_for_a_plain_field() raises:
+    """`@@alice.@@name` -- marking a terminal segment that *isn't* a
+    relation field -- is rejected the other way: `@@` marks a relation,
+    never a plain field, so `name` (a `String`) can't be marked either."""
+    var source = String(
+        "@@struct @@Employee:\n    title: String\n\n"
+        "\n"
+        "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@declare();\n"
+        "    @@init();\n"
+        '    var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
+        "    print(@@alice.@@name);\n"
+    )
+    with assert_raises():
+        _ = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
 
 
 def test_transform_source_rejects_unmarked_variable_for_terminal_relation_hop() raises:
