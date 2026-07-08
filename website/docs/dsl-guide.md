@@ -77,16 +77,17 @@ lookup:
 ```
 var @@eng = @@Department { .name = "Engineering" }
 var @@alice = @@Employee { .title = "Engineer", .@@dept = @@eng }
-var @@team = @@Employee.for_dept(@@eng)          # List[EntityHandle[...]], indexable
-var @@alices_dept = @@Employee.get_dept(@@alice) # a single tracked Department
+var @@team = @@Employee.for_dept(@@eng) # List[EntityHandle[...]], indexable
+var @@alices_dept = @@alice.@@dept      # a single tracked Department
 ```
 
-`@@alice.@@dept` reads the same field via instance syntax instead, with
-identical tracking: a plain, unmarked variable is rejected the same way
-binding `for_<field>`/`create` to one is. Marking the last hop is required,
-not stylistic — there's no plain `@@alice.dept` spelling for a relation
-field, only `@@alice.@@dept`; `@@` on a hop always means "this is a
-relation," the same way it does everywhere else.
+`@@alice.@@dept` reads the relation field via instance syntax, tracking the
+result the same way `for_<field>`/`create` do: a plain, unmarked variable is
+rejected. Marking the last hop is required, not stylistic — there's no
+plain `@@alice.dept` spelling for a relation field, only `@@alice.@@dept`;
+`@@` on a hop always means "this is a relation," the same way it does
+everywhere else. `@@Employee.get_dept(@@alice)` is the equivalent
+table-level call, identical either way.
 
 ## Indexing and iterating
 
