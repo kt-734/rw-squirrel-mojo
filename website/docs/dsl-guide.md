@@ -150,7 +150,7 @@ One keyword before a field name:
 
 ```
 _ = @@Department.add_to_projects(@@eng, @@website)
-print(len(@@Department.get_projects(@@eng)))          # this dept's projects
+print(len(@@eng.@@projects))                          # this dept's projects
 print(len(@@Department.for_projects(@@website)))      # which depts run this project
 ```
 
