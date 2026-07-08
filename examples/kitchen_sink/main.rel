@@ -11,6 +11,7 @@ def promote(mut sqrrl__world: sqrrl__World, e: EntityHandle[sqrrl__EmployeeTable
 
 
 def main() raises:
+    @@declare();
     @@init();
     var @@eng = @@make_department("Engineering");
     var @@sales = @@make_department("Sales");

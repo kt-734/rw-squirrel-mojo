@@ -40,11 +40,9 @@ struct sqrrl__EmployeeTableState(TableStateLike, Movable, ImplicitlyDeletable):
 
 struct sqrrl__EmployeeTable(Movable):
     var table: Table[sqrrl__EmployeeTableState]
-    var keepalive: Set[EntityHandle[sqrrl__EmployeeTableState]]
 
     def __init__(out self):
         self.table = Table[sqrrl__EmployeeTableState](sqrrl__EmployeeTableState())
-        self.keepalive = Set[EntityHandle[sqrrl__EmployeeTableState]]()
 
     def create(mut self, email: String, title: String, years_employed: UInt32, dept: EntityHandle[sqrrl__DepartmentTableState], profile: Profile) raises -> EntityHandle[sqrrl__EmployeeTableState]:
         var e = self.table.create()
@@ -66,13 +64,6 @@ struct sqrrl__EmployeeTable(Movable):
 
     def all(self) -> Set[EntityHandle[sqrrl__EmployeeTableState]]:
         return self.table.all()
-
-    def dont_keepalive(mut self, e: EntityHandle[sqrrl__EmployeeTableState]) -> Bool:
-        try:
-            self.keepalive.remove(e)
-            return True
-        except:
-            return False
 
     def get_email(self, e: EntityHandle[sqrrl__EmployeeTableState]) -> String:
         var got = self.table.state[].state.email.get_fwd(e.id())
@@ -170,7 +161,7 @@ struct sqrrl__EmployeeTable(Movable):
         self.table.state[].state.profile.update(e.id(), v)
 
 
-    def to_json(self, e: EntityHandle[sqrrl__EmployeeTableState]) -> String:
+    def sqrrl__to_json(self, e: EntityHandle[sqrrl__EmployeeTableState]) -> String:
         var out = String("{")
         out += "\"email\":" + sqrrl__to_json(self.get_email(e))
         out += ","
@@ -184,7 +175,7 @@ struct sqrrl__EmployeeTable(Movable):
         out += "}"
         return out^
 
-    def from_json(mut self, mut sqrrl__tbl_Department: sqrrl__DepartmentTable, mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__EmployeeTableState]:
+    def sqrrl__from_json(mut self, mut sqrrl__tbl_Department: sqrrl__DepartmentTable, mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__EmployeeTableState]:
         var sqrrl__parsed_email: Optional[String] = None
         var sqrrl__parsed_title: Optional[String] = None
         var sqrrl__parsed_years_employed: Optional[UInt32] = None
@@ -238,18 +229,18 @@ struct sqrrl__EmployeeTable(Movable):
                 break
         return self.sqrrl__create_with_id(sqrrl__id, sqrrl__parsed_email.take(), sqrrl__parsed_title.take(), sqrrl__parsed_years_employed.take(), sqrrl__parsed_dept.take(), sqrrl__parsed_profile.take())
 
-    def all_to_json(self) -> String:
+    def sqrrl__all_to_json(self) -> String:
         var out = String("[")
         var sqrrl__first = True
         for sqrrl__e in self.all():
             if not sqrrl__first:
                 out += ","
             sqrrl__first = False
-            out += "[" + String(sqrrl__e.id()) + "," + self.to_json(sqrrl__e) + "]"
+            out += "[" + String(sqrrl__e.id()) + "," + self.sqrrl__to_json(sqrrl__e) + "]"
         out += "]"
         return out^
 
-    def all_from_json(mut self, mut sqrrl__tbl_Department: sqrrl__DepartmentTable, mut sc: sqrrl__JsonScanner) raises:
+    def sqrrl__all_from_json(mut self, mut sqrrl__tbl_Department: sqrrl__DepartmentTable, mut sqrrl__temp: List[EntityHandle[sqrrl__EmployeeTableState]], mut sc: sqrrl__JsonScanner) raises:
         sc.expect_byte(UInt8(ord("[")))
         if not sc.try_consume_byte(UInt8(ord("]"))):
             while True:
@@ -257,7 +248,7 @@ struct sqrrl__EmployeeTable(Movable):
                 var sqrrl__id = UInt32(sc.parse_json_int())
                 sc.expect_byte(UInt8(ord(",")))
                 var sqrrl__e = self.sqrrl__from_json_with_id(sqrrl__tbl_Department, sqrrl__id, sc)
-                self.keepalive.add(sqrrl__e^)
+                sqrrl__temp.append(sqrrl__e^)
                 sc.expect_byte(UInt8(ord("]")))
                 if sc.try_consume_byte(UInt8(ord(","))):
                     continue

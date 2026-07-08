@@ -48,6 +48,10 @@ def sqrrl__to_json[T: AnyType](value: T) -> String:
         return optional_to_json(rebind[Optional[List[String]]](value).copy())
     elif T == Dict[String, Int]:
         return dict_to_json(rebind[Dict[String, Int]](value).copy())
+    elif T == List[Address]:
+        return list_to_json(rebind[List[Address]](value).copy())
+    elif T == List[Box[UInt32]]:
+        return list_to_json(rebind[List[Box[UInt32]]](value).copy())
     elif conforms_to(T, sqrrl__JsonSerializable):
         return value.sqrrl__to_json()
     else:
@@ -97,6 +101,14 @@ def sqrrl__from_json[T: Copyable & ImplicitlyDeletable](mut sc: sqrrl__JsonScann
         return rebind[T](optional_from_json[List[String]](sc)).copy()
     elif T == Dict[String, Int]:
         return rebind[T](dict_from_json[String, Int](sc)).copy()
+    elif T == List[Address]:
+        return rebind[T](list_from_json[Address](sc)).copy()
+    elif T == List[Box[UInt32]]:
+        return rebind[T](list_from_json[Box[UInt32]](sc)).copy()
+    elif T == Address:
+        return rebind[T](sqrrl__Address_from_json(sc)).copy()
+    elif T == Box[UInt32]:
+        return rebind[T](sqrrl__Box_from_json[UInt32](sc)).copy()
     else:
         raise Error("sqrrl__from_json: unsupported type -- structs use their own generated from_json")
 
@@ -199,6 +211,8 @@ def sqrrl__Profile_from_json(mut sc: sqrrl__JsonScanner) raises -> Profile:
     var sqrrl__parsed_scores: Optional[Dict[String, Int]] = None
     var sqrrl__parsed_rating: Optional[Box[UInt32]] = None
     var sqrrl__parsed_coordinates: Optional[Pair[Int, Int]] = None
+    var sqrrl__parsed_past_addresses: Optional[List[Address]] = None
+    var sqrrl__parsed_boxed_ratings: Optional[List[Box[UInt32]]] = None
     sc.expect_byte(UInt8(ord("{")))
     if not sc.try_consume_byte(UInt8(ord("}"))):
         while True:
@@ -214,11 +228,15 @@ def sqrrl__Profile_from_json(mut sc: sqrrl__JsonScanner) raises -> Profile:
                     sqrrl__parsed_rating = sqrrl__Box_from_json[UInt32](sc)
             elif sqrrl__key == "coordinates":
                     sqrrl__parsed_coordinates = sqrrl__Pair_from_json[Int, Int](sc)
+            elif sqrrl__key == "past_addresses":
+                    sqrrl__parsed_past_addresses = sqrrl__from_json[List[Address]](sc)
+            elif sqrrl__key == "boxed_ratings":
+                    sqrrl__parsed_boxed_ratings = sqrrl__from_json[List[Box[UInt32]]](sc)
             if sc.try_consume_byte(UInt8(ord(","))):
                 continue
             sc.expect_byte(UInt8(ord("}")))
             break
-    return Profile(sqrrl__parsed_contact.take(), sqrrl__parsed_nicknames.take(), sqrrl__parsed_scores.take(), sqrrl__parsed_rating.take(), sqrrl__parsed_coordinates.take())
+    return Profile(sqrrl__parsed_contact.take(), sqrrl__parsed_nicknames.take(), sqrrl__parsed_scores.take(), sqrrl__parsed_rating.take(), sqrrl__parsed_coordinates.take(), sqrrl__parsed_past_addresses.take(), sqrrl__parsed_boxed_ratings.take())
 
 
 def sqrrl__Money_from_json(mut sc: sqrrl__JsonScanner) raises -> Money:

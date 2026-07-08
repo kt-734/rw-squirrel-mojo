@@ -47,6 +47,9 @@ struct sqrrl__AuditLogTable(Movable):
         except:
             return False
 
+    def sqrrl__clear_keepalive(mut self):
+        self.keepalive = Set[EntityHandle[sqrrl__AuditLogTableState]]()
+
     def get_message(self, e: EntityHandle[sqrrl__AuditLogTableState]) -> String:
         var got = self.table.state[].state.message.get_fwd(e.id())
         return got.take()
@@ -61,13 +64,13 @@ struct sqrrl__AuditLogTable(Movable):
             out.append(self.table.handle_for(id))
         return out^
 
-    def to_json(self, e: EntityHandle[sqrrl__AuditLogTableState]) -> String:
+    def sqrrl__to_json(self, e: EntityHandle[sqrrl__AuditLogTableState]) -> String:
         var out = String("{")
         out += "\"message\":" + sqrrl__to_json(self.get_message(e))
         out += "}"
         return out^
 
-    def from_json(mut self, mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__AuditLogTableState]:
+    def sqrrl__from_json(mut self, mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__AuditLogTableState]:
         var sqrrl__parsed_message: Optional[String] = None
         sc.expect_byte(UInt8(ord("{")))
         if not sc.try_consume_byte(UInt8(ord("}"))):
@@ -97,18 +100,18 @@ struct sqrrl__AuditLogTable(Movable):
                 break
         return self.sqrrl__create_with_id(sqrrl__id, sqrrl__parsed_message.take())
 
-    def all_to_json(self) -> String:
+    def sqrrl__all_to_json(self) -> String:
         var out = String("[")
         var sqrrl__first = True
         for sqrrl__e in self.all():
             if not sqrrl__first:
                 out += ","
             sqrrl__first = False
-            out += "[" + String(sqrrl__e.id()) + "," + self.to_json(sqrrl__e) + "]"
+            out += "[" + String(sqrrl__e.id()) + "," + self.sqrrl__to_json(sqrrl__e) + "]"
         out += "]"
         return out^
 
-    def all_from_json(mut self, mut sc: sqrrl__JsonScanner) raises:
+    def sqrrl__all_from_json(mut self, mut sc: sqrrl__JsonScanner) raises:
         sc.expect_byte(UInt8(ord("[")))
         if not sc.try_consume_byte(UInt8(ord("]"))):
             while True:

@@ -1,7 +1,8 @@
 from logic.factories import @@make_department, @@hire, @@make_person, @@make_team
 from logic.reports import @@print_person
 
-def main():
+def main() raises:
+    @@declare();
     @@init();
     var @@dept = @@make_department("Engineering");
     var @@emp = @@hire("Engineer", @@dept);

@@ -2,7 +2,7 @@ from squirrel_runtime.entity import Table, EntityHandle, EntityInner, TableState
 from squirrel_runtime.rel import Rel, UniqueRel, ForwardOnlyRel, MultiRel, OrderedRel
 from std.collections import Set
 from std.os import abort
-from sqrrl__world import sqrrl__init, sqrrl__World, sqrrl__world_from_json
+from sqrrl__world import sqrrl__init, sqrrl__World, sqrrl__world_from_json, sqrrl__init_from_json
 from schema.audit_log import sqrrl__AuditLogTableState
 from schema.employee import sqrrl__EmployeeTableState
 from schema.address import Address
@@ -22,6 +22,7 @@ def promote(mut sqrrl__world: sqrrl__World, e: EntityHandle[sqrrl__EmployeeTable
 
 def main() raises:
     var sqrrl__world = sqrrl__init();
+    sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init();
     var sqrrl__eng = sqrrl__make_department(sqrrl__world, "Engineering");
     var sqrrl__sales = sqrrl__make_department(sqrrl__world, "Sales");
 

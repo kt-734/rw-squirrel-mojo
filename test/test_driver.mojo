@@ -89,7 +89,7 @@ def test_convert_directory_end_to_end() raises:
     # too, not just its TableState.
     assert_true("from sub.employee import sqrrl__EmployeeTable" in generated)
     assert_true(
-        "def from_json(mut self, mut sqrrl__tbl_Employee: sqrrl__EmployeeTable,"
+        "def sqrrl__from_json(mut self, mut sqrrl__tbl_Employee: sqrrl__EmployeeTable,"
         " mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__PersonTableState]:"
         in generated
     )
@@ -105,7 +105,7 @@ def test_convert_directory_end_to_end() raises:
     # Employee has no relation fields of its own, so its own from_json
     # needs no sibling-table parameters beyond `mut self, mut sc`.
     assert_true(
-        "def from_json(mut self, mut sc: sqrrl__JsonScanner) raises ->"
+        "def sqrrl__from_json(mut self, mut sc: sqrrl__JsonScanner) raises ->"
         " EntityHandle[sqrrl__EmployeeTableState]:" in employee_generated
     )
 
@@ -261,6 +261,98 @@ def test_convert_directory_registers_dict_element_types() raises:
     _rmtree(root)
 
 
+def test_convert_directory_generates_dispatch_for_plain_struct_nested_in_container() raises:
+    """A non-generic plain struct nested inside a `List`/`Set`/`Optional`/
+    `Dict` field -- unlike one used as some struct's own *direct* field
+    type -- genuinely needs a `sqrrl__from_json[T]` dispatch branch of
+    its own: `list_from_json[Address]`'s own body calls
+    `sqrrl__from_json[Address](sc)` internally, which had no branch to
+    reach before `build_json_container_types` started registering plain
+    structs reached this way too."""
+    var root = "test/tmp_driver_plain_struct_in_container_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var address_rel = open(join(root, "address.rel"), "w")
+    address_rel.write("struct Address { city: String }\n")
+    address_rel.close()
+    var foo_rel = open(join(root, "foo.rel"), "w")
+    foo_rel.write("@@struct @@Foo:\n    addresses: List[Address]\n\n")
+    foo_rel.close()
+
+    convert_directory(".", root)
+
+    var jf = open(join(root, "sqrrl__json.mojo"), "r")
+    var json_generated = jf.read()
+    jf.close()
+    assert_true("elif T == List[Address]:" in json_generated)
+    assert_true("elif T == Address:" in json_generated)
+    assert_true("return rebind[T](sqrrl__Address_from_json(sc)).copy()" in json_generated)
+
+    _rmtree(root)
+
+
+def test_convert_directory_generates_dispatch_for_generic_instantiation_nested_in_container() raises:
+    """A generic plain struct's own concrete instantiation (`Box[String]`)
+    nested inside a container gets the same treatment, forwarding its own
+    type argument(s) to `sqrrl__<Name>_from_json[<args>]`."""
+    var root = "test/tmp_driver_generic_instantiation_in_container_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var box_rel = open(join(root, "box.rel"), "w")
+    box_rel.write("struct Box[T] { value: T }\n")
+    box_rel.close()
+    var foo_rel = open(join(root, "foo.rel"), "w")
+    foo_rel.write("@@struct @@Foo:\n    boxes: List[Box[String]]\n\n")
+    foo_rel.close()
+
+    convert_directory(".", root)
+
+    var jf = open(join(root, "sqrrl__json.mojo"), "r")
+    var json_generated = jf.read()
+    jf.close()
+    assert_true("elif T == List[Box[String]]:" in json_generated)
+    assert_true("elif T == Box[String]:" in json_generated)
+    assert_true("return rebind[T](sqrrl__Box_from_json[String](sc)).copy()" in json_generated)
+
+    _rmtree(root)
+
+
+def test_convert_directory_rejects_relation_embedding_plain_struct_nested_in_container() raises:
+    """A plain struct embedding a relation field can't be reconstructed
+    through the shared `sqrrl__from_json[T]` dispatcher -- its fixed
+    `(mut sc: sqrrl__JsonScanner) raises -> T` signature has no way to
+    supply the sibling table(s) its own `sqrrl__<Name>_from_json`
+    companion needs as extra parameters, the way a struct's own directly-
+    declared field's `_emit_from_json_field_parse` can. Used as a
+    *direct* field, this works fine (see
+    `test_convert_directory_generates_from_json_for_hand_written_plain_struct_with_relation_field`)
+    -- only nesting it inside a container is rejected, with a clear error
+    instead of silently generating code that would fail downstream."""
+    var root = "test/tmp_driver_relation_embedding_in_container_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var target_rel = open(join(root, "target.rel"), "w")
+    target_rel.write("@@struct @@Target:\n    name: String\n\n")
+    target_rel.close()
+    var assignment_rel = open(join(root, "assignment.rel"), "w")
+    assignment_rel.write("struct Assignment { @@t: @@Target, role: String }\n")
+    assignment_rel.close()
+    var holder_rel = open(join(root, "holder.rel"), "w")
+    holder_rel.write("@@struct @@Holder:\n    items: List[Assignment]\n\n")
+    holder_rel.close()
+
+    with assert_raises(contains="Assignment"):
+        convert_directory(".", root)
+
+    _rmtree(root)
+
+
 def test_convert_directory_emits_ordinary_rel_for_collection_relation_field() raises:
     """A `@@struct`'s own collection-typed relation field (`@@members:
     List[@@Employee]`) compiles to an ordinary `Rel`-backed field, complete
@@ -321,6 +413,7 @@ def test_convert_directory_handles_a_script_alongside_its_struct() raises:
         "    age: UInt32\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@alice = @@Person { .name = "alice", .age = 30 };\n'
         "    @@alice.age = 31;\n"
@@ -335,6 +428,7 @@ def test_convert_directory_handles_a_script_alongside_its_struct() raises:
     f.close()
     assert_true("from sqrrl__world import sqrrl__init, sqrrl__World" in generated)
     assert_true("var sqrrl__world = sqrrl__init();" in generated)
+    assert_true("sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init();" in generated)
     assert_true('var sqrrl__alice = sqrrl__world.Person.create(name = "alice", age = 30);' in generated)
     assert_true("sqrrl__world.Person.set_age(sqrrl__alice, 31);" in generated)
 
@@ -569,6 +663,48 @@ def test_convert_directory_rejects_cycle_smuggled_through_plain_struct() raises:
         "    @@employee: @@Example\n"
     )
     schema_rel.close()
+
+    with assert_raises(contains="CyclicRelation"):
+        convert_directory(".", root)
+
+    _rmtree(root)
+
+
+def test_convert_directory_rejects_cycle_smuggled_through_hand_written_plain_struct() raises:
+    """The same cycle as `test_convert_directory_rejects_cycle_smuggled_through_plain_struct`,
+    but smuggled through a *hand-written* (real Mojo, non-shorthand) plain
+    struct instead of a brace-shorthand one -- `discover_hand_written_plain_structs`
+    is what makes this catchable at all: a hand-written struct's own
+    relation field, spelled out by hand as
+    `EntityHandle[sqrrl__EmployeeTableState]`, is recovered back to the
+    pseudo `@@Employee` shape `check_no_relation_cycles`'s own graph
+    already understands, the same as `build_plain_struct_fields` already
+    does for JSON codegen purposes. Before this, a cycle written this way
+    compiled without error and would only fail later, confusingly, at
+    `create()`."""
+    var root = "test/tmp_driver_hand_written_plain_struct_cycle_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var employee_rel = open(join(root, "employee.rel"), "w")
+    employee_rel.write(
+        "@@struct @@Employee:\n"
+        "    title: String\n"
+        "    embedded: Note\n"
+        "\n"
+    )
+    employee_rel.close()
+
+    var note_rel = open(join(root, "note.rel"), "w")
+    note_rel.write(
+        "struct Note(Copyable, Movable, ImplicitlyDeletable):\n"
+        "    var author: EntityHandle[sqrrl__EmployeeTableState]\n"
+        "\n"
+        "    def __init__(out self, var author: EntityHandle[sqrrl__EmployeeTableState]):\n"
+        "        self.author = author^\n"
+    )
+    note_rel.close()
 
     with assert_raises(contains="CyclicRelation"):
         convert_directory(".", root)
@@ -832,7 +968,7 @@ def test_convert_directory_generates_from_json_for_hand_written_plain_struct_wit
     f.close()
     assert_true("from sqrrl__json import sqrrl__Note_from_json" in generated)
     assert_true(
-        "def from_json(mut self, mut sqrrl__tbl_Employee: sqrrl__EmployeeTable,"
+        "def sqrrl__from_json(mut self, mut sqrrl__tbl_Employee: sqrrl__EmployeeTable,"
         " mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__ReportTableState]:"
         in generated
     )
@@ -936,6 +1072,7 @@ def test_convert_directory_infers_and_enforces_entity_return_binding_cross_file(
         "from factories import sqrrl__make_department\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    var @@dept = @@make_department();\n"
         "    print(@@dept.name);\n"
@@ -972,6 +1109,7 @@ def test_convert_directory_recognizes_multi_param_container_return_type() raises
         "    return Dict[@@AuditLog, String]();\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    for @@entry in @@make_log():\n"
         "        print(@@entry.message);\n"
@@ -1005,6 +1143,7 @@ def test_convert_directory_recognizes_multi_param_container_return_type() raises
         "from factories import sqrrl__make_department\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    var dept = @@make_department();\n"
     )
@@ -1016,13 +1155,14 @@ def test_convert_directory_recognizes_multi_param_container_return_type() raises
     _rmtree(root)
 
 
-def test_convert_directory_rejects_multiple_init_calls() raises:
-    """Calling `@@init()` more than once anywhere in the project used to
-    compile and run fine, silently creating a second, disconnected
-    `sqrrl__World` instead of sharing the one the rest of the program
-    uses -- a footgun with no error at all. `@@init()` is meant to be
-    called exactly once; every other function should receive the result
-    via `@@` in its own parameters instead."""
+def test_convert_directory_rejects_multiple_declare_calls() raises:
+    """Calling `@@declare()` more than once anywhere in the project used to
+    (with `@@init()` itself as the thing being counted) compile and run
+    fine, silently creating a second, disconnected `sqrrl__World` instead
+    of sharing the one the rest of the program uses -- a footgun with no
+    error at all. `@@declare()` is meant to be called exactly once; every
+    other function should receive the result via `@@` in its own
+    parameters instead."""
     var root = "test/tmp_driver_double_init_fixture"
     if exists(root):
         _rmtree(root)
@@ -1035,6 +1175,7 @@ def test_convert_directory_rejects_multiple_init_calls() raises:
     var factories_rel = open(join(root, "factories.rel"), "w")
     factories_rel.write(
         "def make_department_oops() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@d = @@Department { .name = "engineering" };\n'
     )
@@ -1043,22 +1184,27 @@ def test_convert_directory_rejects_multiple_init_calls() raises:
     var main_rel = open(join(root, "main.rel"), "w")
     main_rel.write(
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    make_department_oops();\n"
     )
     main_rel.close()
 
-    with assert_raises(contains="@@init()/@@init_from_json(...) called 2 times"):
+    with assert_raises(contains="@@declare() called 2 times"):
         convert_directory(".", root)
 
     _rmtree(root)
 
 
-def test_convert_directory_rejects_init_and_init_from_json_together() raises:
-    """`@@init()` and `@@init_from_json(...)` are two forms of the same
-    thing -- obtaining `sqrrl__world`'s one shared instance -- so one of
-    each, anywhere in the project, is rejected exactly like two of either
-    alone would be."""
+def test_convert_directory_rejects_start_init_from_json_without_declare_in_that_function() raises:
+    """`world_declared` is function-scoped, reset at every top-level `def`
+    (same as `world_available` always was) -- a *different* function using
+    `@@start_init_from_json(...)` needs its *own* `@@declare()` in that
+    same function, even if `main()` already declared and initialized its
+    own `sqrrl__world`; there's no way for the two to end up sharing one
+    binding this way regardless (see
+    `test_convert_directory_rejects_multiple_declare_calls` for why two
+    independent `@@declare()`s are rejected too)."""
     var root = "test/tmp_driver_mixed_init_fixture"
     if exists(root):
         _rmtree(root)
@@ -1071,26 +1217,76 @@ def test_convert_directory_rejects_init_and_init_from_json_together() raises:
     var main_rel = open(join(root, "main.rel"), "w")
     main_rel.write(
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    var dump = String(\"{}\");\n"
         "    reload(dump);\n"
         "\n"
         "def reload(dump: String) raises:\n"
-        "    @@init_from_json(dump);\n"
+        "    @@start_init_from_json(dump);\n"
     )
     main_rel.close()
 
-    with assert_raises(contains="@@init()/@@init_from_json(...) called 2 times"):
+    with assert_raises(contains="needs '@@declare()'"):
         convert_directory(".", root)
 
     _rmtree(root)
 
 
-def test_convert_directory_generates_init_from_json() raises:
-    """`@@init_from_json(json)` desugars to `var sqrrl__world =
-    sqrrl__world_from_json(sqrrl__JsonScanner(json))` -- `@@init()`'s
-    reload counterpart, obtaining the same shared `sqrrl__world` binding
-    from a JSON dump instead of an empty `sqrrl__World()`."""
+def test_convert_directory_allows_conditional_reload_or_init_after_declare() raises:
+    """The end-to-end point of `@@declare()`: a real project can now choose
+    between `@@init()` and `@@start_init_from_json(...)` conditionally, in
+    one function, with both branches sharing the same declared
+    `sqrrl__world` -- something neither form could do alone before
+    `@@declare()` existed (see `misc_builders.check_single_declare_call`'s
+    own doc comment)."""
+    var root = "test/tmp_driver_conditional_declare_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var schema_rel = open(join(root, "schema.rel"), "w")
+    schema_rel.write("@@struct @@Department:\n    name: String\n\n")
+    schema_rel.close()
+
+    var main_rel = open(join(root, "main.rel"), "w")
+    main_rel.write(
+        "def main(dump: String, restore: Bool) raises:\n"
+        "    @@declare();\n"
+        "    if restore:\n"
+        "        @@start_init_from_json(dump);\n"
+        "    else:\n"
+        "        @@init();\n"
+        '    var @@d = @@Department { .name = "engineering" };\n'
+        "    print(@@d.name);\n"
+    )
+    main_rel.close()
+
+    convert_directory(".", root)
+
+    var f = open(join(root, "main.mojo"), "r")
+    var generated = f.read()
+    f.close()
+    assert_true("var sqrrl__world = sqrrl__init();" in generated)
+    assert_true(
+        "sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world ="
+        " sqrrl__init_from_json(dump);" in generated
+    )
+    assert_true("sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init();" in generated)
+
+    _rmtree(root)
+
+
+def test_convert_directory_generates_start_init_from_json() raises:
+    """`@@start_init_from_json(json)` desugars to `sqrrl__world =
+    sqrrl__init_from_json(json)` -- `@@init()`'s reload counterpart,
+    obtaining the same shared `sqrrl__world` binding from a JSON dump
+    instead of an empty `sqrrl__World()`. Calls into a generated
+    `sqrrl__init_from_json` function (which builds its own
+    `sqrrl__JsonScanner` internally) rather than inlining one at the call
+    site, so `@@start_init_from_json(...)` can be called more than once in
+    the same function without redeclaring a scanner local (see
+    `driver.emit_world_module`)."""
     var root = "test/tmp_driver_init_from_json_fixture"
     if exists(root):
         _rmtree(root)
@@ -1103,7 +1299,8 @@ def test_convert_directory_generates_init_from_json() raises:
     var main_rel = open(join(root, "main.rel"), "w")
     main_rel.write(
         "def main(dump: String) raises:\n"
-        "    @@init_from_json(dump);\n"
+        "    @@declare();\n"
+        "    @@start_init_from_json(dump);\n"
         '    var @@d = @@Department { .name = "engineering" };\n'
         "    print(@@d.name);\n"
     )
@@ -1114,9 +1311,133 @@ def test_convert_directory_generates_init_from_json() raises:
     var f = open(join(root, "main.mojo"), "r")
     var generated = f.read()
     f.close()
-    assert_true("var sqrrl__scanner = sqrrl__JsonScanner(dump)" in generated)
-    assert_true("var sqrrl__world = sqrrl__world_from_json(sqrrl__scanner)" in generated)
-    assert_true("from sqrrl__world import sqrrl__init, sqrrl__World, sqrrl__world_from_json" in generated)
+    assert_true("var sqrrl__world = sqrrl__init();" in generated)
+    assert_true(
+        "sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world ="
+        " sqrrl__init_from_json(dump);" in generated
+    )
+    assert_true(
+        "from sqrrl__world import sqrrl__init, sqrrl__World,"
+        " sqrrl__world_from_json, sqrrl__init_from_json" in generated
+    )
+
+    _rmtree(root)
+
+
+def test_convert_directory_generates_check_no_leaks_and_del() raises:
+    """`sqrrl__World` gets `sqrrl__check_no_leaks` (clears every
+    `keepalive`-tagged table's own retention, then `abort`s with a
+    `LeakedEntities` message if any table -- `keepalive`-tagged or not --
+    still has live entities) and a `__del__` that just calls it directly.
+    Not `raises` at either point, deliberately -- a leak is the same kind
+    of bug regardless of when it's discovered, so it's fatal both times
+    rather than catchable at one call site and not the other (see
+    `driver.emit_world_module`'s own doc comment)."""
+    var root = "test/tmp_driver_check_no_leaks_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var schema_rel = open(join(root, "schema.rel"), "w")
+    schema_rel.write(
+        "@@struct @@Department:\n    name: String\n\n"
+        "@@struct keepalive @@AuditLog:\n    message: String\n\n"
+    )
+    schema_rel.close()
+
+    var main_rel = open(join(root, "main.rel"), "w")
+    main_rel.write(
+        "def main() raises:\n"
+        "    @@declare();\n"
+        "    @@init();\n"
+    )
+    main_rel.close()
+
+    convert_directory(".", root)
+
+    var sf = open(join(root, "sqrrl__world.mojo"), "r")
+    var world_generated = sf.read()
+    sf.close()
+    assert_true("from std.os import abort" in world_generated)
+    assert_true("def sqrrl__check_no_leaks(mut self):" in world_generated)
+    # Only the `keepalive`-tagged struct's own retention gets cleared...
+    assert_true("self.AuditLog.sqrrl__clear_keepalive()" in world_generated)
+    # ...but every struct's table gets checked for leftover live entities.
+    assert_true("var sqrrl__leaked_Department = len(self.Department.all())" in world_generated)
+    assert_true("if sqrrl__leaked_Department > 0:" in world_generated)
+    assert_true("var sqrrl__leaked_AuditLog = len(self.AuditLog.all())" in world_generated)
+    assert_true('abort("LeakedEntities:' in world_generated)
+    assert_true("def __del__(deinit self):" in world_generated)
+    assert_true("self.sqrrl__check_no_leaks()" in world_generated)
+    assert_true("try:" not in world_generated)
+
+    _rmtree(root)
+
+
+def test_convert_directory_generates_finalize_init_from_json() raises:
+    """`@@finalize_init_from_json()` desugars to
+    `sqrrl__world.sqrrl__finalize_temp_keep_alives()` -- dropping every
+    entity a prior `@@start_init_from_json(...)` retained only temporarily
+    (see `TempKeepAlives`, `driver.emit_world_module`). Not inlined as
+    `sqrrl__world.sqrrl__temp_keep_alives = None` directly at the call site
+    -- confirmed empirically that corrupts earlier statements in the same
+    function (see `emit_world_module`'s own doc comment for the concrete
+    repro). Valid after `@@init()` too, not just the reload form (a no-op
+    there, since an ordinary `sqrrl__init()`-built world already starts
+    with `sqrrl__temp_keep_alives = None`)."""
+    var root = "test/tmp_driver_finalize_init_from_json_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var schema_rel = open(join(root, "schema.rel"), "w")
+    schema_rel.write("@@struct @@Department:\n    name: String\n\n")
+    schema_rel.close()
+
+    var main_rel = open(join(root, "main.rel"), "w")
+    main_rel.write(
+        "def main(dump: String) raises:\n"
+        "    @@declare();\n"
+        "    @@start_init_from_json(dump);\n"
+        "    @@finalize_init_from_json();\n"
+        "    print(len(@@Department.all()));\n"
+    )
+    main_rel.close()
+
+    convert_directory(".", root)
+
+    var f = open(join(root, "main.mojo"), "r")
+    var generated = f.read()
+    f.close()
+    assert_true("sqrrl__world.sqrrl__finalize_temp_keep_alives()" in generated)
+
+    _rmtree(root)
+
+
+def test_convert_directory_rejects_finalize_init_from_json_before_declare() raises:
+    """`@@finalize_init_from_json()` needs `sqrrl__world` already declared,
+    same as `@@Type { ... }` construction or an ordinary `@@name(...)`
+    world function call does -- rejected with the same
+    'InvalidSquirrelSyntax' family of error rather than falling through to
+    a confusing Mojo-level "sqrrl__world is not defined"."""
+    var root = "test/tmp_driver_finalize_before_world_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var schema_rel = open(join(root, "schema.rel"), "w")
+    schema_rel.write("@@struct @@Department:\n    name: String\n\n")
+    schema_rel.close()
+
+    var main_rel = open(join(root, "main.rel"), "w")
+    main_rel.write(
+        "def main() raises:\n"
+        "    @@finalize_init_from_json();\n"
+    )
+    main_rel.close()
+
+    with assert_raises(contains="InvalidSquirrelSyntax"):
+        convert_directory(".", root)
 
     _rmtree(root)
 

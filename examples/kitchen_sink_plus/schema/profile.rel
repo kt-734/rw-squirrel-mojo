@@ -4,4 +4,6 @@ struct Profile {
     scores: Dict[String, Int],
     rating: Box[UInt32],
     coordinates: Pair[Int, Int],
+    past_addresses: List[Address],
+    boxed_ratings: List[Box[UInt32]],
 }

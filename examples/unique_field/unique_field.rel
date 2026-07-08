@@ -4,6 +4,7 @@
 
 
 def main() raises:
+    @@declare();
     @@init();
     var @@alice = @@Person { .email = "alice@example.com", .name = "alice" };
     var @@bob = @@Person { .email = "bob@example.com", .name = "bob" };

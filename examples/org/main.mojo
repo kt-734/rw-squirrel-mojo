@@ -2,14 +2,15 @@ from squirrel_runtime.entity import Table, EntityHandle, EntityInner, TableState
 from squirrel_runtime.rel import Rel, UniqueRel, ForwardOnlyRel, MultiRel, OrderedRel
 from std.collections import Set
 from std.os import abort
-from sqrrl__world import sqrrl__init, sqrrl__World, sqrrl__world_from_json
+from sqrrl__world import sqrrl__init, sqrrl__World, sqrrl__world_from_json, sqrrl__init_from_json
 
 
 from logic.factories import sqrrl__make_department, sqrrl__hire, sqrrl__make_person, sqrrl__make_team
 from logic.reports import sqrrl__print_person
 
-def main():
+def main() raises:
     var sqrrl__world = sqrrl__init();
+    sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init();
     var sqrrl__dept = sqrrl__make_department(sqrrl__world, "Engineering");
     var sqrrl__emp = sqrrl__hire(sqrrl__world, "Engineer", sqrrl__dept);
     var sqrrl__alice = sqrrl__make_person(sqrrl__world, "alice", sqrrl__emp);

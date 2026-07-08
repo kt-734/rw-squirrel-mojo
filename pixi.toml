@@ -11,3 +11,13 @@ test = "mojo run -I src test/test_id_allocator.mojo && mojo run -I src test/test
 
 [dependencies]
 mojo = ">=1.0.0b3.dev2026070206,<2"
+
+[feature.docs.dependencies]
+mkdocs-material = "*"
+
+[feature.docs.tasks]
+docs-serve = { cmd = "mkdocs serve", cwd = "website" }
+docs-build = { cmd = "mkdocs build", cwd = "website" }
+
+[environments]
+docs = ["docs"]

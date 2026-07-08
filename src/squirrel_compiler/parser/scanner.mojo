@@ -1,483 +1,28 @@
-def source_location(source: String, byte_pos: Int) -> String:
-    """1-indexed `"line:col"` for `byte_pos` within `source` -- column counts
-    bytes since the last newline, not Unicode codepoints (fine here: every
-    position this is ever called with points at a grammar token -- `{`,
-    `@@`, an identifier, ... -- and those are all ASCII; only string-literal
-    *contents* can be non-ASCII, and nothing ever raises pointing inside
-    one). Spliced into every raised error so a message says exactly where in
-    a `.rel` file it happened, not just that it did -- `Scanner.err` is the
-    usual way this gets called, but it's a free function (not a method)
-    since a couple of raise sites (`codegen.build_create_call`,
-    `enforce_entity_binding`) have a `source`/position in scope without a
-    live `Scanner` there to ask."""
-    var line = 1
-    var col = 1
-    var bytes = source.as_bytes()
-    var limit = byte_pos if byte_pos < len(bytes) else len(bytes)
-    for i in range(limit):
-        if bytes[i] == UInt8(ord("\n")):
-            line += 1
-            col = 1
-        else:
-            col += 1
-    return String(line) + ":" + String(col)
-
-
-def line_indent_of(source: String, pos: Int) -> Int:
-    """Number of leading space/tab bytes on the line containing byte offset
-    `pos` -- the baseline `Scanner.scan_indented_block` compares every
-    following line's own indentation against, the same way a `@@struct`
-    header's column tells Python/Mojo where its body block's fields must be
-    indented past."""
-    var bytes = source.as_bytes()
-    var line_start = pos
-    while line_start > 0 and bytes[line_start - 1] != UInt8(ord("\n")):
-        line_start -= 1
-    var i = line_start
-    while i < len(bytes) and (bytes[i] == UInt8(ord(" ")) or bytes[i] == UInt8(ord("\t"))):
-        i += 1
-    return i - line_start
-
-
-def is_ident_char(b: UInt8) -> Bool:
-    return (
-        (b >= UInt8(ord("a")) and b <= UInt8(ord("z")))
-        or (b >= UInt8(ord("A")) and b <= UInt8(ord("Z")))
-        or (b >= UInt8(ord("0")) and b <= UInt8(ord("9")))
-        or b == UInt8(ord("_"))
-    )
-
-
-def is_after_arrow(source: String, pos: Int) -> Bool:
-    """True if, scanning backward from byte offset `pos` (skipping spaces
-    and tabs), the two bytes immediately before are `-` then `>` -- i.e.
-    `pos` sits right after a `->` (Mojo's return-type arrow), modulo
-    whitespace. Used to tell a return-type marking (`-> @@Type:`) apart
-    from any other bare `@@name:` shape (which keeps its existing
-    `MarkerKind.NAME_REF` fallback -- see `Scanner.find_next_marker`)."""
-    var bytes = source.as_bytes()
-    var i = pos
-    while i > 0 and (bytes[i - 1] == UInt8(ord(" ")) or bytes[i - 1] == UInt8(ord("\t"))):
-        i -= 1
-    return i >= 2 and bytes[i - 1] == UInt8(ord(">")) and bytes[i - 2] == UInt8(ord("-"))
-
-
-def is_after_for_keyword(source: String, pos: Int) -> Bool:
-    """True if, scanning backward from byte offset `pos` (skipping spaces/
-    tabs, and one optional `var`/`ref` keyword in between), the preceding
-    text is `for` with a word boundary before it too -- `pos` sits right
-    after `for `, `for var `, or `for ref ` (mod whitespace), the shapes a
-    `for @@name in ...:`/`for var @@name in ...:`/`for ref @@name in ...:`
-    loop's own target variable needs to recognize itself by (see
-    `MarkerKind.FOR_ENTITY_LOOP`), as opposed to an ordinary, unmarked-target
-    `for name in ...:` loop (left untouched -- no `@@` there for this
-    scanner to ever reach in the first place). `var`/`ref` matter in
-    practice, not just style: Mojo's own exclusivity checker sometimes
-    *requires* one of them on a loop target -- `var` for an owned copy,
-    `ref` for an explicit (rather than the default, sometimes-ambiguous
-    implicit) reference -- when the loop body indexes back into the same
-    container being iterated. Confirmed via a direct repro (`for state in
-    capitals: print(capitals[state])` rejected with 'argument of
-    __getitem__ call allows reading a memory location previously writable
-    through another aliased argument'; `for var state in capitals:`
-    compiles fine)."""
-    var bytes = source.as_bytes()
-    var i = pos
-    while i > 0 and (bytes[i - 1] == UInt8(ord(" ")) or bytes[i - 1] == UInt8(ord("\t"))):
-        i -= 1
-    if i >= 3 and (
-        String(source[byte = i - 3 : i]) == "var" or String(source[byte = i - 3 : i]) == "ref"
-    ) and (i == 3 or not is_ident_char(bytes[i - 4])):
-        i -= 3
-        while i > 0 and (bytes[i - 1] == UInt8(ord(" ")) or bytes[i - 1] == UInt8(ord("\t"))):
-            i -= 1
-    if i < 3:
-        return False
-    if String(source[byte = i - 3 : i]) != "for":
-        return False
-    return i == 3 or not is_ident_char(bytes[i - 4])
-
-
-def is_after_container_bracket(source: String, pos: Int) -> Bool:
-    """True if byte offset `pos` sits inside `Ident[...]`'s bracket list, at
-    *any* parameter position -- not just immediately after `[`
-    (`List[@@Type`), but also after a `,` for a later parameter
-    (`Dict[@@Type, V]`'s second slot, `Dict[K, @@Type]`'s own -- wherever
-    that container appears: a return type (`-> Dict[@@Type, V]:`), a
-    parameter type, or a bare generic-instantiation expression
-    (`Dict[@@Type, V]()`). Scans backward from `pos` (the `@@` of the type
-    name itself -- that's where the marker scanner finds it, the outer
-    `Ident[` already scanned past as ordinary text on an earlier
-    iteration), tracking bracket/paren/brace depth so an intervening
-    parameter that's itself generic (`Dict[@@Type, List[Int]]`) doesn't
-    confuse it, until it finds the *enclosing* `[` at depth 0 and checks
-    for an identifier immediately before that. Bounded to the current
-    line (stops at a newline) -- same single-line assumption
-    `is_in_def_signature` already makes -- so this can't wander off into
-    unrelated, far-earlier code looking for some other `Ident[`."""
-    var bytes = source.as_bytes()
-    var i = pos
-    var depth = 0
-    while i > 0:
-        var b = bytes[i - 1]
-        if b == UInt8(ord("\n")):
-            return False
-        if b == UInt8(ord("]")) or b == UInt8(ord(")")) or b == UInt8(ord("}")):
-            depth += 1
-        elif b == UInt8(ord("[")):
-            if depth == 0:
-                var j = i - 1
-                while j > 0 and (bytes[j - 1] == UInt8(ord(" ")) or bytes[j - 1] == UInt8(ord("\t"))):
-                    j -= 1
-                var ident_end = j
-                while j > 0 and is_ident_char(bytes[j - 1]):
-                    j -= 1
-                return j != ident_end
-            depth -= 1
-        elif b == UInt8(ord("(")) or b == UInt8(ord("{")):
-            if depth == 0:
-                return False
-            depth -= 1
-        i -= 1
-    return False
-
-
-def is_unmarked_container_declaration(source: String, marker_start: Int) -> Bool:
-    """True if, scanning further backward past the `Ident[` that
-    `is_after_container_bracket(source, marker_start)` already confirmed
-    precedes `marker_start`, the text matches `name: Ident[` (mod
-    whitespace) -- a `name: Container[@@Type]` field or variable
-    declaration whose `name` isn't itself `@@`-marked, the same shape
-    `parse_fields` already rejects inside a `@@struct` body but which
-    reaches ordinary marker scanning unenforced anywhere else (a
-    hand-written plain `struct`'s own field, or a bare `var name:
-    List[@@Type] = ...`) -- confirmed empirically: `var members:
-    List[@@Employee]` inside a plain Mojo struct compiled silently, with
-    the type rewritten to `List[EntityHandle[...]]` but no requirement that
-    `members` itself be written `@@members`.
-
-    If `name` WERE `@@`-marked, `EntityParam`'s own forward-looking
-    `@@name: Container[@@Type]` check (`Scanner.at_wrapped_entity_param`)
-    would already have classified the whole thing as `ENTITY_PARAM` the
-    moment the scanner reached `@@name`, well before it ever got to this
-    inner `@@Type` as an independent marker -- so simply finding an
-    unmarked `name:` here is sufficient; there's no marked case this could
-    also be matching. Returns `False` for a return type (`->
-    Container[@@Type]:`, nothing before `Ident[` but an arrow) or a bare
-    generic instantiation (`Container[@@Type]()`, nothing meaningful
-    before `Ident[` at all) -- neither has a name to enforce marking on."""
-    var bytes = source.as_bytes()
-    var i = marker_start
-    while i > 0 and (bytes[i - 1] == UInt8(ord(" ")) or bytes[i - 1] == UInt8(ord("\t"))):
-        i -= 1
-    if i == 0 or bytes[i - 1] != UInt8(ord("[")):
-        return False
-    i -= 1
-    while i > 0 and (bytes[i - 1] == UInt8(ord(" ")) or bytes[i - 1] == UInt8(ord("\t"))):
-        i -= 1
-    var wrapper_end = i
-    while i > 0 and is_ident_char(bytes[i - 1]):
-        i -= 1
-    if i == wrapper_end:
-        return False
-    while i > 0 and (bytes[i - 1] == UInt8(ord(" ")) or bytes[i - 1] == UInt8(ord("\t"))):
-        i -= 1
-    if i == 0 or bytes[i - 1] != UInt8(ord(":")):
-        return False
-    i -= 1
-    while i > 0 and (bytes[i - 1] == UInt8(ord(" ")) or bytes[i - 1] == UInt8(ord("\t"))):
-        i -= 1
-    var name_end = i
-    while i > 0 and is_ident_char(bytes[i - 1]):
-        i -= 1
-    return i != name_end
-
-
-@fieldwise_init
-struct FieldModifier(ImplicitlyCopyable, Movable, Equatable):
-    """Which (if any) modifier keyword a `@@struct` field was declared
-    with. Mojo has no `enum` keyword -- same idiom as `MarkerKind`: a
-    struct wrapping a discriminant, with named `comptime` values. A
-    `Field` holds exactly one `FieldModifier`, not one `Bool` per keyword
-    -- `unique`/`forwardonly`/`multi`/`ordered` become structurally
-    mutually exclusive (a field simply can't represent two at once)
-    rather than needing a pairwise rejection check per combination after
-    the fact."""
-
-    var value: Int
-
-    comptime NONE = Self(0)
-    comptime UNIQUE = Self(1)
-    comptime FORWARD_ONLY = Self(2)
-    comptime MULTI = Self(3)
-    comptime ORDERED = Self(4)
-
-    def __eq__(self, other: Self) -> Bool:
-        return self.value == other.value
-
-    def __ne__(self, other: Self) -> Bool:
-        return self.value != other.value
-
-
-@fieldwise_init
-struct Field(Copyable, Movable):
-    """A single `name: Type` entry inside a `@@struct` body. `type_str` is
-    left as raw, untouched text -- whether it's a plain Mojo type or a
-    `@@`-marked relation is for codegen to interpret, not this parser.
-
-    `modifier == FieldModifier.UNIQUE` is set by a leading `unique` keyword
-    (`unique name: Type`), orthogonal to whether the field is itself a
-    relation -- a relation field can be `unique` too (at most one entity
-    may point at any given target).
-
-    `modifier == FieldModifier.FORWARD_ONLY` is set by a leading
-    `forwardonly` keyword (`forwardonly name: Type`) -- the only thing
-    that selects `ForwardOnlyRel` storage. A collection isn't
-    automatically assumed to need it: `List[@@Employee]` is `KeyElement`
-    exactly when `@@Employee` (an `EntityHandle`) is, which it always is,
-    so a wrapped relation field gets ordinary `Rel`/`UniqueRel` by
-    default, same as any other field -- confirmed `List[EntityHandle[...]]`
-    really does conform to `Hashable`/`KeyElement` (being a container says
-    nothing about hashability on its own, only the element type does).
-    This parser has no way to know from raw type text alone whether some
-    other field's type is `KeyElement` or not (`List[Int]` vs
-    `List[Address]` are the same shape, but Mojo would accept one as a
-    `Rel` field and reject the other), so `forwardonly` is how a caller
-    states that explicitly instead.
-
-    `modifier == FieldModifier.MULTI` is set by a leading `multi` keyword
-    (`multi @@members: @@Employee`) -- selects `MultiRel` storage: a
-    genuine many-to-many relation, indexed by each *element* of the
-    field's own collection rather than the collection's whole value (what
-    ordinary `Rel` does) or not indexed at all (`forwardonly`). Unlike a
-    wrapped relation field (`List[@@Employee]`), `multi`'s own `type_str`
-    is the bare *element* type, not a container -- the keyword itself
-    already means "many of these"; codegen turns it into the actual
-    `List[EntityHandle[...]]` field.
-
-    `modifier == FieldModifier.ORDERED` is set by a leading `ordered`
-    keyword (`ordered name: Type`) -- selects `OrderedRel` storage,
-    generating `for_<name>_greater_than`/`_less_than`/`_at_least`/
-    `_at_most`/`_between` range-query methods (a binary search over ids
-    kept sorted by value, not a linear scan). Doesn't change storage
-    shape the way the other three do on its own terms so much as add a
-    genuinely different capability (ordering, not just presence/absence
-    of a reverse index), which is why it's still one more mutually
-    exclusive case rather than a fifth independent `Bool` -- comparing a
-    whole `Set[...]` (`multi`) or skipping the reverse index entirely
-    (`forwardonly`) doesn't have a sensible ordering to offer in the
-    first place."""
-
-    var name: String
-    var type_str: String
-    var modifier: FieldModifier
-
-
-@fieldwise_init
-struct TypeParam(Copyable, Movable):
-    """One entry in a plain struct's own `[T: Bound, ...]` type-parameter
-    list (shorthand or hand-written -- see `parse_type_params`). `bound`
-    defaults to `"Copyable & ImplicitlyDeletable"` when the `.rel` author
-    writes no `: Bound` at all, matching whatever the generated struct's
-    own derived conformances (`emit_plain_struct`) require of every
-    field's type, `T` included -- a field typed bare `T` has to satisfy
-    the same bounds any other field's concrete type already does
-    implicitly, no tighter: `ImplicitlyCopyable` here would wrongly
-    reject instantiating a generic plain struct at a merely-`Copyable`
-    type (`List`/`Set`/`Dict`, confirmed rejected before this used
-    `Copyable`), even though `emit_plain_struct`'s own struct-level
-    conformance never needed `ImplicitlyCopyable` in the first place --
-    see its own doc comment. `Movable` isn't spelled out too, unlike
-    `emit_plain_struct`'s own trait list -- confirmed plain `Copyable`
-    doesn't imply it the way `ImplicitlyCopyable` does, but nothing here
-    (a bare field's own type) ever needs a struct to be independently
-    `Movable` beyond what `Copyable` already requires of it. Never
-    populated for an `@@struct` (`parse_struct`) -- only plain structs
-    can declare their own type parameters."""
-
-    var name: String
-    var bound: String
-
-
-struct ParsedStruct(Copyable, Movable):
-    """One `@@struct [keepalive] @@Name: <indented fields>` declaration (or
-    a plain `struct Name { field: Type, ... }` / a hand-written `struct
-    Name(Traits...):`, neither of which ever sets `is_keepalive`).
-    Every generated table gets a `keepalive: Set[EntityHandle[...]]` field
-    and a `dont_keepalive(e)` method to release an entry from it, whether
-    or not `is_keepalive` is set (`sqrrl__world_from_json` relies on a
-    non-`keepalive` table's own `keepalive` set too, to retain whatever it
-    reconstructs -- see `emit_world_module`); `is_keepalive` only
-    controls whether *ordinary* `create`/`sqrrl__create_with_id`
-    automatically add every entity to it (holding a strong reference, so
-    it survives past whatever scope constructed it) -- see `emit_table`.
-    `all()` (unconditional, regardless of `is_keepalive`) returns every
-    currently-live entity via the table's own id allocator, not this set.
-
-    `type_params` (only ever non-empty for a plain struct -- an `@@struct`
-    is never generic) is its own `[T: Bound, ...]` list, if any -- see
-    `TypeParam`'s own doc comment."""
-
-    var name: String
-    var fields: List[Field]
-    var is_keepalive: Bool
-    var type_params: List[TypeParam]
-
-    def __init__(
-        out self,
-        var name: String,
-        var fields: List[Field],
-        is_keepalive: Bool = False,
-        var type_params: List[TypeParam] = List[TypeParam](),
-    ):
-        self.name = name^
-        self.fields = fields^
-        self.is_keepalive = is_keepalive
-        self.type_params = type_params^
-
-
-@fieldwise_init
-struct ConstructField(Copyable, Movable):
-    """One `.name = value` (or, for a relation field, `.@@name = value`)
-    segment inside a `@@TypeName { ... }` construct body -- `is_relation`
-    mirrors the struct declaration's own marking (`@@name: @@Type`), which
-    codegen validates against the project-wide relation schema (a
-    mismatch, either direction, is rejected the same way a struct
-    declaration's own name/type marking mismatch already is). It's also
-    what tells codegen `value` might itself need marker rewriting -- a bare
-    reference to an already-constructed entity (`@@bob`) or a nested
-    construct (`@@Employee { ... }`) -- rather than being passed through as
-    opaque text; a plain (non-`@@`) value is assumed already-valid Mojo and
-    left untouched either way. `value` is raw, untrimmed-of-markers text --
-    interpreting it is codegen's job, not this parser's."""
-
-    var name: String
-    var is_relation: Bool
-    var value: String
-
-
-@fieldwise_init
-struct Construct(Copyable, Movable):
-    """A `@@TypeName { .field = expr, ... }` construction use site --
-    `fields` is `parse_construct_fields`' structured breakdown of the
-    braced body, one entry per top-level `.name = value` segment."""
-
-    var type_name: String
-    var fields: List[ConstructField]
-
-
-@fieldwise_init
-struct FieldAccess(Copyable, Movable):
-    """A `@@entity.field` use-site access -- a read, or (if `write_value` is
-    set) a write from `@@entity.field = expr;`. `hops` holds any
-    intermediate `@@relation` segments in a chain (`@@alice.@@employee.@@boss.title`
-    -> `hops = ["employee", "boss"]`, `field = "title"`) -- each one is
-    itself a relation field, followed to reach the next entity, with
-    `field` (never `@@`-marked) being the terminal, actual field read or
-    written. `hops` is empty for the ordinary single-hop case
-    (`@@entity.field`).
-
-    `is_call` is set instead when `field` is immediately followed by `(` --
-    `@@Type.method(args)`, a table-level call (e.g. `@@Person.for_name(...)`)
-    rather than an instance field access. Codegen (not this parser) is what
-    actually tells the two apart semantically, by checking whether `entity`
-    names a declared variable or a known `@@struct` type -- this parser
-    only distinguishes them syntactically, same as it already does for a
-    write (`field =`) vs. a read (bare `field`).
-
-    `index_expr` holds the raw text between `[` and `]` when `entity` is
-    immediately followed by that instead of `.` -- `@@people[0].name`,
-    indexing into a container-typed `@@`-tracked variable (see
-    `EntityParam.wrapper`) before resolving the rest of the chain exactly
-    as an ordinary single entity would. `None` for the ordinary,
-    non-indexed case. Left as raw text (not parsed further here) since it
-    may itself embed further `@@`-marked sub-expressions -- codegen
-    recursively rewrites it through `rewrite_markers`, same treatment as a
-    construct field's value."""
-
-    var entity: String
-    var hops: List[String]
-    var field: String
-    var write_value: Optional[String]
-    var is_call: Bool
-    var index_expr: Optional[String]
-
-
-@fieldwise_init
-struct NameRef(Copyable, Movable):
-    """A bare `@@name` -- covers both a declaration (`var @@alice = ...`)
-    and a plain reference; both rewrite the same way (strip the `@@`).
-    Also what `MarkerKind.RETURN_TYPE` parses (both the bare `-> @@Type:`
-    and container `-> List[@@Type]:` forms) -- codegen emits the identical
-    `EntityHandle[...]` text either way, since a container wrapper's own
-    `List[`/`]` are never consumed here at all, just left as ordinary
-    pass-through text on either side of the marker (unlike `EntityParam`'s
-    `wrapper`, which *is* consumed, because there the whole `@@name:
-    Container[@@Type]` span belongs to one marker with nothing of its own
-    already sitting outside it)."""
-
-    var name: String
-
-
-@fieldwise_init
-struct EntityParam(Copyable, Movable):
-    """A `@@name: @@Type` declaration -- same shape as a `@@struct` relation
-    field (`@@employee: @@Employee`) -- used in two places: a `def`'s own
-    parameter list (`def foo(@@subject: @@Person, @@)`), letting an
-    already-constructed entity (a plain Mojo local otherwise, same as any
-    `@@`-marked variable) cross into a different function by naming it and
-    its type; or a local variable declaration
-    (`var @@dept: @@Department = make_department(@@);`), needed whenever
-    the right-hand side isn't itself a bare `@@`-marked expression (a
-    `@@Type{...}` construct or another `@@`-marked entity) -- a function
-    call, for instance -- so there's no construct/reference for
-    `entity_to_type` to infer the type from; the explicit annotation gives
-    it directly instead. Either way this both gives the name a properly
-    typed Mojo declaration and registers it in `entity_to_type` so
-    `@@name.field` works afterward. Passing an existing entity at a call
-    site needs no new syntax either way, since a bare `@@name` there
-    already rewrites to a plain reference.
-
-    `wrapper` is set instead for a container form, `@@name: Container[@@Type]`
-    (`List[@@Person]`, `InlineArray[@@Person]`, or any other container
-    identifier -- this parser doesn't care which, since codegen only ever
-    splices `wrapper` back in verbatim as the Mojo type constructor to wrap
-    `EntityHandle[...]` in, never inspecting it itself). `@@name[i].field`
-    then indexes into it before resolving the field, same grammar as
-    `FieldAccess.index_expr`."""
-
-    var name: String
-    var type_name: String
-    var wrapper: Optional[String]
-
-
-@fieldwise_init
-struct MarkerKind(ImplicitlyCopyable, Movable, Equatable):
-    """What `Scanner.find_next_marker` found. Mojo has no `enum` keyword --
-    this is the standard idiom: a struct wrapping a discriminant, with
-    named `comptime` values, giving a distinct type instead of a bare `Int`
-    that any stray integer could be mistaken for."""
-
-    var value: Int
-
-    comptime NONE = Self(0)
-    comptime STRUCT = Self(1)
-    comptime CONSTRUCT = Self(2)
-    comptime FIELD_ACCESS = Self(3)
-    comptime NAME_REF = Self(4)
-    comptime INIT = Self(5)
-    comptime WORLD_FUNC = Self(6)
-    comptime ENTITY_PARAM = Self(7)
-    comptime RETURN_TYPE = Self(8)
-    comptime PLAIN_STRUCT = Self(9)
-    comptime FOR_ENTITY_LOOP = Self(10)
-    comptime INIT_FROM_JSON = Self(11)
-
-    def __eq__(self, other: Self) -> Bool:
-        return self.value == other.value
-
-    def __ne__(self, other: Self) -> Bool:
-        return self.value != other.value
+from squirrel_compiler.parser.ast import (
+    FieldModifier,
+    Field,
+    TypeParam,
+    ParsedStruct,
+    ConstructField,
+    Construct,
+    FieldAccess,
+    NameRef,
+    EntityParam,
+    MarkerKind,
+)
+from squirrel_compiler.parser.text_utils import (
+    is_ident_char,
+    source_location,
+    line_indent_of,
+    is_after_arrow,
+    is_after_for_keyword,
+    is_after_container_bracket,
+)
+from squirrel_compiler.parser.field_parsing import (
+    parse_fields,
+    unqualify_self_type_params,
+    parse_hand_written_struct_fields,
+)
 
 
 def parse_construct_fields(body: String) raises -> List[ConstructField]:
@@ -849,33 +394,32 @@ struct Scanner(Movable):
         self.pos = save
         return matched
 
-    def find_next_init_call(mut self) -> MarkerKind:
-        """Advances to the start of the next `@@init()`/`@@init_from_json(
-        ...)` call at real-code depth -- used only to *count* occurrences
-        project-wide (`driver.check_single_init_call`, which treats either
-        form as "the one call that obtains `sqrrl__world`" and rejects more
-        than one total), not to parse or consume anything else about the
-        surrounding source, so it doesn't need the full marker-dispatch
-        loop `transform_source` runs. Returns `MarkerKind.NONE` (leaving
-        `self.pos` at the end) if there isn't one, otherwise
-        `MarkerKind.INIT` or `MarkerKind.INIT_FROM_JSON`, whichever
-        matched, with `self.pos` left at its start (matching
-        `find_next_marker`'s own convention) for the caller to parse and
-        consume."""
+    def find_next_declare_call(mut self) -> Bool:
+        """Advances to the start of the next `@@declare()` call at real-code
+        depth -- used only to *count* occurrences project-wide
+        (`driver.check_single_declare_call`, which rejects more than one
+        total: `@@declare()` is the single point that brings `sqrrl__world`
+        into scope for a whole script, via `var sqrrl__world:
+        sqrrl__World`, left deliberately uninitialized until whichever
+        `@@init()`/`@@start_init_from_json(...)` call(s) follow it assign
+        into it -- see `rewrite_markers`'s `MarkerKind.DECLARE` handling),
+        not to parse or consume anything else about the surrounding
+        source, so it doesn't need the full marker-dispatch loop
+        `transform_source` runs. Returns `False` (leaving `self.pos` at the
+        end) if there isn't one, otherwise `True`, with `self.pos` left at
+        its start (matching `find_next_marker`'s own convention) for the
+        caller to parse and consume."""
         while True:
             self.skip_trivia()
             if self.at_end():
-                return MarkerKind.NONE
+                return False
             if self.starts_with("@@"):
                 var marker_start = self.pos
                 self.pos += 2
                 var ident = self.scan_ident()
-                if ident == "init" and self.peek_empty_call_follows():
+                if ident == "declare" and self.peek_empty_call_follows():
                     self.pos = marker_start
-                    return MarkerKind.INIT
-                if ident == "init_from_json":
-                    self.pos = marker_start
-                    return MarkerKind.INIT_FROM_JSON
+                    return True
                 self.pos = marker_start + 2
                 continue
             self.pos += 1
@@ -921,12 +465,16 @@ struct Scanner(Movable):
         name used to abort the *entire* `convert_directory` run the moment
         any `.rel` file declared an ordinary Mojo struct anywhere, since
         that's the only way to declare a non-generated helper type at all.
-        The tradeoff: a relation smuggled through a real (non-shorthand)
-        plain struct's own fields isn't caught by `check_no_relation_cycles`
-        -- accepted, since writing that requires spelling out the
-        underlying generated type (`EntityHandle[sqrrl__PersonTableState]`)
-        by hand, a much more deliberate act than the shorthand form's `@@`
-        sugar. Returns False (leaving `self.pos` at the end) if there isn't
+        A relation smuggled through a real (non-shorthand) plain struct's
+        own fields still isn't caught *here* -- but it isn't invisible to
+        `check_no_relation_cycles` overall either:
+        `driver.discover_hand_written_plain_structs`
+        (`Scanner.find_next_hand_written_plain_struct_decl`/
+        `parse_hand_written_plain_struct`) is the separate pass that
+        covers this form, recovering a hand-written field's own
+        `EntityHandle[sqrrl__PersonTableState]` spelling back to the
+        pseudo `@@Person` shape the cycle graph already understands.
+        Returns False (leaving `self.pos` at the end) if there isn't
         a brace-shorthand one. A generic plain struct's own `[T: Bound,
         ...]` list (if any) sits between the name and the `{`/non-`{`
         that decides shorthand vs hand-written -- skipped here via
@@ -1058,13 +606,15 @@ struct Scanner(Movable):
         """Advances to the start of the next bare `struct Name(...):`/
         `struct Name:` occurrence (not `@@struct`, and not the brace-
         shorthand form `find_next_plain_struct_decl` already handles) -- a
-        *real*, hand-written Mojo struct. Its body is never fully parsed by
-        this compiler (`check_no_relation_cycles` still can't see through
-        one -- see `find_next_plain_struct_decl`'s own doc comment, an
-        accepted, unrelated gap this doesn't change), but `from_json`
-        codegen still needs its field list to serialize/deserialize a
-        field of this type correctly instead of raising at runtime -- see
-        `parse_hand_written_plain_struct`. Returns False (leaving
+        *real*, hand-written Mojo struct. Used by two independent
+        consumers of its body: `driver.build_plain_struct_fields` (so
+        `from_json` codegen knows its field list, to serialize/deserialize
+        a field of this type correctly instead of raising at runtime --
+        see `parse_hand_written_plain_struct`) and
+        `driver.discover_hand_written_plain_structs` (so
+        `check_no_relation_cycles` can see a relation smuggled through
+        one too, closing the gap `find_next_plain_struct_decl`'s own doc
+        comment used to describe as accepted). Returns False (leaving
         `self.pos` at the end) once there are none left."""
         while True:
             self.skip_trivia()
@@ -1181,17 +731,34 @@ struct Scanner(Movable):
         `.destroy()` to fill; a `.rel` script just stops referencing an
         entity when it's done, same as any other Mojo value.
 
-        Five more kinds beyond the original four, all driven by Mojo having
-        no mutable global/static state (see `Table`'s doc comment in
-        `entity.mojo`): `@@init()` (`MarkerKind.INIT`) is the explicit call
-        a script makes to obtain `sqrrl__World`'s shared instance.
-        `@@init_from_json(json)` (`MarkerKind.INIT_FROM_JSON`) is its
-        reload counterpart, obtaining that same shared instance by
-        reconstructing it from a JSON dump (`sqrrl__world_from_json`)
-        instead of building an empty one -- checked *before* the ordinary
-        `@@name(`/`MarkerKind.WORLD_FUNC` case below, since it would
-        otherwise look identical (a `@@`-marked name immediately followed
-        by `(`). `@@name(` (`MarkerKind.WORLD_FUNC`, e.g. `def @@make_department(a:
+        Seven more kinds beyond the original four, all driven by Mojo
+        having no mutable global/static state (see `Table`'s doc comment in
+        `entity.mojo`): `@@declare()` (`MarkerKind.DECLARE`) brings
+        `sqrrl__world` into scope, uninitialized, exactly once per script
+        -- required before any `@@init()`/`@@start_init_from_json(...)`
+        call (see those two immediately below), specifically so a script
+        can choose between them conditionally (`if restoring_from_disk:
+        @@start_init_from_json(dump); else: @@init();`) with Mojo's own
+        definite-initialization checking (not a hand-rolled control-flow
+        analysis here) catching a branch that forgot to initialize it.
+        `@@init()` (`MarkerKind.INIT`) is the explicit call a script makes
+        to obtain `sqrrl__World`'s shared instance. `@@start_init_from_json(json)`
+        (`MarkerKind.START_INIT_FROM_JSON`) is its reload counterpart,
+        obtaining that same shared instance by reconstructing it from a
+        JSON dump (`sqrrl__world_from_json`) instead of building an empty
+        one -- checked *before* the ordinary `@@name(`/`MarkerKind.
+        WORLD_FUNC` case below, since it would otherwise look identical (a
+        `@@`-marked name immediately followed by `(`). Either one may be
+        called any number of times, in any control-flow shape, after
+        `@@declare()` -- each one assigns into the already-declared
+        `sqrrl__world`, dropping whatever it held before (see
+        `rewrite_markers`'s `MarkerKind.INIT`/`START_INIT_FROM_JSON`
+        handling). `@@finalize_init_from_json()`
+        (`MarkerKind.FINALIZE_INIT_FROM_JSON`) drops every entity a prior
+        `@@start_init_from_json(...)` retained only temporarily (see
+        `TempKeepAlives`, `driver.emit_world_module`) -- optional, and
+        valid after either form of `@@init`, not just the reload one (a
+        no-op if there's nothing temporary to drop). `@@name(` (`MarkerKind.WORLD_FUNC`, e.g. `def @@make_department(a:
         Int)` or, at a call site, `@@make_department(x)`) marks a function
         whose *own name* -- not a separate parameter -- signals that it
         needs `sqrrl__world`: a definition gets it auto-inserted as its
@@ -1264,12 +831,18 @@ struct Scanner(Movable):
                     # it so the outer loop makes progress.
                     self.pos = marker_start + 1
                     continue
+                if ident == "declare" and self.peek_empty_call_follows():
+                    self.pos = marker_start
+                    return MarkerKind.DECLARE
                 if ident == "init" and self.peek_empty_call_follows():
                     self.pos = marker_start
                     return MarkerKind.INIT
-                if ident == "init_from_json":
+                if ident == "start_init_from_json":
                     self.pos = marker_start
-                    return MarkerKind.INIT_FROM_JSON
+                    return MarkerKind.START_INIT_FROM_JSON
+                if ident == "finalize_init_from_json" and self.peek_empty_call_follows():
+                    self.pos = marker_start
+                    return MarkerKind.FINALIZE_INIT_FROM_JSON
                 self.skip_trivia()
                 var kind: MarkerKind
                 if self.peek() == UInt8(ord("{")):
@@ -1282,10 +855,24 @@ struct Scanner(Movable):
                     var save_colon = self.pos
                     self.pos += 1
                     self.skip_trivia()
-                    if self.starts_with("@@"):
-                        kind = MarkerKind.ENTITY_PARAM
-                    elif is_after_arrow(self.source, marker_start):
+                    # `is_after_arrow` is checked *before* the "does a `@@`
+                    # follow this colon" test, not after -- `-> @@Type:`
+                    # always ends the `def`/`for` header line, with a
+                    # newline before whatever comes next, so it's never
+                    # itself the start of a genuine same-line `@@name:
+                    # @@Type` shape. Checking `starts_with("@@")` first
+                    # used to misfire when a `@@`-returning function's very
+                    # first body statement happened to start with another
+                    # `@@`-marker (`skip_trivia` crosses the intervening
+                    # newline too, so it would find that *next* marker and
+                    # wrongly conclude *this* one was `@@name: @@Type`
+                    # instead of a return type) -- confirmed via a
+                    # `-> @@Employee:` immediately followed by
+                    # `@@e.title = ...` on the next line.
+                    if is_after_arrow(self.source, marker_start):
                         kind = MarkerKind.RETURN_TYPE
+                    elif self.starts_with("@@"):
+                        kind = MarkerKind.ENTITY_PARAM
                     elif self.at_wrapped_entity_param():
                         kind = MarkerKind.ENTITY_PARAM
                     else:
@@ -1520,6 +1107,21 @@ struct Scanner(Movable):
             index_expr=index_expr,
         )
 
+    def parse_declare(mut self) raises:
+        """Requires `self.pos` at the `@@` of `@@declare()`, e.g. right
+        after `find_next_marker` returns `MarkerKind.DECLARE`. Takes no
+        arguments -- just consumes the token; `rewrite_markers`'s own
+        `MarkerKind.DECLARE` handling is where `var sqrrl__world:
+        sqrrl__World` actually gets emitted."""
+        if not self.try_consume("@@declare"):
+            raise self.err("InvalidSquirrelSyntax: expected '@@declare'")
+        self.skip_trivia()
+        if not self.try_consume("("):
+            raise self.err("InvalidSquirrelSyntax: expected '(' after '@@declare'")
+        self.skip_trivia()
+        if not self.try_consume(")"):
+            raise self.err("InvalidSquirrelSyntax: '@@declare' takes no arguments")
+
     def parse_init(mut self) raises:
         """Requires `self.pos` at the `@@` of `@@init()`, e.g. right after
         `find_next_marker` returns `MarkerKind.INIT`. Takes no arguments --
@@ -1534,23 +1136,23 @@ struct Scanner(Movable):
         if not self.try_consume(")"):
             raise self.err("InvalidSquirrelSyntax: '@@init' takes no arguments")
 
-    def parse_init_from_json(mut self) raises -> String:
-        """Requires `self.pos` at the `@@` of `@@init_from_json(<expr>)`,
+    def parse_start_init_from_json(mut self) raises -> String:
+        """Requires `self.pos` at the `@@` of `@@start_init_from_json(<expr>)`,
         e.g. right after `find_next_marker` returns
-        `MarkerKind.INIT_FROM_JSON` -- `@@init()`'s reload counterpart,
-        taking one `String` argument (a JSON dump, however the caller
-        obtained it: a literal, a variable, a function call, ...) instead
-        of none. Returns that argument's raw text, trimmed, unparsed
+        `MarkerKind.START_INIT_FROM_JSON` -- `@@init()`'s reload
+        counterpart, taking one `String` argument (a JSON dump, however the
+        caller obtained it: a literal, a variable, a function call, ...)
+        instead of none. Returns that argument's raw text, trimmed, unparsed
         otherwise -- codegen splices it straight into
         `sqrrl__world_from_json(sqrrl__JsonScanner(<expr>))`, so whatever
         expression shape Mojo itself accepts there just works, the same
         way `@@Type { ... }` construct field values are never themselves
         parsed as anything but opaque text."""
-        if not self.try_consume("@@init_from_json"):
-            raise self.err("InvalidSquirrelSyntax: expected '@@init_from_json'")
+        if not self.try_consume("@@start_init_from_json"):
+            raise self.err("InvalidSquirrelSyntax: expected '@@start_init_from_json'")
         self.skip_trivia()
         if not self.try_consume("("):
-            raise self.err("InvalidSquirrelSyntax: expected '(' after '@@init_from_json'")
+            raise self.err("InvalidSquirrelSyntax: expected '(' after '@@start_init_from_json'")
         self.skip_trivia()
         var start = self.pos
         var depth = 0
@@ -1568,12 +1170,31 @@ struct Scanner(Movable):
                 depth -= 1
             self.pos += 1
         if self.at_end():
-            raise self.err("InvalidSquirrelSyntax: unterminated '@@init_from_json(...)' call")
+            raise self.err("InvalidSquirrelSyntax: unterminated '@@start_init_from_json(...)' call")
         var raw = String(self.source[byte = start : self.pos]).strip()
         if raw.byte_length() == 0:
-            raise self.err("InvalidSquirrelSyntax: '@@init_from_json' requires one argument")
+            raise self.err("InvalidSquirrelSyntax: '@@start_init_from_json' requires one argument")
         self.pos += 1  # consume ')'
         return String(raw)
+
+    def parse_finalize_init_from_json(mut self) raises:
+        """Requires `self.pos` at the `@@` of `@@finalize_init_from_json()`,
+        e.g. right after `find_next_marker` returns
+        `MarkerKind.FINALIZE_INIT_FROM_JSON`. Takes no arguments -- just
+        consumes the token; codegen (`rewrite_markers`) is where dropping
+        `sqrrl__world`'s temporary reload retention actually happens."""
+        if not self.try_consume("@@finalize_init_from_json"):
+            raise self.err("InvalidSquirrelSyntax: expected '@@finalize_init_from_json'")
+        self.skip_trivia()
+        if not self.try_consume("("):
+            raise self.err(
+                "InvalidSquirrelSyntax: expected '(' after '@@finalize_init_from_json'"
+            )
+        self.skip_trivia()
+        if not self.try_consume(")"):
+            raise self.err(
+                "InvalidSquirrelSyntax: '@@finalize_init_from_json' takes no arguments"
+            )
 
     def parse_world_func(mut self) raises -> String:
         """Requires `self.pos` at the `@@` of `@@name(`, e.g. right after
@@ -1622,247 +1243,3 @@ struct Scanner(Movable):
             raise self.err("InvalidSquirrelSyntax: expected 'in' after 'for @@" + name + "'")
         return name
 
-
-def is_wrapped_relation_type(type_str: String) -> Bool:
-    """True if `type_str` (a `@@struct` field's raw type text, from
-    `Scanner.scan_type`) looks like `Ident[@@Type]` -- e.g.
-    `List[@@Employee]` -- the collection form of a relation field,
-    alongside the existing bare `@@Type` form. Mirrors `EntityParam.wrapper`'s
-    `Container[@@Type]` shape, just written directly as a struct field's
-    type instead of after a `:` in a declaration."""
-    return type_str.find("[@@") > 0 and type_str.endswith("]")
-
-
-def relation_target_of(type_str: String) -> String:
-    """The target type name of a relation field's `type_str`, whether bare
-    (`@@Employee` -> `Employee`) or wrapped (`List[@@Employee]` ->
-    `Employee`). Requires `type_str.startswith("@@")` or
-    `is_wrapped_relation_type(type_str)`."""
-    if type_str.startswith("@@"):
-        return String(type_str[byte=2 : type_str.byte_length()])
-    var start = type_str.find("[@@") + 3
-    return String(type_str[byte=start : type_str.byte_length() - 1])
-
-
-def relation_wrapper_of(type_str: String) -> String:
-    """The container identifier of a wrapped relation field's `type_str`
-    -- `List[@@Employee]` -> `List`. Requires
-    `is_wrapped_relation_type(type_str)`."""
-    return String(type_str[byte=0 : type_str.find("[")])
-
-
-def parse_fields(body: String) raises -> List[Field]:
-    """Splits a `@@struct` body into `name: Type` fields. A relation field's
-    name must itself be `@@`-marked (`@@employee: @@Employee`, not
-    `employee: @@Employee`) so the marking stays consistent between a field's
-    name and its type -- true whether the field is a bare relation
-    (`@@Employee`) or a collection of them (`List[@@Employee]`); the `@@`
-    is stripped from the stored name either way. A field may also be
-    prefixed with the bare `unique` keyword (`unique name: Type`, or
-    `unique @@employee: @@Employee`/`unique @@members: List[@@Employee]`
-    for a relation field -- a collection is `KeyElement` exactly when its
-    element type is, so there's nothing collection-specific to reject
-    here), the `forwardonly` keyword (`forwardonly scores:
-    List[Int]`) -- forcing `ForwardOnlyRel` storage for a field whose type
-    genuinely isn't `KeyElement`, which this parser has no way to detect
-    from raw type text alone (unlike, say, `List[Int]` vs `List[Address]`
-    vs `List[@@Employee]` -- all the same shape, only one of which Mojo
-    would actually reject as a `Rel`/`UniqueRel` field) -- or the `multi`
-    keyword (`multi @@members: @@Employee`), forcing `MultiRel` storage: a
-    genuine many-to-many relation. `multi` is written on the *element*
-    type directly (`@@Employee`, not `List[@@Employee]`) -- the keyword
-    itself already says "many of these"; codegen is what turns the
-    declared element type into the actual `List[EntityHandle[...]]`
-    field, the same direction `List[@@Employee]` unwraps its own element
-    type today, just reversed. `type_str` isn't required to be a bare,
-    unwrapped type here, though -- `multi @@tags: List[@@Category]` is a
-    field where each row can hold several `List[@@Category]` values, no
-    different in kind from `multi`-ing any other element type; nothing
-    about `type_str` looking container-shaped on its own says which case
-    it is. There's also `ordered` (`ordered name: Type`), for a
-    range-queryable field -- see `FieldModifier`. Every keyword is checked
-    with a word-boundary on both sides so a field literally named
-    `unique`/`forwardonlyId`/`multiplier`/`orderedBy` isn't mistaken for
-    one of them; a *second* keyword on the same field is rejected
-    immediately (there's only one `FieldModifier` slot to put it in), not
-    collected and checked pairwise afterward."""
-    var bs = Scanner(body)
-    var fields = List[Field]()
-    while True:
-        bs.skip_trivia()
-        if bs.at_end():
-            break
-
-        var modifier = FieldModifier.NONE
-        var modifier_keyword = String()
-        while True:
-            var next_keyword: String
-            var next_modifier: FieldModifier
-            if bs.starts_with("unique") and not is_ident_char(bs.peek_at(6)):
-                next_keyword = "unique"
-                next_modifier = FieldModifier.UNIQUE
-            elif bs.starts_with("forwardonly") and not is_ident_char(bs.peek_at(11)):
-                next_keyword = "forwardonly"
-                next_modifier = FieldModifier.FORWARD_ONLY
-            elif bs.starts_with("multi") and not is_ident_char(bs.peek_at(5)):
-                next_keyword = "multi"
-                next_modifier = FieldModifier.MULTI
-            elif bs.starts_with("ordered") and not is_ident_char(bs.peek_at(7)):
-                next_keyword = "ordered"
-                next_modifier = FieldModifier.ORDERED
-            else:
-                break
-            if modifier != FieldModifier.NONE:
-                raise bs.err(
-                    "InvalidSquirrelSyntax: a field can't be both '"
-                    + modifier_keyword
-                    + "' and '"
-                    + next_keyword
-                    + "' -- each selects its own, mutually exclusive storage"
-                    " shape"
-                )
-            modifier = next_modifier
-            modifier_keyword = next_keyword
-            bs.pos += next_keyword.byte_length()
-            bs.skip_trivia()
-
-        var name_is_marked = bs.try_consume("@@")
-        var name = bs.scan_ident()
-        if name.byte_length() == 0:
-            raise bs.err("InvalidSquirrelSyntax: expected field name")
-
-        for existing in fields:
-            if existing.name == name:
-                raise bs.err("DuplicateFieldName: " + name)
-
-        bs.skip_trivia()
-        if not bs.try_consume(":"):
-            raise bs.err("InvalidSquirrelSyntax: expected ':' after field name")
-        bs.skip_trivia()
-
-        var type_str = bs.scan_type()
-        if type_str.byte_length() == 0:
-            raise bs.err("InvalidSquirrelSyntax: empty field type")
-
-        var type_is_relation = type_str.startswith("@@") or is_wrapped_relation_type(type_str)
-        if name_is_marked != type_is_relation:
-            raise bs.err(
-                "InvalidSquirrelSyntax: @@ marking must match between field"
-                " name and type"
-            )
-        fields.append(
-            Field(
-                name=name,
-                type_str=type_str,
-                modifier=modifier,
-            )
-        )
-        _ = bs.try_consume(",")
-
-    return fields^
-
-
-def unqualify_self_type_params(type_str: String, type_params: List[TypeParam]) -> String:
-    """Collapses `Self.T` back to bare `T` wherever `T` names one of
-    `type_params`'s own parameters, applied to a generic plain struct's
-    own field types right after parsing -- both a hand-written one
-    (`parse_hand_written_plain_struct`, where `Self.T` is the *only* form
-    real Mojo accepts in its own body) and a shorthand one
-    (`parse_plain_struct`, where an author might still write `Self.T`
-    even though bare `T` is the intended, simpler style there). Either
-    way, the extracted `type_str` feeds `codegen.
-    emit_plain_struct_from_json`'s generated `from_json` companion,
-    always a *free function*, where `Self` doesn't exist at all
-    (confirmed the reverse case -- a free function referencing its own
-    type parameter bare -- compiles and runs correctly with no
-    qualification at all); a literal `Optional[Self.T]` local there
-    wouldn't compile, and for the shorthand case specifically, leaving an
-    already-qualified `Self.T` in place would also get double-qualified
-    right back to `Self.Self.T` when `emit_plain_struct` adds its own
-    `Self.` prefix on the way to generating the struct's own body
-    (confirmed both failure modes directly). No-op when `type_params` is
-    empty, the overwhelmingly common, non-generic case. `codegen.
-    _qualify_type_params_with_self` is the exact reverse, applied when
-    *generating* a struct's own body instead of extracting one already
-    written (by hand, or normalized from shorthand) that might already
-    carry the qualification."""
-    if len(type_params) == 0:
-        return type_str
-    var out = String()
-    var bytes = type_str.as_bytes()
-    var i = 0
-    var n = len(bytes)
-    while i < n:
-        if is_ident_char(bytes[i]):
-            var start = i
-            while i < n and is_ident_char(bytes[i]):
-                i += 1
-            var word = String(type_str[byte = start : i])
-            if word == "Self" and i < n and bytes[i] == UInt8(ord(".")):
-                var after_dot = i + 1
-                var j = after_dot
-                while j < n and is_ident_char(bytes[j]):
-                    j += 1
-                var next_word = String(type_str[byte = after_dot : j])
-                var matched = False
-                for tp in type_params:
-                    if tp.name == next_word:
-                        matched = True
-                        break
-                if matched:
-                    out += next_word
-                    i = j
-                    continue
-            out += word
-        else:
-            out += String(type_str[byte = i : i + 1])
-            i += 1
-    return out^
-
-
-def parse_hand_written_struct_fields(body: String) -> List[Field]:
-    """Best-effort extraction of a hand-written plain struct's own `var
-    name: Type` field declarations from its body -- unlike `parse_fields`
-    (`@@struct`/shorthand-plain-struct syntax: no `var` keyword, `@@`-marked
-    relation fields, comma/newline-terminated types with no method bodies
-    mixed in), a hand-written struct's fields are ordinary, already-valid
-    Mojo (`var name: Type`), and its body can contain arbitrary methods
-    afterward that this parser has no business trying to understand.
-    Stops at the first token that isn't the `var` keyword (matching the
-    universal Mojo convention -- and this project's own `emit_plain_struct`
-    codegen -- of declaring every field before any method), rather than
-    requiring the whole body to consist of field declarations; never
-    raises; a name or type this can't make sense of just stops the scan
-    there; whatever fields were found before that point are still fields
-    it correctly understood. Every field's `type_str` is already a real,
-    concrete Mojo type (no `@@` marking possible here -- a hand-written
-    struct's own relation field, if any, is already spelled out as
-    `EntityHandle[sqrrl__<Name>TableState]` by hand), so `modifier` is
-    always `FieldModifier.NONE` -- `unique`/`forwardonly`/`multi`/`ordered`
-    are relation-table storage concepts with nothing to mean for a plain
-    struct's own value fields."""
-    var bs = Scanner(body)
-    var fields = List[Field]()
-    while True:
-        bs.skip_trivia()
-        if bs.at_end():
-            break
-        if not (bs.starts_with("var") and not is_ident_char(bs.peek_at(3))):
-            break
-        bs.pos += 3
-        bs.skip_trivia()
-        var name = bs.scan_ident()
-        if name.byte_length() == 0:
-            break
-        bs.skip_trivia()
-        if not bs.try_consume(":"):
-            break
-        bs.skip_trivia()
-        var type_str = bs.scan_type()
-        if type_str.byte_length() == 0:
-            break
-        fields.append(Field(name=name, type_str=type_str, modifier=FieldModifier.NONE))
-        bs.skip_trivia()
-        _ = bs.try_consume(",")
-
-    return fields^

@@ -1,0 +1,17 @@
+@@struct @@Test:
+    name: String
+
+def @@testFunc() -> List[@@Test]:
+    var ret = List[@@Test]()
+    ret.append(@@Test { .name = "ex1" })
+    return ret^
+
+def main():
+    @@declare()
+    @@init()
+
+    var @@localList = @@testFunc()
+    for @@l in @@localList:
+        print(@@l.name)
+
+    print(@@localList[0].name)

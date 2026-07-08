@@ -2,7 +2,7 @@ from squirrel_runtime.entity import Table, EntityHandle, EntityInner, TableState
 from squirrel_runtime.rel import Rel, UniqueRel, ForwardOnlyRel, MultiRel, OrderedRel
 from std.collections import Set
 from std.os import abort
-from sqrrl__world import sqrrl__init, sqrrl__World, sqrrl__world_from_json
+from sqrrl__world import sqrrl__init, sqrrl__World, sqrrl__world_from_json, sqrrl__init_from_json
 from sqrrl__json import sqrrl__to_json, sqrrl__from_json
 from squirrel_runtime.json import sqrrl__JsonScanner
 from sqrrl__json import sqrrl__Box_from_json
@@ -32,25 +32,34 @@ from schema.pair import Pair
 from schema.profile import Profile
 from schema.assignment import Assignment
 from logic.factories import sqrrl__make_vendor, sqrrl__make_project, sqrrl__make_department, sqrrl__hire, sqrrl__hire_team, sqrrl__make_team, sqrrl__log
-from squirrel_runtime.json import sqrrl__JsonScanner
 
 
-def promote(mut sqrrl__world: sqrrl__World, e: EntityHandle[sqrrl__EmployeeTableState], new_title: String) -> EntityHandle[sqrrl__EmployeeTableState]:
-    # Ordinary, hand-written Mojo -- not a @@-marked call -- to show a
-    # value can still be retroactively marked afterward.
-    sqrrl__world.Employee.set_title(e, new_title)
-    return e
+def sqrrl__promote(mut sqrrl__world: sqrrl__World, sqrrl__e: EntityHandle[sqrrl__EmployeeTableState], new_title: String) -> EntityHandle[sqrrl__EmployeeTableState]:
+    sqrrl__world.Employee.set_title(sqrrl__e, new_title);
+    return sqrrl__e;
 
 
 def main() raises:
-    # `@@init_from_json(json)` is `@@init()`'s reload counterpart --
+    # `@@declare()` brings `sqrrl__world` into scope, uninitialized --
+    # required once, before any `@@init()`/`@@start_init_from_json(...)`
+    # call, specifically so a script *could* choose between them
+    # conditionally (`if restoring: @@start_init_from_json(dump); else:
+    # @@init();`) with Mojo's own definite-initialization checking
+    # catching a branch that forgot to initialize it, rather than a
+    # hand-rolled control-flow analysis in this compiler.
+    var sqrrl__world = sqrrl__init();
+    # `@@start_init_from_json(json)` is `@@init()`'s reload counterpart --
     # obtains the same shared `sqrrl__world` binding, but by reconstructing
     # it from a JSON dump instead of building an empty one. A real app
     # would pass in a previously-saved dump; an empty object bootstraps an
     # empty world exactly like `@@init()` would, just by going through the
     # JSON-parsing path for real instead of skipping it.
     var seed = String("{}");
-    var sqrrl__scanner = sqrrl__JsonScanner(seed); var sqrrl__world = sqrrl__world_from_json(sqrrl__scanner);
+    sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init_from_json(seed);
+    # Nothing temporary to drop yet (`seed` is an empty world), but
+    # `@@finalize_init_from_json()` is valid right away regardless --
+    # a no-op here, exercised for real below on the whole-world reload.
+    sqrrl__world.sqrrl__finalize_temp_keep_alives();
 
     # ---- deep dependency chain: Vendor -> Project -> Department -> Employee -> Person -> Team ----
     var sqrrl__acme = sqrrl__make_vendor(sqrrl__world, "Acme Supplies");
@@ -119,9 +128,8 @@ def main() raises:
     for sqrrl__p in  sqrrl__world.Project.for_priority_between(1, 3):
         print("project in priority range:", sqrrl__world.Project.get_name(sqrrl__p));
 
-    var raw = promote(sqrrl__world, sqrrl__bob_emp, "Senior Sales Rep");
-    var sqrrl__promoted_bob: EntityHandle[sqrrl__EmployeeTableState] = raw;
-    print("bob's new title (retroactively marked):", sqrrl__world.Employee.get_title(sqrrl__promoted_bob));
+    var sqrrl__promoted_bob = sqrrl__promote(sqrrl__world, sqrrl__bob_emp, "Senior Sales Rep");
+    print("bob's new title:", sqrrl__world.Employee.get_title(sqrrl__promoted_bob));
 
     var tags = List[String]();
     tags.append("fast-paced");
@@ -164,6 +172,16 @@ def main() raises:
     profile.nicknames.value().append("Ali");
     profile.rating = Box[UInt32](5);
     profile.coordinates = Pair[Int, Int](10, -3);
+    # A container wrapping a bare, non-generic plain struct, and one
+    # wrapping a generic plain struct's own instantiation -- both used to
+    # fail from_json the moment they round-tripped through JSON (no
+    # sqrrl__from_json[T] dispatch branch existed for the element type),
+    # since list_from_json[X]'s own recursion into sqrrl__from_json[X] has
+    # no way to special-case X at codegen time.
+    profile.past_addresses.append(Address("10 Birch Rd", "Capital City"));
+    profile.past_addresses.append(Address("22 Cedar Ln", "Ogdenville"));
+    profile.boxed_ratings.append(Box[UInt32](3));
+    profile.boxed_ratings.append(Box[UInt32](4));
     sqrrl__world.Employee.set_profile(sqrrl__alice_emp, profile);
 
     var got_profile = sqrrl__world.Employee.get_profile(sqrrl__alice_emp);
@@ -173,44 +191,30 @@ def main() raises:
     print("alice's rating (generic Box[UInt32]):", got_profile.rating.value);
     print("alice's coordinates (generic Pair[Int, Int]):", got_profile.coordinates.first, got_profile.coordinates.second);
     print("alice's nickname count (Optional[List[String]]):", len(got_profile.nicknames.value()));
+    print("alice's past address count (List[Address]):", len(got_profile.past_addresses));
+    print("alice's first past address city:", got_profile.past_addresses[0].city);
+    print("alice's boxed rating count (List[Box[UInt32]]):", len(got_profile.boxed_ratings));
+    print("alice's first boxed rating:", got_profile.boxed_ratings[0].value);
 
     # ---- per-entity JSON round trip ----
-    # Project has no `unique` field, so reconstructing a second copy
-    # alongside the still-live original is unremarkable.
-    var project_json = sqrrl__world.Project.to_json(sqrrl__website);
-    print("website as json:", project_json);
-    var sc = sqrrl__JsonScanner(project_json);
-    var sqrrl__rebuilt_website = sqrrl__world.Project.from_json(sqrrl__world.Vendor, sc);
-    print("rebuilt website's name:", sqrrl__world.Project.get_name(sqrrl__rebuilt_website));
-    print("rebuilt website's priority:", sqrrl__world.Project.get_priority(sqrrl__rebuilt_website));
-
-    # Employee's own `unique email` still enforces its constraint through
-    # `from_json`, exactly like `create` -- reconstructing alice's JSON
-    # while the original @@alice_emp is still alive (it is: @@alice.@@job
-    # holds it) raises the same `UniqueConstraintViolation` a duplicate
-    # `create` would.
-    var employee_json = sqrrl__world.Employee.to_json(sqrrl__alice_emp);
-    print("alice as json:", employee_json);
-    var sc2 = sqrrl__JsonScanner(employee_json);
-    try:
-        var sqrrl__rebuilt_alice = sqrrl__world.Employee.from_json(sqrrl__world.Department, sc2);
-        print("ERROR: expected UniqueConstraintViolation, got", sqrrl__world.Employee.get_title(sqrrl__rebuilt_alice));
-    except e:
-        print("reconstructing alice while the original lives raised:", e);
-
-    # ---- whole-world JSON round trip -- `sqrrl__world` itself, threaded
-    # by hand, since to_json/sqrrl__world_from_json aren't @@-marked
-    # constructs (see ADVANCED_FEATURES.md). ----
+    # ---- whole-world JSON round trip, reusing `sqrrl__world` itself --
+    # the dump has to happen *before* every entity built above has its
+    # actual last mention (the "keep alive" print just below): Mojo's own
+    # ASAP destruction drops a local var right after its last textual use,
+    # regardless of what unrelated statements come later in the function,
+    # so `sqrrl__world.to_json()` called *after* that print would see an
+    # empty world -- confirmed empirically (every count read back as 0
+    # until this was reordered). Once the dump is taken and "keep alive"
+    # has run, nothing is left referencing the current world, so
+    # `@@start_init_from_json(...)` can safely replace it in place (see
+    # `sqrrl__check_no_leaks`/`@@declare()`'s own doc comments) -- no need
+    # to hand-thread a second, independent `sqrrl__World` the way
+    # ADVANCED_FEATURES.md's escape hatch would. `sqrrl__world.to_json()`
+    # is still the one unavoidably `sqrrl__`-prefixed call here -- there's
+    # no `@@`-marked sugar for "dump the current world," only for the
+    # reload half.
     var world_json = sqrrl__world.to_json();
     print("whole world byte length:", world_json.byte_length());
-    var sc3 = sqrrl__JsonScanner(world_json);
-    var reloaded = sqrrl__world_from_json(sc3);
-    print("reloaded department count:", len(reloaded.Department.all()));
-    print("reloaded employee count:", len(reloaded.Employee.all()));
-    var reloaded_alice = reloaded.Employee.for_email("alice@example.com");
-    print("reloaded alice's dept:", reloaded.Department.get_name(reloaded.Employee.get_dept(reloaded_alice)));
-    print("reloaded alice's rating survived:", reloaded.Employee.get_profile(reloaded_alice).rating.value);
-    print("reloaded audit log count:", len(reloaded.AuditLog.all()));
 
     print(
         "keep alive:",
@@ -220,3 +224,24 @@ def main() raises:
         sqrrl__world.Employee.get_title(sqrrl__found_by_email), sqrrl__world.Project.get_name(sqrrl__website), sqrrl__world.Project.get_name(sqrrl__onboarding),
         sqrrl__world.Team.get_name(sqrrl__platform_team),
     );
+
+    sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init_from_json(world_json);
+    print("reloaded department count:", len(sqrrl__world.Department.all()));
+    print("reloaded employee count:", len(sqrrl__world.Employee.all()));
+    var sqrrl__reloaded_alice = sqrrl__world.Employee.for_email("alice@example.com");
+    print("reloaded alice's dept:", sqrrl__world.Department.get_name(sqrrl__world.Employee.get_dept(sqrrl__reloaded_alice)));
+    print("reloaded alice's rating survived:", sqrrl__world.Employee.get_profile(sqrrl__reloaded_alice).rating.value);
+    print("reloaded audit log count:", len(sqrrl__world.AuditLog.all()));
+
+    # `@@reloaded_alice` is a real, independently-held handle now --
+    # everything else `@@start_init_from_json(...)` only retained
+    # *temporarily* (`TempKeepAlives`, see README's "JSON serialization"
+    # section) can be dropped in one shot via `@@finalize_init_from_json()`.
+    # Department count drops from 2 to 1 -- `sales` (Bob/Carol/Dave's own
+    # department, nothing here still references) goes with the drop; `eng`
+    # survives, kept alive transitively through `@@reloaded_alice`'s own
+    # `dept` relation field, since she's referenced again below.
+    print("reloaded department count before finalize:", len(sqrrl__world.Department.all()));
+    sqrrl__world.sqrrl__finalize_temp_keep_alives();
+    print("reloaded department count after finalize:", len(sqrrl__world.Department.all()));
+    print("reloaded alice's title survives finalize:", sqrrl__world.Employee.get_title(sqrrl__reloaded_alice));

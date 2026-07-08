@@ -10,6 +10,8 @@ from squirrel_compiler.parser import (
     is_wrapped_relation_type,
     relation_target_of,
     relation_wrapper_of,
+    TypeExpr,
+    parse_type_expr,
 )
 
 
@@ -404,6 +406,108 @@ def test_find_next_marker_ignores_markers_in_hash_comments() raises:
     var fa = sc.parse_field_access()
     assert_equal(fa.entity, String("carol"))
     assert_equal(fa.field, String("title"))
+
+
+def test_parse_type_expr_leaf() raises:
+    var t = parse_type_expr("String")
+    assert_true(t.kind == TypeExpr.LEAF)
+    assert_equal(t.name, String("String"))
+    assert_true(t.arg_count() == 0)
+    assert_equal(t.render(), String("String"))
+
+
+def test_parse_type_expr_relation() raises:
+    var t = parse_type_expr("@@Employee")
+    assert_true(t.is_relation())
+    assert_equal(t.name, String("Employee"))
+    assert_equal(t.render(), String("@@Employee"))
+
+
+def test_parse_type_expr_container_of_leaf() raises:
+    var t = parse_type_expr("List[String]")
+    assert_true(t.is_parameterized())
+    assert_equal(t.name, String("List"))
+    assert_true(t.arg_count() == 1)
+    assert_true(t.arg(0).kind == TypeExpr.LEAF)
+    assert_equal(t.arg(0).name, String("String"))
+    assert_equal(t.render(), String("List[String]"))
+
+
+def test_parse_type_expr_container_of_relation() raises:
+    """`List[@@Employee]` -- the collection form of a relation field --
+    parses to a `PARAMETERIZED` `List` wrapping a `RELATION` element, not
+    a `RELATION` itself: only the bare `@@Employee` form is `is_relation()`."""
+    var t = parse_type_expr("List[@@Employee]")
+    assert_true(t.is_parameterized())
+    assert_equal(t.name, String("List"))
+    assert_false(t.is_relation())
+    assert_true(t.arg(0).is_relation())
+    assert_equal(t.arg(0).name, String("Employee"))
+    assert_equal(t.render(), String("List[@@Employee]"))
+
+
+def test_parse_type_expr_deeply_nested_container() raises:
+    """`Optional[List[String]]` -- doubly-nested containers -- recurses
+    correctly at every level."""
+    var t = parse_type_expr("Optional[List[String]]")
+    assert_equal(t.name, String("Optional"))
+    var inner = t.arg(0)
+    assert_true(inner.is_parameterized())
+    assert_equal(inner.name, String("List"))
+    assert_equal(inner.arg(0).name, String("String"))
+    assert_equal(t.render(), String("Optional[List[String]]"))
+
+
+def test_parse_type_expr_dict_two_args() raises:
+    """`Dict[K, V]`'s own two type arguments, unlike every other
+    container's one, both parse as independent `args` entries."""
+    var t = parse_type_expr("Dict[String, UInt32]")
+    assert_equal(t.name, String("Dict"))
+    assert_true(t.arg_count() == 2)
+    assert_equal(t.arg(0).name, String("String"))
+    assert_equal(t.arg(1).name, String("UInt32"))
+    assert_equal(t.render(), String("Dict[String, UInt32]"))
+
+
+def test_parse_type_expr_dict_with_nested_container_value() raises:
+    """`Dict[String, List[Int]]` -- a comma-separated argument that's
+    itself bracketed mustn't split on its own inner comma."""
+    var t = parse_type_expr("Dict[String, List[Int]]")
+    assert_true(t.arg_count() == 2)
+    assert_equal(t.arg(0).name, String("String"))
+    assert_true(t.arg(1).is_parameterized())
+    assert_equal(t.arg(1).name, String("List"))
+    assert_equal(t.arg(1).arg(0).name, String("Int"))
+
+
+def test_parse_type_expr_generic_plain_struct_instantiation() raises:
+    """A generic plain struct's own instantiation (`Box[UInt32]`,
+    `Pair[Int, Int]`) parses the same `PARAMETERIZED` shape a real
+    container does -- distinguishing the two is a caller's own concern
+    (checking `name` against the known container names), not something
+    `TypeExpr` itself needs to decide."""
+    var box = parse_type_expr("Box[UInt32]")
+    assert_equal(box.name, String("Box"))
+    assert_equal(box.arg(0).name, String("UInt32"))
+
+    var pair = parse_type_expr("Pair[Int, Int]")
+    assert_equal(pair.name, String("Pair"))
+    assert_true(pair.arg_count() == 2)
+
+
+def test_parse_type_expr_generic_instantiation_of_container() raises:
+    """A generic plain struct field embedding a container of its own type
+    parameter (`Box[List[String]]`, mirroring `Profile`'s own `rating:
+    Box[UInt32]` alongside a container field) still recurses correctly --
+    the `PARAMETERIZED` shape doesn't care whether its own argument is a
+    leaf, a relation, or another `PARAMETERIZED` node."""
+    var t = parse_type_expr("Box[List[String]]")
+    assert_equal(t.name, String("Box"))
+    var inner = t.arg(0)
+    assert_true(inner.is_parameterized())
+    assert_equal(inner.name, String("List"))
+    assert_equal(inner.arg(0).name, String("String"))
+    assert_equal(t.render(), String("Box[List[String]]"))
 
 
 def main() raises:

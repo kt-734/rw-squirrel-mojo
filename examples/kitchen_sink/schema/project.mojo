@@ -19,11 +19,9 @@ struct sqrrl__ProjectTableState(TableStateLike, Movable, ImplicitlyDeletable):
 
 struct sqrrl__ProjectTable(Movable):
     var table: Table[sqrrl__ProjectTableState]
-    var keepalive: Set[EntityHandle[sqrrl__ProjectTableState]]
 
     def __init__(out self):
         self.table = Table[sqrrl__ProjectTableState](sqrrl__ProjectTableState())
-        self.keepalive = Set[EntityHandle[sqrrl__ProjectTableState]]()
 
     def create(mut self, name: String) -> EntityHandle[sqrrl__ProjectTableState]:
         var e = self.table.create()
@@ -37,13 +35,6 @@ struct sqrrl__ProjectTable(Movable):
 
     def all(self) -> Set[EntityHandle[sqrrl__ProjectTableState]]:
         return self.table.all()
-
-    def dont_keepalive(mut self, e: EntityHandle[sqrrl__ProjectTableState]) -> Bool:
-        try:
-            self.keepalive.remove(e)
-            return True
-        except:
-            return False
 
     def get_name(self, e: EntityHandle[sqrrl__ProjectTableState]) -> String:
         var got = self.table.state[].state.name.get_fwd(e.id())
@@ -59,13 +50,13 @@ struct sqrrl__ProjectTable(Movable):
             out.append(self.table.handle_for(id))
         return out^
 
-    def to_json(self, e: EntityHandle[sqrrl__ProjectTableState]) -> String:
+    def sqrrl__to_json(self, e: EntityHandle[sqrrl__ProjectTableState]) -> String:
         var out = String("{")
         out += "\"name\":" + sqrrl__to_json(self.get_name(e))
         out += "}"
         return out^
 
-    def from_json(mut self, mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__ProjectTableState]:
+    def sqrrl__from_json(mut self, mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__ProjectTableState]:
         var sqrrl__parsed_name: Optional[String] = None
         sc.expect_byte(UInt8(ord("{")))
         if not sc.try_consume_byte(UInt8(ord("}"))):
@@ -95,18 +86,18 @@ struct sqrrl__ProjectTable(Movable):
                 break
         return self.sqrrl__create_with_id(sqrrl__id, sqrrl__parsed_name.take())
 
-    def all_to_json(self) -> String:
+    def sqrrl__all_to_json(self) -> String:
         var out = String("[")
         var sqrrl__first = True
         for sqrrl__e in self.all():
             if not sqrrl__first:
                 out += ","
             sqrrl__first = False
-            out += "[" + String(sqrrl__e.id()) + "," + self.to_json(sqrrl__e) + "]"
+            out += "[" + String(sqrrl__e.id()) + "," + self.sqrrl__to_json(sqrrl__e) + "]"
         out += "]"
         return out^
 
-    def all_from_json(mut self, mut sc: sqrrl__JsonScanner) raises:
+    def sqrrl__all_from_json(mut self, mut sqrrl__temp: List[EntityHandle[sqrrl__ProjectTableState]], mut sc: sqrrl__JsonScanner) raises:
         sc.expect_byte(UInt8(ord("[")))
         if not sc.try_consume_byte(UInt8(ord("]"))):
             while True:
@@ -114,7 +105,7 @@ struct sqrrl__ProjectTable(Movable):
                 var sqrrl__id = UInt32(sc.parse_json_int())
                 sc.expect_byte(UInt8(ord(",")))
                 var sqrrl__e = self.sqrrl__from_json_with_id(sqrrl__id, sc)
-                self.keepalive.add(sqrrl__e^)
+                sqrrl__temp.append(sqrrl__e^)
                 sc.expect_byte(UInt8(ord("]")))
                 if sc.try_consume_byte(UInt8(ord(","))):
                     continue

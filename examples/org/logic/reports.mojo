@@ -2,7 +2,7 @@ from squirrel_runtime.entity import Table, EntityHandle, EntityInner, TableState
 from squirrel_runtime.rel import Rel, UniqueRel, ForwardOnlyRel, MultiRel, OrderedRel
 from std.collections import Set
 from std.os import abort
-from sqrrl__world import sqrrl__init, sqrrl__World, sqrrl__world_from_json
+from sqrrl__world import sqrrl__init, sqrrl__World, sqrrl__world_from_json, sqrrl__init_from_json
 from schema.person import sqrrl__PersonTableState
 
 

@@ -1,0 +1,43 @@
+.hero {
+  padding: 2rem 0 1rem;
+  text-align: center;
+}
+
+.hero h1 {
+  font-size: 2.2rem;
+  margin-bottom: 0.75rem;
+}
+
+.hero p {
+  max-width: 40rem;
+  margin: 0.75rem auto;
+  font-size: 1.05rem;
+}
+
+.hero .md-button {
+  margin: 0.3rem;
+}
+
+.hero--footer {
+  margin-top: 2rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+}
+
+.md-typeset .grid {
+  display: grid;
+  grid-gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  margin: 1.5rem 0;
+}
+
+.md-typeset .grid.cards > :is(ul, ol) {
+  display: contents;
+}
+
+.md-typeset .grid.cards > div,
+.md-typeset .grid > div {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.4rem;
+  padding: 1rem 1.2rem;
+}

@@ -96,7 +96,7 @@ def test_emits_to_json_calling_sqrrl_to_json_per_field() raises:
     var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
 
     assert_true(
-        "def to_json(self, e: EntityHandle[sqrrl__PersonTableState]) -> String:" in out
+        "def sqrrl__to_json(self, e: EntityHandle[sqrrl__PersonTableState]) -> String:" in out
     )
     assert_true('out += "\\"name\\":" + sqrrl__to_json(self.get_name(e))' in out)
     assert_true('out += ","' in out)
@@ -120,7 +120,7 @@ def test_emit_table_from_json_uses_create() raises:
     )
 
     assert_true(
-        "def from_json(mut self, mut sc: sqrrl__JsonScanner) raises ->"
+        "def sqrrl__from_json(mut self, mut sc: sqrrl__JsonScanner) raises ->"
         " EntityHandle[sqrrl__PersonTableState]:" in out
     )
     assert_true("var sqrrl__parsed_name: Optional[String] = None" in out)
@@ -148,7 +148,7 @@ def test_emit_table_from_json_handles_bare_relation_field() raises:
     )
 
     assert_true(
-        "def from_json(mut self, mut sqrrl__tbl_Department: sqrrl__DepartmentTable,"
+        "def sqrrl__from_json(mut self, mut sqrrl__tbl_Department: sqrrl__DepartmentTable,"
         " mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__EmployeeTableState]:"
         in out
     )
@@ -201,7 +201,7 @@ def test_emit_table_from_json_handles_transitive_plain_struct_relation() raises:
     var out = emit_table_json_methods(sc.parse_struct(), "sqrrl__ReportTableState", plain_fields)
 
     assert_true(
-        "def from_json(mut self, mut sqrrl__tbl_Employee: sqrrl__EmployeeTable,"
+        "def sqrrl__from_json(mut self, mut sqrrl__tbl_Employee: sqrrl__EmployeeTable,"
         " mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__ReportTableState]:"
         in out
     )
@@ -346,7 +346,7 @@ def test_emit_from_json_field_parse_routes_generic_instantiation_by_name() raise
 def test_emit_json_module_leaf_dispatch() raises:
     """`sqrrl__to_json`/`sqrrl__from_json`'s leaf branches are fixed --
     independent of any project-specific `container_types`."""
-    var out = emit_json_module(List[String]())
+    var out = emit_json_module(List[String](), List[String]())
 
     assert_true("def sqrrl__to_json[T: AnyType](value: T) -> String:" in out)
     assert_true("comptime if T == String:" in out)
@@ -372,7 +372,7 @@ def test_emit_json_module_enumerates_container_types() raises:
     var types = List[String]()
     types.append("List[String]")
     types.append("Set[UInt32]")
-    var out = emit_json_module(types)
+    var out = emit_json_module(types, List[String]())
 
     assert_true("elif T == List[String]:" in out)
     assert_true("return list_to_json(rebind[List[String]](value).copy())" in out)
@@ -394,13 +394,46 @@ def test_emit_json_module_generates_dict_helpers() raises:
     into it correctly."""
     var types = List[String]()
     types.append("Dict[String, UInt32]")
-    var out = emit_json_module(types)
+    var out = emit_json_module(types, List[String]())
 
     assert_true("elif T == Dict[String, UInt32]:" in out)
     assert_true("return dict_to_json(rebind[Dict[String, UInt32]](value).copy())" in out)
     assert_true(
         "return rebind[T](dict_from_json[String, UInt32](sc)).copy()" in out
     )
+
+
+def test_emit_json_module_generates_plain_struct_dispatch_for_bare_name() raises:
+    """A non-generic plain struct reached in a position that needs the
+    shared dispatcher (a container's own element, or a generic plain
+    struct's own bare type-parameter field, see
+    `driver.build_json_container_types`'s own doc comment) gets a
+    `sqrrl__from_json[T]` branch routing to its own
+    `sqrrl__<Name>_from_json` companion, no type arguments -- this is
+    what closes the "plain struct nested inside a container" gap:
+    without it, `list_from_json[Address]`'s own internal
+    `sqrrl__from_json[Address](sc)` call had no dispatch branch to reach
+    at all."""
+    var dispatch_types = List[String]()
+    dispatch_types.append("Address")
+    var out = emit_json_module(List[String](), dispatch_types)
+
+    assert_true("elif T == Address:" in out)
+    assert_true("return rebind[T](sqrrl__Address_from_json(sc)).copy()" in out)
+
+
+def test_emit_json_module_generates_plain_struct_dispatch_for_generic_instantiation() raises:
+    """A generic plain struct's own concrete instantiation (`Box[String]`)
+    reached the same way forwards its own type argument(s) explicitly to
+    `sqrrl__<Name>_from_json[<args>]`, the same call shape
+    `_emit_from_json_field_parse` already uses for a *direct* generic
+    instantiation field."""
+    var dispatch_types = List[String]()
+    dispatch_types.append("Box[String]")
+    var out = emit_json_module(List[String](), dispatch_types)
+
+    assert_true("elif T == Box[String]:" in out)
+    assert_true("return rebind[T](sqrrl__Box_from_json[String](sc)).copy()" in out)
 
 
 def test_emit_json_module_skips_from_json_for_relation_containers() raises:
@@ -411,7 +444,7 @@ def test_emit_json_module_skips_from_json_for_relation_containers() raises:
     per-struct instead (see `emit_squirrel_from_json_method`)."""
     var types = List[String]()
     types.append("List[EntityHandle[sqrrl__EmployeeTableState]]")
-    var out = emit_json_module(types)
+    var out = emit_json_module(types, List[String]())
 
     assert_true("elif T == List[EntityHandle[sqrrl__EmployeeTableState]]:" in out)
     assert_true(
@@ -699,28 +732,27 @@ def test_multi_plain_field_uses_element_type_not_list() raises:
     )
 
 
-def test_all_generated_unconditionally() raises:
-    """Every struct gets `all()`, `keepalive`, and `dont_keepalive`,
-    whether or not it's `keepalive`-tagged. `all()` is a thin delegate to
-    `Table.all()` (which walks the id allocator directly, not any one
-    field's own index). `keepalive`/`dont_keepalive` exist on every table
-    too, not just `keepalive`-tagged ones -- `sqrrl__world_from_json`
-    relies on a *non*-tagged table's own `keepalive` set to retain
-    whatever it reconstructs (see `driver.emit_world_module`). Only
-    `create`'s own automatic `self.keepalive.add(...)` stays conditional
-    on `is_keepalive` -- a non-tagged struct's own `create` never touches
-    its (still-present) `keepalive` set on its own."""
+def test_all_generated_unconditionally_but_keepalive_is_not() raises:
+    """`all()` is generated for every struct regardless of `is_keepalive`
+    -- a thin delegate to `Table.all()` (which walks the id allocator
+    directly, not any one field's own index). `keepalive`/`dont_keepalive`,
+    by contrast, are generated *only* for a `keepalive`-tagged struct (see
+    `test_keepalive_struct_gets_keepalive_field_and_dont_keepalive`) --
+    reload's own temporary retention of a non-tagged struct's
+    reconstructed entities lives in `TempKeepAlives`
+    (`driver.emit_world_module`) instead, deliberately kept off the
+    individual table's own `keepalive` set."""
     var sc = Scanner("@@struct @@Foo:\n    name: String\n")
     assert_true(sc.find_next_struct_decl())
     var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
 
     assert_true("def all(self) -> Set[EntityHandle[sqrrl__FooTableState]]:" in out)
     assert_true("return self.table.all()" in out)
-    assert_true("var keepalive: Set[EntityHandle[sqrrl__FooTableState]]" in out)
+    assert_true("var keepalive: Set[EntityHandle[sqrrl__FooTableState]]" not in out)
     assert_true(
-        "def dont_keepalive(mut self, e: EntityHandle[sqrrl__FooTableState]) -> Bool:" in out
+        "def dont_keepalive(mut self, e: EntityHandle[sqrrl__FooTableState]) -> Bool:" not in out
     )
-    assert_true("self.keepalive.add(e.copy())" not in out)
+    assert_true("self.keepalive" not in out)
 
 
 def test_keepalive_struct_gets_keepalive_field_and_dont_keepalive() raises:
@@ -729,11 +761,11 @@ def test_keepalive_struct_gets_keepalive_field_and_dont_keepalive() raises:
     `TableState` would create a self-cycle (each kept-alive handle's own
     `ArcPointer` points back at the very `TableStorage` holding the set that
     holds it), leaking the whole table forever the moment anything was kept
-    alive. Every table gets this field regardless of `is_keepalive` (see
-    `test_all_generated_unconditionally`) -- what's specific to `keepalive`
-    is `create` adding every new entity to it *automatically*.
-    `dont_keepalive` is the opt-out, releasing one back to ordinary
-    refcounted lifetime."""
+    alive. Only a `keepalive`-tagged struct's own table gets this field at
+    all (see `test_all_generated_unconditionally_but_keepalive_is_not`) --
+    what's specific to `keepalive` beyond that is `create` adding every new
+    entity to it *automatically*. `dont_keepalive` is the opt-out,
+    releasing one back to ordinary refcounted lifetime."""
     var sc = Scanner("@@struct keepalive @@Foo:\n    name: String\n")
     assert_true(sc.find_next_struct_decl())
     var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
@@ -768,12 +800,14 @@ def test_transform_source_rewrites_construct_through_world() raises:
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@alice = @@Person { .name = "alice" };\n'
         '    var @@bob = @@Person { .name = "bob" };\n'
     )
     var out = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true("var sqrrl__world = sqrrl__init();" in out)
+    assert_true("sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init();" in out)
     assert_true('var sqrrl__alice = sqrrl__world.Person.create(name = "alice");' in out)
     assert_true('var sqrrl__bob = sqrrl__world.Person.create(name = "bob");' in out)
 
@@ -789,6 +823,7 @@ def test_transform_source_rejects_at_marked_variable_with_unmarked_construct() r
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@alice = Person { .name = "alice" };\n'
     )
@@ -801,6 +836,7 @@ def test_transform_source_rewrites_field_read_and_write() raises:
         "@@struct @@Person:\n    name: String\n    age: UInt32\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@alice = @@Person { .name = "alice", .age = 30 };\n'
         "    @@alice.age = 31;\n"
@@ -832,6 +868,7 @@ def test_transform_source_rewrites_single_hop_chain() raises:
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
         "    print(@@alice.@@employee.title);\n"
@@ -855,6 +892,7 @@ def test_transform_source_rewrites_multi_hop_chain() raises:
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
         "    print(@@alice.@@employee.@@boss.name);\n"
@@ -883,6 +921,7 @@ def test_transform_source_rewrites_instance_call_without_get_prefix() raises:
         "@@struct @@Department:\n    name: String\n    multi @@projects: @@Project\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@eng = @@Department { .name = "Engineering", .@@projects = Set[@@Project]() };\n'
         '    var @@website = @@Project { .name = "Website" };\n'
@@ -911,6 +950,7 @@ def test_transform_source_rewrites_nested_entity_reference_in_construct() raises
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@bob = @@Employee { .title = "engineer" };\n'
         '    var @@alice = @@Person { .name = "alice", .@@employee = @@bob };\n'
@@ -929,6 +969,7 @@ def test_transform_source_rewrites_nested_construct_in_construct() raises:
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@alice = @@Person { .name = "alice", .@@employee = @@Employee { .title = "engineer" } };\n'
     )
@@ -948,6 +989,7 @@ def test_transform_source_rewrites_marker_embedded_in_plain_field_value() raises
         "@@struct @@Person:\n    name: String\n    home: Address\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@dept = @@Department { .name = "Engineering" };\n'
         '    var @@alice = @@Person { .name = "alice", .home = Address(@@dept.name) };\n'
@@ -967,6 +1009,7 @@ def test_transform_source_rejects_unmarked_relation_field_in_construct() raises:
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@alice = @@Person { .name = "alice", .employee = bob };\n'
     )
@@ -979,6 +1022,7 @@ def test_transform_source_rejects_at_marked_plain_field_in_construct() raises:
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@alice = @@Person { .@@name = "alice" };\n'
     )
@@ -993,6 +1037,7 @@ def test_transform_source_rejects_unknown_relation_hop() raises:
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
         "    print(@@alice.@@manager.title);\n"
@@ -1009,6 +1054,7 @@ def test_transform_source_threads_entity_across_functions() raises:
         "    print(@@subject.name);\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@alice = @@Person { .name = "alice" };\n'
         "    @@print_name(@@alice);\n"
@@ -1028,6 +1074,7 @@ def test_transform_source_rejects_entity_param_syntax_outside_signature() raises
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    @@alice: @@Person;\n"
     )
@@ -1040,6 +1087,7 @@ def test_transform_source_rejects_field_access_on_unconstructed_entity() raises:
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    print(@@alice.name);\n"
     )
@@ -1058,11 +1106,122 @@ def test_transform_source_rejects_construct_without_world() raises:
         _ = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
 
 
+def test_transform_source_rejects_init_without_declare() raises:
+    """`@@init()` (and, symmetrically, `@@start_init_from_json(...)`) needs
+    `@@declare()` to have already brought `sqrrl__world` into scope in this
+    same function -- without it there's no `var sqrrl__world` for the bare
+    assignment `@@init()` desugars to, to assign into."""
+    var source = String(
+        "def main() raises:\n"
+        "    @@init();\n"
+    )
+    with assert_raises(contains="needs '@@declare()'"):
+        _ = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
+
+
+def test_transform_source_rejects_double_declare() raises:
+    """`@@declare()` twice in the same function is rejected -- `sqrrl__world`
+    only needs declaring once; a second `var sqrrl__world: sqrrl__World`
+    would be a redeclaration."""
+    var source = String(
+        "def main() raises:\n"
+        "    @@declare();\n"
+        "    @@declare();\n"
+    )
+    with assert_raises(contains="already called"):
+        _ = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
+
+
+def test_transform_source_allows_conditional_init_after_declare() raises:
+    """The whole point of `@@declare()`: it lets a script choose between
+    `@@init()` and `@@start_init_from_json(...)` conditionally, something
+    neither form could do on its own (each used to declare `sqrrl__world`
+    itself, so whichever branch ran second would try to redeclare a name
+    already out of scope from its sibling branch). `@@declare()` emits a
+    real, live, empty `var sqrrl__world = sqrrl__init()` up front, so
+    there's no "uninitialized on some path" state to worry about at all --
+    each branch's `@@init()`/`@@start_init_from_json(...)` is just a bare
+    assignment (preceded by a `sqrrl__check_no_leaks()` call verifying the
+    about-to-be-replaced world -- still the declare-time empty one here --
+    is safe to discard)."""
+    var source = String(
+        "@@struct @@Person:\n    name: String\n\n"
+        "\n"
+        "def main(dump: String, restore: Bool) raises:\n"
+        "    @@declare();\n"
+        "    if restore:\n"
+        "        @@start_init_from_json(dump);\n"
+        "    else:\n"
+        "        @@init();\n"
+        '    var @@alice = @@Person { .name = "alice" };\n'
+    )
+    var out = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
+    assert_true("var sqrrl__world = sqrrl__init();" in out)
+    assert_true(
+        "sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world ="
+        " sqrrl__init_from_json(dump);" in out
+    )
+    assert_true("sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init();" in out)
+    assert_true('var sqrrl__alice = sqrrl__world.Person.create(name = "alice");' in out)
+
+
+def test_transform_source_rewrites_return_type_whose_body_starts_with_a_marker() raises:
+    """A `@@`-marked function's own `-> @@Type:` return type used to be
+    misrecognized as `MarkerKind.ENTITY_PARAM` whenever its very first body
+    statement happened to start with another `@@`-marker: the ENTITY_PARAM
+    check (`@@name: @@Type`, same-line) used `skip_trivia`, which crosses
+    newlines, to peek past the return type's own trailing colon --
+    incidentally finding the *next line's* `@@`-marker and concluding the
+    colon belonged to a same-line `@@name: @@Type` shape instead of a
+    return type. Confirmed via `-> @@Employee:` directly followed by
+    `@@e.title = ...` on the next line, which used to garble into
+    `-> sqrrl__Employee: EntityHandle[sqrrl__eTableState].title = ...`
+    rather than the correct `-> EntityHandle[sqrrl__EmployeeTableState]:`.
+    Fixed by checking `is_after_arrow` (an unambiguous *backward* check)
+    before the forward-looking `@@` peek, since `-> @@Type:` is never
+    itself a same-line entity-param declaration."""
+    var source = String(
+        "@@struct @@Employee:\n    title: String\n\n"
+        "\n"
+        "def @@promote(@@e: @@Employee, new_title: String) -> @@Employee:\n"
+        "    @@e.title = new_title;\n"
+        "    return @@e;\n"
+    )
+    var out = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
+    assert_true(
+        "-> EntityHandle[sqrrl__EmployeeTableState]:" in out
+    )
+    assert_true("sqrrl__world.Employee.set_title(sqrrl__e, new_title);" in out)
+    assert_true("return sqrrl__e;" in out)
+
+
+def test_transform_source_allows_repeated_start_init_from_json_in_one_function() raises:
+    """`@@start_init_from_json(...)` may now appear more than once in the
+    same straight-line function (not just once per branch of a
+    conditional) -- each occurrence desugars to a call into
+    `sqrrl__init_from_json` (`driver.emit_world_module`), a *generated
+    function* that builds its own `sqrrl__JsonScanner` internally, rather
+    than inlining `var sqrrl__scanner = sqrrl__JsonScanner(...)` at the
+    call site -- inlining it would redeclare that same local a second
+    time here, a genuine Mojo compile error, not just a style concern."""
+    var source = String(
+        "def main(first: String, second: String) raises:\n"
+        "    @@declare();\n"
+        "    @@start_init_from_json(first);\n"
+        "    @@start_init_from_json(second);\n"
+    )
+    var out = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
+    assert_true("sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init_from_json(first);" in out)
+    assert_true("sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init_from_json(second);" in out)
+    assert_true("sqrrl__scanner" not in out)
+
+
 def test_transform_source_threads_world_through_function_params_and_calls() raises:
     var source = String(
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    @@make_person();\n"
         "\n"
@@ -1088,6 +1247,7 @@ def test_transform_source_rewrites_world_func_name_in_import_statement() raises:
         "from logic.factories import @@make_person, other_helper\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    @@make_person();\n"
     )
@@ -1111,6 +1271,7 @@ def test_transform_source_keeps_string_argument_after_world_func_call() raises:
         "    return @@d;\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@dept = @@make_department("Engineering");\n'
     )
@@ -1126,6 +1287,7 @@ def test_transform_source_rejects_construct_in_function_missing_world_param() ra
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    make_person();\n"
         "\n"
@@ -1150,6 +1312,7 @@ def test_transform_source_rewrites_entity_returning_function() raises:
         "    return @@d;\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    var @@dept: @@Department = @@make_department();\n"
         "    print(@@dept.name);\n"
@@ -1182,6 +1345,7 @@ def test_transform_source_infers_type_for_at_marked_variable_from_registry() rai
         "@@struct @@Department:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    var @@dept = @@make_department();\n"
         "    print(@@dept.name);\n"
@@ -1203,6 +1367,7 @@ def test_transform_source_rejects_unmarked_variable_for_entity_returning_call() 
         "@@struct @@Department:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    var x = @@make_department();\n"
     )
@@ -1219,6 +1384,7 @@ def test_transform_source_allows_entity_returning_call_as_argument() raises:
         "@@struct @@Department:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    report(@@make_department());\n"
     )
@@ -1254,6 +1420,7 @@ def test_transform_source_rewrites_type_level_call() raises:
         "@@struct @@Person:\n    unique email: String\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@matches = @@Person.for_name("alice");\n'
     )
@@ -1270,6 +1437,7 @@ def test_transform_source_infers_type_for_unique_lookup_call() raises:
         "@@struct @@Person:\n    unique email: String\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@found = @@Person.for_email("alice@example.com");\n'
         "    print(@@found.name);\n"
@@ -1289,6 +1457,7 @@ def test_transform_source_rejects_unmarked_variable_for_unique_lookup_call() rai
         "@@struct @@Person:\n    unique email: String\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var found = @@Person.for_email("alice@example.com");\n'
     )
@@ -1306,6 +1475,7 @@ def test_transform_source_rejects_unmarked_variable_for_non_unique_lookup_call()
         "@@struct @@Person:\n    unique email: String\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var matches = @@Person.for_name("alice");\n'
     )
@@ -1323,6 +1493,7 @@ def test_transform_source_infers_container_type_for_non_unique_lookup_call() rai
         "@@struct @@Person:\n    unique email: String\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@matches = @@Person.for_name("alice");\n'
         "    print(@@matches[0].name);\n"
@@ -1345,6 +1516,7 @@ def test_transform_source_infers_container_type_for_all_call() raises:
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    var @@entries = @@Person.all();\n"
         "    print(len(@@entries));\n"
@@ -1359,6 +1531,7 @@ def test_transform_source_rejects_unmarked_variable_for_all_call() raises:
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    var entries = @@Person.all();\n"
     )
@@ -1375,6 +1548,7 @@ def test_transform_source_rewrites_for_loop_over_all_call() raises:
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    for @@entry in @@Person.all():\n"
         "        print(@@entry.name);\n"
@@ -1392,6 +1566,7 @@ def test_transform_source_rewrites_for_loop_over_for_field_call() raises:
         "@@struct @@Person:\n    unique email: String\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    for @@match in @@Person.for_name(\"alice\"):\n"
         "        print(@@match.email);\n"
@@ -1422,6 +1597,7 @@ def test_transform_source_rejects_field_access_without_index_on_container() rais
         "@@struct @@Person:\n    unique email: String\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@matches = @@Person.for_name("alice");\n'
         "    print(@@matches.name);\n"
@@ -1437,6 +1613,7 @@ def test_transform_source_rejects_index_on_non_container() raises:
         "@@struct @@Person:\n    unique email: String\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@found = @@Person.for_email("alice@example.com");\n'
         "    print(@@found[0].name);\n"
@@ -1453,6 +1630,7 @@ def test_transform_source_supports_explicit_container_entity_param() raises:
         "@@struct @@Person:\n    unique email: String\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@matches: List[@@Person] = @@Person.for_name("alice");\n'
         "    print(@@matches[0].name);\n"
@@ -1488,6 +1666,7 @@ def test_transform_source_infers_container_type_for_collection_relation_get_call
         "@@struct @@Department:\n    name: String\n    @@members: List[@@Employee]\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    var @@got = @@Department.get_members(eng);\n"
         "    print(@@got[0].title);\n"
@@ -1506,6 +1685,7 @@ def test_transform_source_rejects_unmarked_variable_for_collection_relation_get_
         "@@struct @@Department:\n    name: String\n    @@members: List[@@Employee]\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    var got = @@Department.get_members(eng);\n"
     )
@@ -1526,6 +1706,7 @@ def test_transform_source_infers_type_for_relation_get_call() raises:
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
         "    var @@boss = @@Employee.get_boss(bob);\n"
@@ -1545,6 +1726,7 @@ def test_transform_source_rejects_unmarked_variable_for_relation_get_call() rais
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    var boss = @@Employee.get_boss(bob);\n"
     )
@@ -1558,6 +1740,7 @@ def test_transform_source_rejects_type_level_call_on_unknown_type() raises:
     a reference to a type that was never declared."""
     var source = String(
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    @@Foo.bar();\n"
     )
@@ -1629,6 +1812,7 @@ def test_transform_source_infers_container_type_for_world_func_call() raises:
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    var @@found = @@make_team();\n"
         "    print(@@found[0].name);\n"
@@ -1649,6 +1833,7 @@ def test_transform_source_rewrites_for_loop_over_container_returning_world_func_
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    for @@member in @@make_team():\n"
         "        print(@@member.name);\n"
@@ -1665,6 +1850,7 @@ def test_transform_source_rejects_unmarked_variable_for_container_returning_worl
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    var found = @@make_team();\n"
     )
@@ -1682,6 +1868,7 @@ def test_transform_source_rewrites_bare_generic_instantiation_of_entity_type() r
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    var @@team: List[@@Person] = List[@@Person]();\n"
     )
@@ -1708,6 +1895,7 @@ def test_transform_source_rejects_unmarked_name_for_container_declaration() rais
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    var team: List[@@Person] = List[@@Person]();\n"
     )
@@ -1726,6 +1914,7 @@ def test_transform_source_allows_container_method_call_without_indexing() raises
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@alice = @@Person { .name = "alice" };\n'
         "    var @@team: List[@@Person] = List[@@Person]();\n"
@@ -1748,6 +1937,7 @@ def test_transform_source_infers_container_type_for_bare_constructor_declaration
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         '    var @@alice = @@Person { .name = "alice" };\n'
         "    var @@team = List[@@Person]();\n"
@@ -1769,6 +1959,7 @@ def test_transform_source_rejects_unrecognized_rhs_for_marked_declaration() rais
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
+        "    @@declare();\n"
         "    @@init();\n"
         "    var @@team = some_plain_call();\n"
     )

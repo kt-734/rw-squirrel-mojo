@@ -50,34 +50,91 @@ per field:
     age: UInt32
 ```
 
-**Constructing and using one** — `@@init()` obtains the shared world once
-(typically in `main`); every other function that needs it takes `@@` on its
-own parameter list instead of calling `@@init()` again:
+**Constructing and using one** — `@@declare()` brings the shared world into
+scope once (typically in `main`), followed by `@@init()` to actually build
+it; every other function that needs it takes `@@` on its own parameter
+list instead of declaring/initializing again:
 
 ```
 def main() raises:
+    @@declare();
     @@init();
     var @@alice = @@Person { .name = "alice", .age = 30 };
     @@alice.age = 31;
     print(@@alice.name, @@alice.age);
 ```
 
-`@@init_from_json(json)` is `@@init()`'s reload counterpart — obtains the
-same shared world, but by reconstructing it from a previous
+`@@start_init_from_json(json)` is `@@init()`'s reload counterpart — obtains
+the same shared world, but by reconstructing it from a previous
 `sqrrl__world.to_json()` dump (see "JSON serialization" below) instead of
 building an empty one:
 
 ```
 def main(dump: String) raises:
-    @@init_from_json(dump);
+    @@declare();
+    @@start_init_from_json(dump);
     print(@@Person.all());
 ```
 
-Exactly one of `@@init()`/`@@init_from_json(...)`, combined, may appear
-anywhere in a project — same reasoning as `@@init()` alone: either one
-independently constructs its own `sqrrl__World`, and nothing stops a
-second call from silently creating a disconnected one instead of sharing
-the one everything else uses.
+`@@declare()` must appear exactly once, project-wide, before any
+`@@init()`/`@@start_init_from_json(...)` call — it's what makes
+`sqrrl__world` exist, as a real, live, empty world immediately (not an
+uninitialized placeholder). That's what lets `@@init()`/
+`@@start_init_from_json(...)` be called any number of times afterward, in
+any control-flow shape — including *conditionally*, letting a script
+choose between them at runtime — since each one just replaces whatever
+`sqrrl__world` currently holds, rather than needing to be the one thing
+that first brings it into existence:
+
+```
+def main(dump: String, restoring: Bool) raises:
+    @@declare();
+    if restoring:
+        @@start_init_from_json(dump);
+    else:
+        @@init();
+    print(@@Person.all());
+```
+
+Every `@@init()`/`@@start_init_from_json(...)` call — including the first
+one, right after `@@declare()` — checks that whatever `sqrrl__world`
+*currently* holds is empty before replacing it (harmless the first time,
+since `@@declare()`'s own world starts out empty). If something is still
+alive in it — a stray local variable, a list built out of its handles,
+anything other than the world's own internal bookkeeping — that's a real
+bug worth surfacing rather than silently discarding: it `abort`s with a
+`LeakedEntities` message. The same check runs when `sqrrl__world` itself
+is destroyed (typically when its declaring function returns) — not
+`raises` at either point, deliberately: a leak is the same kind of bug
+regardless of when it's discovered, never a legitimate condition worth
+making catchable in one case and fatal in the other (a destructor
+can't propagate a raise at all). `@@start_init_from_json(...)` still
+needs the enclosing function to be `raises` (reconstructing from JSON can
+fail for unrelated reasons — a `unique` field's constraint, say), but
+plain `@@init()` alone no longer requires it.
+
+A second, independent `@@declare()` anywhere else in the project is
+rejected outright — that would mean two disconnected `sqrrl__world`
+bindings with no shared scope between them, defeating the whole point of
+threading one world through `@@`.
+
+`@@finalize_init_from_json()` is optional, and valid after either form of
+`@@init` — it drops every entity `@@start_init_from_json(...)` retained
+only *temporarily* while reconstructing the world (see "JSON
+serialization" below for why that retention is needed and where it lives).
+Call it once a script has grabbed whatever references it actually cares
+about from the reload; anything else — with no relation and no
+`keepalive` tag holding it — is destroyed right then, same as any other
+last handle dropping:
+
+```
+def main(dump: String) raises:
+    @@declare();
+    @@start_init_from_json(dump);
+    var kept = @@Person.all();     # re-establish whatever references matter first
+    @@finalize_init_from_json();   # drop everything else the reload retained
+    print(len(kept));
+```
 
 **Relation fields** — a field typed `@@Type` points at another entity
 (refcounted: the target stays alive as long as anything points at it).
@@ -330,8 +387,8 @@ Every `@@struct` produces two Mojo structs:
 | `for_<field>` | shape depends on the field's own modifier — see below | reverse lookup by value |
 | `add_to_<field>` | `(e, value: ElementType) -> Bool` | `multi` fields only — `True` if newly added, `False` if already a member |
 | `remove_from_<field>` | `(e, value: ElementType) -> Bool` | `multi` fields only — `True` if it was actually removed |
-| `all` | `() -> Set[EntityHandle[...]]` | every currently-live entity in the table — generated for every struct, `keepalive` or not (see below) |
-| `dont_keepalive` | `(e) -> Bool` | generated for every struct too, `keepalive` or not — see below |
+| `all` | `() -> Set[EntityHandle[...]]` | every currently-live entity in the table — generated for every struct, `keepalive` or not |
+| `dont_keepalive` | `(e) -> Bool` | `keepalive`-tagged structs only — see below |
 
 `for_<field>`'s signature and behavior depend on that field's own modifier:
 
@@ -373,11 +430,12 @@ refcounted lifetime (`True` if it was actually in the set); if nothing else
 references it at that point, it's destroyed immediately, same as letting
 any other last handle drop.
 
-Every table gets the `keepalive` field and `dont_keepalive` regardless of
-whether its own struct is `keepalive`-tagged — `create` only *auto*-adds
-to it for a tagged struct, but the field itself is also what
-`sqrrl__world_from_json` (see "JSON serialization" below) uses to retain
-whatever it reconstructs for a non-tagged struct too.
+Only a `keepalive`-tagged struct's own table gets the `keepalive` field and
+`dont_keepalive` at all — a non-tagged struct's table has neither. (Whole-
+world JSON reload needs somewhere to temporarily retain a non-tagged
+struct's freshly reconstructed entities too, but that lives in its own,
+separate `TempKeepAlives` structure, not here — see "JSON serialization"
+below.)
 
 ```
 @@struct keepalive @@Project:
@@ -397,54 +455,20 @@ it's alive: a relation elsewhere, a local handle, or `keepalive`.
 
 ## JSON serialization
 
-Every `@@struct` gets `to_json`/`from_json` on its table, and every plain
-struct (shorthand or hand-written) serializes automatically — no
-annotation needed anywhere:
-
-```
-var json = @@Employee.to_json(@@alice);        # -> String
-print(json);
-
-var sc = sqrrl__JsonScanner(json);
-var @@rebuilt = @@Employee.from_json(sc);      # -> EntityHandle[...]
-```
-
-`sqrrl__JsonScanner` is the one runtime type you construct directly —
-wrap the source text in one to hand to `from_json`.
-
-A relation field (`@@dept: @@Department`) serializes as the referenced
-entity's bare id, not its contents — reconstructing it looks that id up
-in `Department`'s own table, which the compiler threads into `from_json`
-automatically as an extra argument (invisible at the call site above) for
-every distinct struct a `@@struct`'s own relation fields reach, direct or
-through an embedded plain struct's own relation field, so the target must
-already exist (same requirement `create` has
-for any relation field). `List`/`Set`/`Optional`-wrapped relation fields
-(`List[@@Employee]`, a `multi` field, ...) work the same way, one id per
-element. `unique` fields still enforce their constraint through
-`from_json` — reconstructing a duplicate while the original is alive
-raises `UniqueConstraintViolation`, same as `create` would.
-
-Plain-struct fields (leaf, `List[String]`, a nested plain struct, ...)
-serialize/deserialize with **no code generated for them at all** for a
-struct's own `to_json` — reflection walks its fields generically.
-Reconstructing one (`from_json`) does need a generated companion, for
-both shorthand and *hand-written* plain structs alike — a hand-written
-struct's own fields are extracted structurally (its leading `var name:
-Type` declarations, stopping at its first method) rather than parsed the
-way `.rel`-declared syntax is, and a relation field embedded in one has
-to be spelled out by hand too (`EntityHandle[sqrrl__EmployeeTableState]`,
-there being no `@@`-marked shorthand available inside real Mojo), which
-gets reversed back to the ordinary relation-field machinery
-automatically. Every shape (shorthand or hand-written plain structs,
-leaves, containers, relations, arbitrarily nested) round-trips correctly.
-
-**Whole-world serialization** — `sqrrl__world` itself (not any one
-`@@struct`) also has `to_json`/a reload counterpart, for dumping and
-restoring everything at once rather than one entity at a time. Neither is
-`@@`-marked sugar — thread `sqrrl__world` by hand (see
-[`ADVANCED_FEATURES.md`](ADVANCED_FEATURES.md)), or use `@@init_from_json`
-(above) for the reload half specifically:
+`sqrrl__world` itself has `to_json`/a reload counterpart, dumping and
+restoring every table's every live entity at once. There's no per-entity
+`@@Type.to_json(...)`/`@@Type.from_json(...)` sugar — a relation field
+only ever serializes as the referenced entity's bare id, not its
+contents, so one entity's JSON in isolation isn't really a self-contained
+artifact; it only means anything alongside whichever other tables its
+relation fields (direct or through an embedded plain struct's own
+relation field) point into. Whole-world serialization is the form that's
+actually self-contained, so that's what's DSL-reachable: `@@init()`'s
+reload counterpart is `@@start_init_from_json`/`@@finalize_init_from_json`
+(see "Constructing and using one" above); the dump half has no sugar at
+all (there's nothing to inject — it just always dumps everything), so
+that's thread-`sqrrl__world`-by-hand territory (see
+[`ADVANCED_FEATURES.md`](ADVANCED_FEATURES.md)):
 
 ```
 var dump = sqrrl__world.to_json();     # -> String, every table's every live entity
@@ -453,19 +477,52 @@ var sc = sqrrl__JsonScanner(dump);
 var reloaded = sqrrl__world_from_json(sc);   # -> sqrrl__World, a fresh one
 ```
 
-Every entity's own id is embedded alongside its fields in this dump
-(unlike a lone entity's own `to_json`, which never needs its *own* id,
-only what it references) — `sqrrl__world_from_json` lands each
-reconstructed entity back on that exact id, not a freshly auto-allocated
-one, since a relation field elsewhere in the dump is only ever a bare id
-and would otherwise resolve to the wrong row (or nothing) the moment any
-entity anywhere had ever been deleted. Reconstruction proceeds in
-dependency order (whichever structs a given struct's own relation fields
-target, reconstructed first), so by the time any entity's relation field
-is resolved, its target is already live in the reloaded world. Every
-reconstructed entity is retained via its own table's `keepalive` set (see
-above) for as long as the reloaded `sqrrl__World` lives, whether or not
-that struct is itself `keepalive`-tagged.
+Every entity's own id is embedded alongside its fields in this dump —
+`sqrrl__world_from_json` lands each reconstructed entity back on that
+exact id, not a freshly auto-allocated one, since a relation field
+elsewhere in the dump is only ever a bare id and would otherwise resolve
+to the wrong row (or nothing) the moment any entity anywhere had ever
+been deleted. Reconstruction proceeds in dependency order (whichever
+structs a given struct's own relation fields target, reconstructed
+first), so by the time any entity's relation field is resolved, its
+target is already live in the reloaded world. `unique` fields still
+enforce their constraint through reload, same as `create` would.
+
+Plain-struct fields (leaf, `List[String]`, a nested plain struct, ...)
+serialize/deserialize with **no code generated for them at all** for
+dumping — reflection walks a struct's own fields generically.
+Reconstructing one does need a generated companion, for both shorthand
+and *hand-written* plain structs alike — a hand-written struct's own
+fields are extracted structurally (its leading `var name: Type`
+declarations, stopping at its first method) rather than parsed the way
+`.rel`-declared syntax is, and a relation field embedded in one has to be
+spelled out by hand too (`EntityHandle[sqrrl__EmployeeTableState]`,
+there being no `@@`-marked shorthand available inside real Mojo), which
+gets reversed back to the ordinary relation-field machinery
+automatically. Every shape (shorthand or hand-written plain structs,
+leaves, containers, relations, arbitrarily nested) round-trips correctly.
+
+A `keepalive`-tagged struct's reconstructed entities are retained by its
+own table's `keepalive` set, same as `create` does. A non-tagged struct's
+have nothing else holding them yet (no relation field pointing at them,
+no `keepalive` tag), so they're retained *temporarily* instead, in
+`reloaded.sqrrl__temp_keep_alives` (an `Optional[TempKeepAlives]`, one
+`List[EntityHandle[...]]` field per non-tagged struct) — until whichever of
+`@@finalize_init_from_json()` or its hand-written equivalent,
+`reloaded.sqrrl__finalize_temp_keep_alives()`, drops it. Grab whatever
+references actually matter before dropping it — anything else with no
+other anchor is destroyed at that point, same as any other last handle
+dropping.
+
+Always drop it through `sqrrl__finalize_temp_keep_alives()`, never by
+assigning `sqrrl__temp_keep_alives = None` directly — the method exists
+specifically because inlining that assignment into the same function as
+the reads that come before it has been observed to corrupt those *earlier*
+reads (confirmed: a `.for_<unique>` lookup partway through a function
+reading back an already-collapsed table that a `.all()` call two lines
+above it, in that same function, still saw correctly). Calling the method
+instead — whether via `@@finalize_init_from_json()` or by hand on a
+manually-threaded world — avoids it.
 
 ## Project layout
 

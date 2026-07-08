@@ -19,6 +19,7 @@ def hire(mut sqrrl__world: sqrrl__World, title: String, dept: EntityHandle[sqrrl
 
 
 def main() raises:
+    @@declare();
     @@init();
     var @@eng = @@Department { .name = "Engineering" };
     var @@alice = @@Employee { .title = "Engineer", .@@dept = @@eng };

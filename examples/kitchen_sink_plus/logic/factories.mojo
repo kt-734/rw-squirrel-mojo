@@ -2,7 +2,7 @@ from squirrel_runtime.entity import Table, EntityHandle, EntityInner, TableState
 from squirrel_runtime.rel import Rel, UniqueRel, ForwardOnlyRel, MultiRel, OrderedRel
 from std.collections import Set
 from std.os import abort
-from sqrrl__world import sqrrl__init, sqrrl__World, sqrrl__world_from_json
+from sqrrl__world import sqrrl__init, sqrrl__World, sqrrl__world_from_json, sqrrl__init_from_json
 from schema.person import sqrrl__PersonTableState
 from schema.team import sqrrl__TeamTableState
 from schema.department import sqrrl__DepartmentTableState
@@ -46,6 +46,8 @@ def sqrrl__hire(mut sqrrl__world: sqrrl__World, name: String, email: String, tit
         scores=Dict[String, Int](),
         rating=Box[UInt32](0),
         coordinates=Pair[Int, Int](0, 0),
+        past_addresses=List[Address](),
+        boxed_ratings=List[Box[UInt32]](),
     );
     var sqrrl__e = sqrrl__world.Employee.create(email = email, title = title, years_employed = years_employed, dept = sqrrl__dept, profile = profile);
     return sqrrl__e;

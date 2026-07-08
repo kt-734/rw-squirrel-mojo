@@ -32,6 +32,8 @@ def @@hire(name: String, email: String, title: String, years_employed: UInt32, @
         scores=Dict[String, Int](),
         rating=Box[UInt32](0),
         coordinates=Pair[Int, Int](0, 0),
+        past_addresses=List[Address](),
+        boxed_ratings=List[Box[UInt32]](),
     );
     var @@e = @@Employee { .email = email, .title = title, .years_employed = years_employed, .@@dept = @@dept, .profile = profile };
     return @@e;
