@@ -1055,8 +1055,23 @@ struct Scanner(Movable):
                         "InvalidSquirrelSyntax: expected relation field name"
                         " after '@@'"
                     )
-                hops.append(hop)
-                continue
+                # A further `.` continues the chain (this hop is an
+                # intermediate relation, its target's own field/hop comes
+                # next); anything else ends it here, with *this* hop as the
+                # terminal `field` instead of an intermediate one --
+                # `@@alice.@@dept` (nothing after) reads the relation
+                # itself, the same as `@@alice.dept` (no trailing `@@`)
+                # does; marking it is optional, purely documenting that the
+                # caller expects a relation there.
+                var save = self.pos
+                self.skip_trivia()
+                if self.peek() == UInt8(ord(".")):
+                    self.pos = save
+                    hops.append(hop)
+                    continue
+                self.pos = save
+                field = hop
+                break
             field = self.scan_ident()
             if field.byte_length() == 0:
                 raise self.err("InvalidSquirrelSyntax: expected field name")
@@ -1081,6 +1096,7 @@ struct Scanner(Movable):
         self.skip_whitespace()
         var value_start = self.pos
         var depth = 0
+        var hit_semicolon = False
         while not self.at_end():
             var before = self.pos
             self.skip_non_code()
@@ -1091,13 +1107,25 @@ struct Scanner(Movable):
                 depth += 1
             elif b == UInt8(ord(")")) or b == UInt8(ord("]")) or b == UInt8(ord("}")):
                 depth -= 1
-            elif b == UInt8(ord(";")) and depth == 0:
+            elif depth == 0 and b == UInt8(ord(";")):
+                hit_semicolon = True
+                break
+            elif depth == 0 and b == UInt8(ord("\n")):
+                # A bare newline ends the write value exactly like `;`
+                # does, just without consuming it (unlike `;`, it's real
+                # source text the normal copy-through still needs to
+                # reproduce) -- the semicolon stays optional the same way
+                # it already is everywhere else; only an unbalanced
+                # `(`/`[`/`{` still needs an explicit close, which the
+                # `depth != 0` check below still catches regardless of
+                # which terminator (or end of input) it ran into.
                 break
             self.pos += 1
-        if self.at_end():
+        if depth != 0:
             raise self.err("InvalidSquirrelSyntax: unterminated write expression")
         var value = String(self.source[byte = value_start : self.pos])
-        self.pos += 1  # consume ';'
+        if hit_semicolon:
+            self.pos += 1  # consume ';'
         return FieldAccess(
             entity=entity,
             hops=hops^,

@@ -26,11 +26,11 @@ again:
 
 ```
 def main() raises:
-    @@declare();
-    @@init();
-    var @@alice = @@Person { .name = "alice", .age = 30 };
-    @@alice.age = 31;
-    print(@@alice.name, @@alice.age);
+    @@declare()
+    @@init()
+    var @@alice = @@Person { .name = "alice", .age = 30 }
+    @@alice.age = 31
+    print(@@alice.name, @@alice.age)
 ```
 
 `@@declare()` must appear exactly once, project-wide, before any
@@ -41,12 +41,12 @@ afterward, in any control-flow shape — including conditionally:
 
 ```
 def main(dump: String, restoring: Bool) raises:
-    @@declare();
+    @@declare()
     if restoring:
-        @@start_init_from_json(dump);
+        @@start_init_from_json(dump)
     else:
-        @@init();
-    print(@@Person.all());
+        @@init()
+    print(@@Person.all())
 ```
 
 Every `@@init()`/`@@start_init_from_json(...)` call checks that whatever
@@ -75,11 +75,16 @@ lookup:
 ```
 
 ```
-var @@eng = @@Department { .name = "Engineering" };
-var @@alice = @@Employee { .title = "Engineer", .@@dept = @@eng };
-var @@team = @@Employee.for_dept(@@eng);          # List[EntityHandle[...]], indexable
-var @@alices_dept = @@Employee.get_dept(@@alice); # a single tracked Department
+var @@eng = @@Department { .name = "Engineering" }
+var @@alice = @@Employee { .title = "Engineer", .@@dept = @@eng }
+var @@team = @@Employee.for_dept(@@eng)          # List[EntityHandle[...]], indexable
+var @@alices_dept = @@Employee.get_dept(@@alice) # a single tracked Department
 ```
+
+`@@alice.@@dept` (or, equivalently, `@@alice.dept` — marking the last hop is
+optional) reads the same field via instance syntax instead, with identical
+tracking: a plain, unmarked variable is rejected the same way binding
+`for_<field>`/`create` to one is.
 
 ## Indexing and iterating
 
@@ -88,8 +93,8 @@ parameter) indexes with `@@name[i]`, and a further `.field` after that
 reads/writes right through the indexed element:
 
 ```
-print("first team member:", @@team[0].title);
-@@team[0].title = "Lead Engineer";     # write-through-index
+print("first team member:", @@team[0].title)
+@@team[0].title = "Lead Engineer"      # write-through-index
 ```
 
 `for @@name in <container-call>:` binds `@@name` to the *element* type, so
@@ -97,7 +102,7 @@ print("first team member:", @@team[0].title);
 
 ```
 for @@emp in @@Employee.for_dept(@@eng):
-    print(@@emp.title);
+    print(@@emp.title)
 ```
 
 An ordinary, unmarked `for x in y:` is untouched, same as any other plain
@@ -105,11 +110,14 @@ Mojo code.
 
 ## Hopping through relations
 
-A chain of `.@@relation` reads or writes follow each hop automatically:
+A chain of `.@@relation` reads or writes follow each hop automatically. The
+chain doesn't need to end in a plain field, either — ending on a relation
+hop reads that relation itself, tracked the same way `get_<field>` is:
 
 ```
-print(@@alice.@@job.@@dept.name);
-@@alice.@@job.title = "Junior Engineer";
+print(@@alice.@@job.@@dept.name)
+@@alice.@@job.title = "Junior Engineer"
+var @@alices_job_dept = @@alice.@@job.@@dept
 ```
 
 ## Field modifiers
@@ -138,9 +146,9 @@ One keyword before a field name:
 ```
 
 ```
-_ = @@Department.add_to_projects(@@eng, @@website);
-print(len(@@Department.get_projects(@@eng)));        # this dept's projects
-print(len(@@Department.for_projects(@@website)));    # which depts run this project
+_ = @@Department.add_to_projects(@@eng, @@website)
+print(len(@@Department.get_projects(@@eng)))          # this dept's projects
+print(len(@@Department.for_projects(@@website)))      # which depts run this project
 ```
 
 **`ordered`** gives range queries a hash-backed `Rel` can't answer quickly:
@@ -153,9 +161,9 @@ print(len(@@Department.for_projects(@@website)));    # which depts run this proj
 
 ```
 for @@e in @@Employee.for_years_employed_greater_than(4):
-    print(@@e.name);
+    print(@@e.name)
 for @@e in @@Employee.for_years_employed_between(2, 5):
-    print(@@e.name);
+    print(@@e.name)
 ```
 
 ## `@@`-marked functions
@@ -168,17 +176,17 @@ ends:
 
 ```
 def @@make_department(name: String) -> @@Department:
-    var @@dept = @@Department { .name = name };
-    return @@dept;
+    var @@dept = @@Department { .name = name }
+    return @@dept
 
 def @@hire(name: String, title: String, @@dept: @@Department) raises -> @@Employee:
-    var @@emp = @@Employee { .name = name, .title = title, .@@dept = @@dept };
-    return @@emp;
+    var @@emp = @@Employee { .name = name, .title = title, .@@dept = @@dept }
+    return @@emp
 ```
 
 ```
-var @@eng = @@make_department("Engineering");
-var @@alice = @@hire("Alice", "Engineer", @@eng);
+var @@eng = @@make_department("Engineering")
+var @@alice = @@hire("Alice", "Engineer", @@eng)
 ```
 
 A call site only works inside a function that already has `sqrrl__world`
@@ -213,8 +221,8 @@ set, so it survives with no relation or local variable holding it:
 ```
 
 ```
-_ = @@Project.create(name = "Website Revamp");   # handle discarded, entity lives on
-print("all projects:", len(@@Project.all()));
+_ = @@Project.create(name = "Website Revamp")    # handle discarded, entity lives on
+print("all projects:", len(@@Project.all()))
 ```
 
 ## JSON serialization
@@ -226,11 +234,11 @@ the target's bare id, not its contents. `@@start_init_from_json`/
 
 ```
 def main(dump: String) raises:
-    @@declare();
-    @@start_init_from_json(dump);
-    var kept = @@Person.all();     # re-establish whatever references matter first
-    @@finalize_init_from_json();   # drop everything else the reload retained
-    print(len(kept));
+    @@declare()
+    @@start_init_from_json(dump)
+    var kept = @@Person.all()      # re-establish whatever references matter first
+    @@finalize_init_from_json()    # drop everything else the reload retained
+    print(len(kept))
 ```
 
 Reconstruction proceeds in dependency order, so by the time any entity's

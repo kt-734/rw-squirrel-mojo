@@ -904,6 +904,87 @@ def test_transform_source_rewrites_multi_hop_chain() raises:
     )
 
 
+def test_transform_source_rewrites_terminal_relation_hop_as_tracked_read() raises:
+    """`@@alice.@@employee` (nothing after the last hop) reads the relation
+    field itself, same as `@@Person.get_employee(@@alice)` -- and, bound to
+    an '@@'-marked variable, is tracked as an `Employee` the same way that
+    call's own result would be, so `@@e.title` works with no explicit type
+    annotation needed."""
+    var source = String(
+        "@@struct @@Employee:\n    title: String\n\n"
+        "\n"
+        "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@declare();\n"
+        "    @@init();\n"
+        '    var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
+        "    var @@e = @@alice.@@employee;\n"
+        "    print(@@e.title);\n"
+    )
+    var out = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
+    assert_true("var sqrrl__e = sqrrl__world.Person.get_employee(sqrrl__alice);" in out)
+    assert_true("print(sqrrl__world.Employee.get_title(sqrrl__e));" in out)
+
+
+def test_transform_source_rewrites_unmarked_terminal_hop_the_same_way() raises:
+    """`@@alice.employee` (no `@@` on the terminal segment at all) reads
+    and tracks identically to `@@alice.@@employee` -- marking the last hop
+    is purely optional documentation, not a different code path."""
+    var source = String(
+        "@@struct @@Employee:\n    title: String\n\n"
+        "\n"
+        "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@declare();\n"
+        "    @@init();\n"
+        '    var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
+        "    var @@e = @@alice.employee;\n"
+        "    print(@@e.title);\n"
+    )
+    var out = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
+    assert_true("var sqrrl__e = sqrrl__world.Person.get_employee(sqrrl__alice);" in out)
+    assert_true("print(sqrrl__world.Employee.get_title(sqrrl__e));" in out)
+
+
+def test_transform_source_rejects_unmarked_variable_for_terminal_relation_hop() raises:
+    """Binding `@@alice.@@employee` to a plain, unmarked variable is
+    rejected too, same as a table-level relation `get_<field>` call."""
+    var source = String(
+        "@@struct @@Employee:\n    title: String\n\n"
+        "\n"
+        "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@declare();\n"
+        "    @@init();\n"
+        '    var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
+        "    var e = @@alice.@@employee;\n"
+    )
+    with assert_raises():
+        _ = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
+
+
+def test_transform_source_rewrites_field_write_terminated_by_newline_not_semicolon() raises:
+    """A field write no longer needs a trailing `;` -- the statement right
+    after it on its own line must come through untouched, not merged into
+    the write value or dropped."""
+    var source = String(
+        "@@struct @@Person:\n    name: String\n    age: UInt32\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@declare()\n"
+        "    @@init()\n"
+        '    var @@alice = @@Person { .name = "alice", .age = 30 }\n'
+        "    @@alice.age = 31\n"
+        "    print(@@alice.name)\n"
+    )
+    var out = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
+    assert_true("sqrrl__world.Person.set_age(sqrrl__alice, 31);\n" in out)
+    assert_true("print(sqrrl__world.Person.get_name(sqrrl__alice))" in out)
+
+
 def test_transform_source_rewrites_instance_call_without_get_prefix() raises:
     """`@@eng.add_to_projects(@@website)` -- a call directly on a
     `multi`-marked field, not a plain field read/write -- must not get the

@@ -57,11 +57,11 @@ list instead of declaring/initializing again:
 
 ```
 def main() raises:
-    @@declare();
-    @@init();
-    var @@alice = @@Person { .name = "alice", .age = 30 };
-    @@alice.age = 31;
-    print(@@alice.name, @@alice.age);
+    @@declare()
+    @@init()
+    var @@alice = @@Person { .name = "alice", .age = 30 }
+    @@alice.age = 31
+    print(@@alice.name, @@alice.age)
 ```
 
 `@@start_init_from_json(json)` is `@@init()`'s reload counterpart — obtains
@@ -71,9 +71,9 @@ building an empty one:
 
 ```
 def main(dump: String) raises:
-    @@declare();
-    @@start_init_from_json(dump);
-    print(@@Person.all());
+    @@declare()
+    @@start_init_from_json(dump)
+    print(@@Person.all())
 ```
 
 `@@declare()` must appear exactly once, project-wide, before any
@@ -88,12 +88,12 @@ that first brings it into existence:
 
 ```
 def main(dump: String, restoring: Bool) raises:
-    @@declare();
+    @@declare()
     if restoring:
-        @@start_init_from_json(dump);
+        @@start_init_from_json(dump)
     else:
-        @@init();
-    print(@@Person.all());
+        @@init()
+    print(@@Person.all())
 ```
 
 Every `@@init()`/`@@start_init_from_json(...)` call — including the first
@@ -129,11 +129,11 @@ last handle dropping:
 
 ```
 def main(dump: String) raises:
-    @@declare();
-    @@start_init_from_json(dump);
-    var kept = @@Person.all();     # re-establish whatever references matter first
-    @@finalize_init_from_json();   # drop everything else the reload retained
-    print(len(kept));
+    @@declare()
+    @@start_init_from_json(dump)
+    var kept = @@Person.all()      # re-establish whatever references matter first
+    @@finalize_init_from_json()    # drop everything else the reload retained
+    print(len(kept))
 ```
 
 **Relation fields** — a field typed `@@Type` points at another entity
@@ -150,22 +150,27 @@ def main(dump: String) raises:
 ```
 
 ```
-var @@eng = @@Department { .name = "Engineering" };
-var @@alice = @@Employee { .title = "Engineer", .@@dept = @@eng };
-var @@team = @@Employee.for_dept(@@eng);        # List[EntityHandle[...]], indexable
-var @@alices_dept = @@Employee.get_dept(@@alice); # a single tracked Department
+var @@eng = @@Department { .name = "Engineering" }
+var @@alice = @@Employee { .title = "Engineer", .@@dept = @@eng }
+var @@team = @@Employee.for_dept(@@eng)         # List[EntityHandle[...]], indexable
+var @@alices_dept = @@Employee.get_dept(@@alice) # a single tracked Department
 ```
+
+`@@alice.@@dept` (or, equivalently, `@@alice.dept` -- marking the last hop is
+optional) reads the same field via instance syntax instead, with identical
+tracking: a plain, unmarked variable is rejected the same way binding
+`for_<field>`/`create` to one is.
 
 **Indexing** — a tracked container (`for_<field>`'s result, or a
 container-typed entity parameter) indexes with `@@name[i]`, and a further
 `.field` after that reads/writes right through the indexed element:
 
 ```
-print("first team member:", @@team[0].title);
-@@team[0].title = "Lead Engineer";     # write-through-index
+print("first team member:", @@team[0].title)
+@@team[0].title = "Lead Engineer"      # write-through-index
 
-var raw = @@team[1];                   # bare, untracked EntityHandle
-var @@second: @@Employee = raw;        # re-marked with an explicit annotation
+var raw = @@team[1]                    # bare, untracked EntityHandle
+var @@second: @@Employee = raw         # re-marked with an explicit annotation
 ```
 
 **Iterating** — `for @@name in <container-call>:` binds `@@name` to the
@@ -174,7 +179,7 @@ var @@second: @@Employee = raw;        # re-marked with an explicit annotation
 
 ```
 for @@emp in @@Employee.for_dept(@@eng):
-    print(@@emp.title);
+    print(@@emp.title)
 ```
 
 An ordinary, unmarked `for x in y:` (no `@@` on the target) is untouched,
@@ -245,10 +250,10 @@ in.
 ```
 
 ```
-_ = @@Department.add_to_projects(@@eng, @@website);
-print(len(@@Department.get_projects(@@eng)));        # this dept's projects
-print(len(@@Department.for_projects(@@website)));    # which depts run this project
-_ = @@Department.remove_from_projects(@@eng, @@website);
+_ = @@Department.add_to_projects(@@eng, @@website)
+print(len(@@Department.get_projects(@@eng)))          # this dept's projects
+print(len(@@Department.for_projects(@@website)))      # which depts run this project
+_ = @@Department.remove_from_projects(@@eng, @@website)
 ```
 
 **`ordered`** — a binary-searchable index, kept sorted by the field's
@@ -263,10 +268,10 @@ linear time:
 
 ```
 for @@e in @@Employee.for_years_employed_greater_than(4):
-    print(@@e.name);          # everyone with more than 4 years
+    print(@@e.name)           # everyone with more than 4 years
 
 for @@e in @@Employee.for_years_employed_between(2, 5):
-    print(@@e.name);          # 2..5 years, inclusive both ends
+    print(@@e.name)           # 2..5 years, inclusive both ends
 ```
 
 `for_<field>` (exact match) returns `Set[EntityHandle[...]]`, matching
@@ -317,11 +322,14 @@ aren't just embeddable *inside* an `@@struct`, they can embed a relation
 of their own right back into one.
 
 **Hopping through relations** — a chain of `.@@relation` reads or writes
-follow each hop automatically:
+follow each hop automatically. The chain doesn't need to end in a plain
+field, either — ending on a relation hop reads that relation itself,
+tracked the same way `get_<field>` is:
 
 ```
-print(@@alice.@@job.@@dept.name);
-@@alice.@@job.title = "Junior Engineer";
+print(@@alice.@@job.@@dept.name)
+@@alice.@@job.title = "Junior Engineer"
+var @@alices_job_dept = @@alice.@@job.@@dept
 ```
 
 **`@@`-marked functions** — marking a function's own *name* with `@@`
@@ -335,17 +343,17 @@ factories instead of writing every `@@Type{...}` construct inline in
 
 ```
 def @@make_department(name: String) -> @@Department:
-    var @@dept = @@Department { .name = name };
-    return @@dept;
+    var @@dept = @@Department { .name = name }
+    return @@dept
 
 def @@hire(name: String, title: String, @@dept: @@Department) raises -> @@Employee:
-    var @@emp = @@Employee { .name = name, .title = title, .@@dept = @@dept };
-    return @@emp;
+    var @@emp = @@Employee { .name = name, .title = title, .@@dept = @@dept }
+    return @@emp
 ```
 
 ```
-var @@eng = @@make_department("Engineering");
-var @@alice = @@hire("Alice", "Engineer", @@eng);
+var @@eng = @@make_department("Engineering")
+var @@alice = @@hire("Alice", "Engineer", @@eng)
 ```
 
 Writing the *definition*, `def @@name(...)`, has no precondition — it
@@ -443,9 +451,9 @@ below.)
 ```
 
 ```
-_ = @@Project.create(name = "Website Revamp");   # handle discarded, entity lives on
-_ = @@Project.create(name = "Onboarding Redesign");
-print("all projects:", len(@@Project.all()));
+_ = @@Project.create(name = "Website Revamp")    # handle discarded, entity lives on
+_ = @@Project.create(name = "Onboarding Redesign")
+print("all projects:", len(@@Project.all()))
 ```
 
 `all()` itself doesn't depend on `keepalive` at all — it walks the table's
@@ -471,10 +479,10 @@ that's thread-`sqrrl__world`-by-hand territory (see
 [`ADVANCED_FEATURES.md`](ADVANCED_FEATURES.md)):
 
 ```
-var dump = sqrrl__world.to_json();     # -> String, every table's every live entity
+var dump = sqrrl__world.to_json()      # -> String, every table's every live entity
 
-var sc = sqrrl__JsonScanner(dump);
-var reloaded = sqrrl__world_from_json(sc);   # -> sqrrl__World, a fresh one
+var sc = sqrrl__JsonScanner(dump)
+var reloaded = sqrrl__world_from_json(sc)    # -> sqrrl__World, a fresh one
 ```
 
 Every entity's own id is embedded alongside its fields in this dump —

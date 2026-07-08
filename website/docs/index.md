@@ -49,17 +49,17 @@ manual refcounting to get right.
 
 ```
 def main() raises:
-    @@declare();
-    @@init();
-    var @@eng = @@Department { .name = "Engineering" };
+    @@declare()
+    @@init()
+    var @@eng = @@Department { .name = "Engineering" }
     var @@alice = @@Employee {
         .email = "alice@co.com",
         .title = "Engineer",
         .@@dept = @@eng,
-    };
+    }
 
     for @@e in @@Employee.for_dept(@@eng):
-        print(@@e.title);
+        print(@@e.title)
 ```
 
 `for_dept` — the reverse lookup — didn't need declaring. It comes free with

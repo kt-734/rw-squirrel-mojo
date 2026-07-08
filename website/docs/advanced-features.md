@@ -23,8 +23,8 @@ def promote(mut sqrrl__world: sqrrl__World, e: EntityHandle[sqrrl__EmployeeTable
     sqrrl__world.Employee.set_title(e, t)
     return e
 ...
-var raw = promote(sqrrl__world, @@bob_emp, "Senior Sales Rep");
-var @@promoted_bob: @@Employee = raw;
+var raw = promote(sqrrl__world, @@bob_emp, "Senior Sales Rep")
+var @@promoted_bob: @@Employee = raw
 ```
 
 `promote` here is ordinary, hand-written Mojo — not a `.rel`-specific
@@ -38,7 +38,7 @@ function would get automatically. This is the pattern for:
 - Passing `sqrrl__world` into code that lives outside any `.rel` file's own
   `@@`-marked functions (a plain library function, a callback, ...).
 - Retroactively marking a value that arrived via one of the above (`var
-  @@promoted_bob: @@Employee = raw;`) so it can go back to being used with
+  @@promoted_bob: @@Employee = raw`) so it can go back to being used with
   ordinary `@@name.field` syntax afterward.
 
 The types themselves aren't special — `sqrrl__World` and

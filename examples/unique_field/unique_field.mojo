@@ -136,22 +136,22 @@ struct sqrrl__PersonTable(Movable):
                 sc.expect_byte(UInt8(ord("]")))
                 break
 def main() raises:
-    var sqrrl__world = sqrrl__init();
-    sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init();
-    var sqrrl__alice = sqrrl__world.Person.create(email = "alice@example.com", name = "alice");
-    var sqrrl__bob = sqrrl__world.Person.create(email = "bob@example.com", name = "bob");
+    var sqrrl__world = sqrrl__init()
+    sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init()
+    var sqrrl__alice = sqrrl__world.Person.create(email = "alice@example.com", name = "alice")
+    var sqrrl__bob = sqrrl__world.Person.create(email = "bob@example.com", name = "bob")
 
-    var sqrrl__found = sqrrl__world.Person.for_email("bob@example.com");
-    print("found by email:", sqrrl__world.Person.get_name(sqrrl__found));
+    var sqrrl__found = sqrrl__world.Person.for_email("bob@example.com")
+    print("found by email:", sqrrl__world.Person.get_name(sqrrl__found))
 
     try:
-        var sqrrl__carol = sqrrl__world.Person.create(email = "alice@example.com", name = "carol");
-        print("should not reach here");
+        var sqrrl__carol = sqrrl__world.Person.create(email = "alice@example.com", name = "carol")
+        print("should not reach here")
     except e:
-        print("rejected duplicate email:", e);
+        print("rejected duplicate email:", e)
 
-    var sqrrl__matches = sqrrl__world.Person.for_name("alice");
-    print("for_name is not unique, so it returns a list:", len(sqrrl__matches), "match(es)");
-    print("indexed into it:", sqrrl__world.Person.get_name(sqrrl__matches[0]));
+    var sqrrl__matches = sqrrl__world.Person.for_name("alice")
+    print("for_name is not unique, so it returns a list:", len(sqrrl__matches), "match(es)")
+    print("indexed into it:", sqrrl__world.Person.get_name(sqrrl__matches[0]))
 
-    print(sqrrl__world.Person.get_name(sqrrl__alice), sqrrl__world.Person.get_name(sqrrl__bob));
+    print(sqrrl__world.Person.get_name(sqrrl__alice), sqrrl__world.Person.get_name(sqrrl__bob))

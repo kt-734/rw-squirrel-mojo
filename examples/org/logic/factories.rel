@@ -1,17 +1,17 @@
 def @@make_department(name: String) -> @@Department:
-    var @@d = @@Department { .name = name };
-    return @@d;
+    var @@d = @@Department { .name = name }
+    return @@d
 
 def @@hire(title: String, @@dept: @@Department) -> @@Employee:
-    var @@e = @@Employee { .title = title, .@@dept = @@dept };
-    return @@e;
+    var @@e = @@Employee { .title = title, .@@dept = @@dept }
+    return @@e
 
 def @@make_person(name: String, @@job: @@Employee) -> @@Person:
-    var @@p = @@Person { .name = name, .home = Address(@@job.@@dept.name), .@@job = @@job };
-    return @@p;
+    var @@p = @@Person { .name = name, .home = Address(@@job.@@dept.name), .@@job = @@job }
+    return @@p
 
 def @@make_team(names: List[String], @@job: @@Employee) -> List[@@Person]:
-    var @@team = List[@@Person]();
+    var @@team = List[@@Person]()
     for name in names:
-        @@team.append(@@make_person(name, @@job));
-    return @@team^;
+        @@team.append(@@make_person(name, @@job))
+    return @@team^

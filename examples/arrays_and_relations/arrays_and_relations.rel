@@ -19,37 +19,37 @@ def hire(mut sqrrl__world: sqrrl__World, title: String, dept: EntityHandle[sqrrl
 
 
 def main() raises:
-    @@declare();
-    @@init();
-    var @@eng = @@Department { .name = "Engineering" };
-    var @@alice = @@Employee { .title = "Engineer", .@@dept = @@eng };
-    var @@bob = @@Employee { .title = "Senior Engineer", .@@dept = @@eng };
+    @@declare()
+    @@init()
+    var @@eng = @@Department { .name = "Engineering" }
+    var @@alice = @@Employee { .title = "Engineer", .@@dept = @@eng }
+    var @@bob = @@Employee { .title = "Senior Engineer", .@@dept = @@eng }
 
     # A relation field's own for_<field> works exactly like a plain
     # field's -- @@dept isn't unique, so for_dept returns a List, tracked
     # (via "var @@team = ...", no explicit annotation needed) and
     # indexable with proper @@name[i].field access.
-    var @@team = @@Employee.for_dept(@@eng);
-    print("team size:", len(@@team));
-    print("first team member:", @@team[0].title);
-    @@team[0].title = "Lead Engineer";
-    print("after writing through the index:", @@team[0].title);
+    var @@team = @@Employee.for_dept(@@eng)
+    print("team size:", len(@@team))
+    print("first team member:", @@team[0].title)
+    @@team[0].title = "Lead Engineer"
+    print("after writing through the index:", @@team[0].title)
 
     # get_<field> on a relation field returns a single tracked entity too --
     # of the relation's *target* type (Department), not Employee.
-    var @@alices_dept = @@Employee.get_dept(@@alice);
-    print("alice's department:", @@alices_dept.name);
+    var @@alices_dept = @@Employee.get_dept(@@alice)
+    print("alice's department:", @@alices_dept.name)
 
     # Indexing without a following field extracts a bare, untracked
     # EntityHandle -- usable as-is, or re-marked with an explicit
     # annotation exactly like a value from ordinary hand-written Mojo
     # (hire, below) can be.
-    var raw_member = @@team[1];
-    var @@second: @@Employee = raw_member;
-    print("second team member (retroactively marked):", @@second.title);
+    var raw_member = @@team[1]
+    var @@second: @@Employee = raw_member
+    print("second team member (retroactively marked):", @@second.title)
 
-    var raw_hire = hire(sqrrl__world, "Intern", @@eng);
-    var @@intern: @@Employee = raw_hire;
-    print("hired outside @@ syntax, marked after the fact:", @@intern.title);
+    var raw_hire = hire(sqrrl__world, "Intern", @@eng)
+    var @@intern: @@Employee = raw_hire
+    print("hired outside @@ syntax, marked after the fact:", @@intern.title)
 
-    print("keep alive:", @@alice.title, @@bob.title, @@eng.name);
+    print("keep alive:", @@alice.title, @@bob.title, @@eng.name)

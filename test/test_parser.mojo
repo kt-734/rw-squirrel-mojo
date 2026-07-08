@@ -337,6 +337,31 @@ def test_field_access_does_not_mistake_equality_for_a_write() raises:
     assert_false(Bool(fa.write_value))
 
 
+def test_field_access_terminal_relation_hop_reads_the_relation_itself() raises:
+    """`@@alice.@@dept` -- nothing after the last hop -- reads that
+    relation itself rather than requiring the chain to continue into a
+    further plain field; the terminal hop becomes `fa.field`, exactly as
+    if it had been written without the `@@` (`@@alice.dept`)."""
+    var sc = Scanner("@@alice.@@dept")
+    assert_true(sc.find_next_marker() == MarkerKind.FIELD_ACCESS)
+    var fa = sc.parse_field_access()
+    assert_equal(fa.entity, String("alice"))
+    assert_equal(len(fa.hops), 0)
+    assert_equal(fa.field, String("dept"))
+
+
+def test_field_access_multi_hop_chain_ending_on_a_relation() raises:
+    """`@@alice.@@job.@@dept` -- two hops, the last one also terminal --
+    `job` is an intermediate hop, `dept` is the terminal field."""
+    var sc = Scanner("@@alice.@@job.@@dept")
+    assert_true(sc.find_next_marker() == MarkerKind.FIELD_ACCESS)
+    var fa = sc.parse_field_access()
+    assert_equal(fa.entity, String("alice"))
+    assert_equal(len(fa.hops), 1)
+    assert_equal(fa.hops[0], String("job"))
+    assert_equal(fa.field, String("dept"))
+
+
 def test_find_next_marker_finds_bare_name_ref() raises:
     var sc = Scanner("var @@alice = something;")
     assert_true(sc.find_next_marker() == MarkerKind.NAME_REF)

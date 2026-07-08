@@ -706,6 +706,25 @@ def rewrite_markers(
                         if has_more_args:
                             out += ", "
                     else:
+                        if current_type in relation_schema and fa.field in relation_schema[current_type]:
+                            # `@@alice.dept`/`@@alice.@@dept` (the scanner
+                            # treats a terminal `@@`-marked hop identically
+                            # to an unmarked one, see `parse_field_access`)
+                            # -- a relation field read the same way a
+                            # table-level `@@Employee.get_dept(...)` call
+                            # is, so it's tracked the same way that call's
+                            # own `enforce_entity_binding` above tracks its
+                            # result: bind it to an '@@'-marked variable to
+                            # keep using it with '@@name.field' sugar, same
+                            # as `create`/`for_<field>`.
+                            enforce_entity_binding(
+                                source,
+                                marker_start,
+                                pending_decl,
+                                entity_to_type,
+                                relation_schema[current_type][fa.field],
+                                fa.entity + "." + fa.field,
+                            )
                         out += String(t"sqrrl__world.{current_type}.get_{fa.field}({expr})")
                     pending_decl = None
                     pending_for_loop_decl = None

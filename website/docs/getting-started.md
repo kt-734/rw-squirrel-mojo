@@ -38,11 +38,11 @@ Create a directory with one `.rel` file:
     age: UInt32
 
 def main() raises:
-    @@declare();
-    @@init();
-    var @@alice = @@Person { .name = "alice", .age = 30 };
-    @@alice.age = 31;
-    print(@@alice.name, @@alice.age);
+    @@declare()
+    @@init()
+    var @@alice = @@Person { .name = "alice", .age = 30 }
+    @@alice.age = 31
+    print(@@alice.name, @@alice.age)
 ```
 
 Compile and run it the same way as above. `@@declare()` brings a shared

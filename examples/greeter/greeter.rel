@@ -4,8 +4,8 @@
 
 
 def main() raises:
-    @@declare();
-    @@init();
-    var @@alice = @@Person { .name = "alice", .age = 30 };
-    @@alice.age = 31;
-    print(@@alice.name, @@alice.age);
+    @@declare()
+    @@init()
+    var @@alice = @@Person { .name = "alice", .age = 30 }
+    @@alice.age = 31
+    print(@@alice.name, @@alice.age)

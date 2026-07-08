@@ -1,22 +1,22 @@
 def @@make_department(name: String) -> @@Department:
-    var @@dept = @@Department { .name = name, .tags = List[String](), .@@projects = Set[@@Project]() };
-    return @@dept;
+    var @@dept = @@Department { .name = name, .tags = List[String](), .@@projects = Set[@@Project]() }
+    return @@dept
 
 def @@hire(name: String, email: String, title: String, years_employed: UInt32, @@dept: @@Department) raises -> @@Employee:
-    var @@emp = @@Employee { .email = email, .title = title, .years_employed = years_employed, .@@dept = @@dept };
-    return @@emp;
+    var @@emp = @@Employee { .email = email, .title = title, .years_employed = years_employed, .@@dept = @@dept }
+    return @@emp
 
 def @@hire_team(names: List[String], email_suffix: String, starting_years: UInt32, @@dept: @@Department) raises -> List[@@Employee]:
-    var @@team = List[@@Employee]();
-    var years = starting_years;
+    var @@team = List[@@Employee]()
+    var years = starting_years
     for name in names:
-        var @@emp = @@hire(name, name + email_suffix, "Engineer", years, @@dept);
-        @@team.append(@@emp);
-        years += 1;
-    return @@team^;
+        var @@emp = @@hire(name, name + email_suffix, "Engineer", years, @@dept)
+        @@team.append(@@emp)
+        years += 1
+    return @@team^
 
 def @@log(message: String) raises:
     # AuditLog is `keepalive` -- discarding the result here is deliberate,
     # not sloppy: there's no local var, no relation field pointing at it,
     # nothing at all keeping this entity alive except keepalive itself.
-    _ = @@AuditLog { .message = message };
+    _ = @@AuditLog { .message = message }
