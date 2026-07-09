@@ -373,6 +373,23 @@ var @@alice = @@hire("Alice", "Engineer", @@eng)
 A call site only works inside a function that already has `sqrrl__world`
 itself, via `@@init()` or its own `@@`-marked name/parameters.
 
+A `@@`-marked function's declared return type is also how its result gets
+tracked at every call site, project-wide, with no explicit annotation
+needed there — `-> @@Type:` tracks a single entity, `->
+Container[@@Type]:` (`List`/`Set`) tracks a container of them the same way
+`for_<field>`/`all()` do. If the return type has more than one type
+parameter — `-> Dict[@@Type, V]:` — only the *first* one is tracked as the
+container's element type; `V` is never tracked, since iterating a bare
+`Dict` yields its keys anyway:
+
+```
+def @@departments_by_name(name: String) -> Dict[@@Department, Int]:
+    ...
+
+for @@dept in @@departments_by_name("Eng"):
+    print(@@dept.name)
+```
+
 ## Plain structs
 
 A bare `struct` (no `@@`) is an ordinary embedded value, not its own table.
