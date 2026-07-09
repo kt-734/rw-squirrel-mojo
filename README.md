@@ -337,6 +337,17 @@ The five range-shaped siblings (`_greater_than`/`_less_than`/`_at_least`/
 `for_<field>` — their whole point is the sorted order `ordered` maintains
 internally, which a `Set` would throw away.
 
+**Compound queries** — every `for_<field>` is a single-field lookup; there's
+no DSL syntax for combining two conditions ("Engineering employees with
+more than 3 years"). No sugar is needed for it, though — `EntityHandle` is
+already `Hashable`/`Equatable`, so wrapping any two `List`/`Set` results
+(from *any* field, `ordered` or not) in `Set(...)` and intersecting with
+`&` works with what's already generated, type inferred from the argument:
+
+```
+var matches = Set(@@Employee.for_dept(@@eng)) & Set(@@Employee.for_years_employed_greater_than(3))
+```
+
 **Generic/collection types** — an ordinary Mojo generic (`List[String]`,
 `List[Int]`, ...) is passed through unchanged, same as any other plain
 field type. A relation field can be wrapped in one too (`List[@@Employee]`,
@@ -493,9 +504,11 @@ Every `@@struct` produces two Mojo structs:
 | `get_<field>` | `(e) -> FieldType` | |
 | `set_<field>` | `(e, v: FieldType)` | `raises` only if *this* field is `unique` |
 | `for_<field>` | shape depends on the field's own modifier — see below | reverse lookup by value |
+| `group_by_<field>` | shape depends on the field's own modifier — see below | every value at once, mapped to its own matching entities |
 | `add_to_<field>` | `(e, value: ElementType) -> Bool` | `multi` fields only — `True` if newly added, `False` if already a member |
 | `remove_from_<field>` | `(e, value: ElementType) -> Bool` | `multi` fields only — `True` if it was actually removed |
 | `all` | `() -> Set[EntityHandle[...]]` | every currently-live entity in the table — generated for every struct, `keepalive` or not |
+| `value_eq` | `(a, b) -> Bool` | field-by-field comparison — see below |
 | `dont_keepalive` | `(e) -> Bool` | `keepalive`-tagged structs only — see below |
 
 `for_<field>`'s signature and behavior depend on that field's own modifier:
@@ -511,6 +524,40 @@ A relation field (`@@dept: @@Department`) is not a special case in this
 table — it's just an ordinary field whose `FieldType` happens to be
 `EntityHandle[...]`, so `get_dept`/`set_dept`/`for_dept` all follow the same
 plain-field row above.
+
+`group_by_<field>` is `for_<field>` turned inside out — every value at
+once, mapped to its own matching entities, instead of one value looked up
+at a time. It falls out of what each field kind's storage already
+maintains internally (the same reverse index `for_<field>` itself reads
+one bucket of), so it costs nothing new to compute, just a new way to read
+it:
+
+| field is... | `group_by_<field>` signature | behavior |
+| --- | --- | --- |
+| plain (no modifier) | `() -> Dict[FieldType, List[EntityHandle[...]]]` | every value currently in use, mapped to every entity holding it |
+| `unique` | `() -> Dict[FieldType, EntityHandle[...]]` | every value mapped to its own single entity — no `List` wrapping, since `unique` guarantees exactly one |
+| `multi` | `() -> Dict[ElementType, List[EntityHandle[...]]]` | every element mapped to every entity whose set contains it — keyed by the bare element type, like `for_<field>` is for `multi` |
+| `ordered` | `() -> Dict[FieldType, List[EntityHandle[...]]]` | same shape as plain, but iterating the result visits values in ascending order (`Dict`'s own iteration order matches insertion order, and this is built by inserting in sorted order) |
+| `forwardonly` | *(not generated)* | no reverse index exists for this field at all, same as `for_<field>` |
+
+`group_by_<field>` only gives you *one* direction of a `multi` relation —
+"for each element, every row whose set contains it." The other direction
+("for each row, its own member set") isn't a new method at all: it's just
+`get_<field>` on a value you already have, or `all()` plus `get_<field>`
+per row if you want it for every row at once.
+
+`value_eq(a, b)` compares two handles field-by-field, deliberately *not*
+what `@@alice == @@bob` gives you — `EntityHandle`'s own `==` is id-based
+(needed as-is so a relation field can use it as a `Dict`/`Set` key), so two
+handles pointing at the *same* row are always equal regardless of their
+current field values, and two *different* rows are never equal no matter
+how identical their fields are. `value_eq` is the other axis: same field
+values, not necessarily the same row. A relation field is compared by its
+own `==` here too (i.e. "points at the same row"), not recursed into the
+target's own fields — matching how a foreign key column's equality works
+in an ordinary relational database, and avoiding walking back through the
+same relation graph `check_no_relation_cycles` already keeps acyclic.
+Every field's own type needs to support `!=` for this to compile.
 
 For example, an `Employee` struct with a `unique email`, a `title`, and a
 `@@dept: @@Department` field generates:

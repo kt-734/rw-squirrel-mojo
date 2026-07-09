@@ -183,6 +183,33 @@ def emit_table(parsed: ParsedStruct, plain_struct_fields: Dict[String, List[Fiel
         out += String(t"    def sqrrl__clear_keepalive(mut self):\n")
         out += String(t"        self.keepalive = Set[EntityHandle[{state_name}]]()\n")
 
+    # `value_eq` -- field-by-field comparison, deliberately *not*
+    # `EntityHandle.__eq__` (id-based, needed as-is so `Rel[EntityHandle[
+    # ...]]` can use it as a `_bwd` dict key -- repurposing it here would
+    # break every relation field's own indexing). A relation field is
+    # compared by its own `EntityHandle.__eq__` (id-based) here too, not
+    # recursed into the target's own fields -- "points at the same row",
+    # not "points at a row with the same content", matching how a foreign
+    # key column's equality works in an ordinary relational database, and
+    # avoiding walking the same relation graph `check_no_relation_cycles`
+    # already bounds. Every field type needs to be `Equatable` for this to
+    # compile -- not checked ahead of time here; a field type that isn't
+    # fails with Mojo's own compile error at the `!=` below, same as
+    # relying on Mojo's own definite-initialization checking elsewhere in
+    # this codebase rather than duplicating a check it already does.
+    out += "\n"
+    out += String(
+        t"    def value_eq(self, a: EntityHandle[{state_name}],"
+        t" b: EntityHandle[{state_name}]) -> Bool:\n"
+    )
+    if len(parsed.fields) == 0:
+        out += "        return True\n"
+    else:
+        for f in parsed.fields:
+            out += String(t"        if self.get_{f.name}(a) != self.get_{f.name}(b):\n")
+            out += "            return False\n"
+        out += "        return True\n"
+
     for f in parsed.fields:
         var field_type = emit_field_type(f)
         out += "\n"
@@ -222,6 +249,27 @@ def emit_table(parsed: ParsedStruct, plain_struct_fields: Dict[String, List[Fiel
             out += String(t"        var out = List[EntityHandle[{state_name}]]()\n")
             out += "        for id in ids:\n"
             out += String(t"            out.append(self.table.handle_for(id))\n")
+            out += "        return out^\n"
+            out += "\n"
+            # `group_by_<field>` walks `MultiRel.all_bwd()` -- the whole
+            # `_bwd` (element -> every owning id) at once, rather than one
+            # element's bucket via `for_<field>`. Keyed by the element type,
+            # same as `for_<field>`/`add_to_<field>`/`remove_from_<field>`
+            # already are for `multi` -- "for each Employee, every
+            # Department containing them," not the *other* many-to-many
+            # direction ("for each Department, its own members"), which is
+            # just `all()` + `get_<field>` per row and needs no new method.
+            out += String(
+                t"    def group_by_{f.name}(self) ->"
+                t" Dict[{element_type}, List[EntityHandle[{state_name}]]]:\n"
+            )
+            out += String(t"        var buckets = self.table.state[].state.{f.name}.all_bwd()\n")
+            out += String(t"        var out = Dict[{element_type}, List[EntityHandle[{state_name}]]]()\n")
+            out += "        for entry in buckets.items():\n"
+            out += String(t"            var handles = List[EntityHandle[{state_name}]]()\n")
+            out += "            for id in entry.value:\n"
+            out += String(t"                handles.append(self.table.handle_for(id))\n")
+            out += "            out[entry.key] = handles^\n"
             out += "        return out^\n"
             continue
         if f.modifier == FieldModifier.FORWARD_ONLY:
@@ -272,17 +320,66 @@ def emit_table(parsed: ParsedStruct, plain_struct_fields: Dict[String, List[Fiel
             out += "        for id in ids:\n"
             out += String(t"            out.append(self.table.handle_for(id))\n")
             out += "        return out^\n"
+            out += "\n"
+            # `group_by_<field>` walks `OrderedRel.all_bwd()` (already
+            # ascending-ordered, since `Dict`'s own iteration order matches
+            # insertion order -- see `OrderedRel.all_bwd`'s own doc
+            # comment), rebuilding it into a `Dict[FieldType,
+            # List[EntityHandle[...]]]` in the same order, one `handle_for`
+            # call per id.
+            out += String(
+                t"    def group_by_{f.name}(self) ->"
+                t" Dict[{field_type}, List[EntityHandle[{state_name}]]]:\n"
+            )
+            out += String(t"        var buckets = self.table.state[].state.{f.name}.all_bwd()\n")
+            out += String(t"        var out = Dict[{field_type}, List[EntityHandle[{state_name}]]]()\n")
+            out += "        for entry in buckets.items():\n"
+            out += String(t"            var handles = List[EntityHandle[{state_name}]]()\n")
+            out += "            for id in entry.value:\n"
+            out += String(t"                handles.append(self.table.handle_for(id))\n")
+            out += "            out[entry.key] = handles^\n"
+            out += "        return out^\n"
             continue
         if f.modifier == FieldModifier.UNIQUE:
             out += String(t"    def for_{f.name}(self, value: {field_type}) raises -> EntityHandle[{state_name}]:\n")
             out += String(t"        var id = self.table.state[].state.{f.name}.get_bwd(value)\n")
             out += String(t"        return self.table.handle_for(id)\n")
+            out += "\n"
+            # `group_by_<field>` walks `UniqueRel.all_bwd()` -- every value
+            # currently in use, each mapped to its own single id (by
+            # construction of `unique`), so no `List`/`Set` wrapping is
+            # needed the way every other field kind's `group_by_<field>`
+            # does -- each group has exactly one member.
+            out += String(
+                t"    def group_by_{f.name}(self) -> Dict[{field_type}, EntityHandle[{state_name}]]:\n"
+            )
+            out += String(t"        var ids = self.table.state[].state.{f.name}.all_bwd()\n")
+            out += String(t"        var out = Dict[{field_type}, EntityHandle[{state_name}]]()\n")
+            out += "        for entry in ids.items():\n"
+            out += String(t"            out[entry.key] = self.table.handle_for(entry.value)\n")
+            out += "        return out^\n"
         else:
             out += String(t"    def for_{f.name}(self, value: {field_type}) -> List[EntityHandle[{state_name}]]:\n")
             out += String(t"        var ids = self.table.state[].state.{f.name}.get_bwd(value)\n")
             out += String(t"        var out = List[EntityHandle[{state_name}]]()\n")
             out += "        for id in ids:\n"
             out += String(t"            out.append(self.table.handle_for(id))\n")
+            out += "        return out^\n"
+            out += "\n"
+            # `group_by_<field>` walks `Rel.all_bwd()` -- every value
+            # currently in use, each mapped to every id holding it, all at
+            # once, rather than one bucket via `for_<field>`.
+            out += String(
+                t"    def group_by_{f.name}(self) ->"
+                t" Dict[{field_type}, List[EntityHandle[{state_name}]]]:\n"
+            )
+            out += String(t"        var buckets = self.table.state[].state.{f.name}.all_bwd()\n")
+            out += String(t"        var out = Dict[{field_type}, List[EntityHandle[{state_name}]]]()\n")
+            out += "        for entry in buckets.items():\n"
+            out += String(t"            var handles = List[EntityHandle[{state_name}]]()\n")
+            out += "            for id in entry.value:\n"
+            out += String(t"                handles.append(self.table.handle_for(id))\n")
+            out += "            out[entry.key] = handles^\n"
             out += "        return out^\n"
 
     out += "\n"

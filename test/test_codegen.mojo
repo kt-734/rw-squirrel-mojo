@@ -86,6 +86,39 @@ def test_emits_get_and_set_per_field() raises:
     assert_true("self.table.state[].state.age.update(e.id(), v)" in out)
 
 
+def test_emits_value_eq_comparing_every_field() raises:
+    """`value_eq` compares two handles field-by-field via each
+    field's own `get_<field>`/`!=` -- deliberately not `EntityHandle.
+    __eq__` (id-based, load-bearing for `Rel`'s own `_bwd` dict keying), and
+    a relation field is compared by its own `EntityHandle.__eq__` (still
+    id-based) rather than recursed into the target's own fields, matching
+    how a foreign key column's equality works in an ordinary relational
+    database."""
+    var sc = Scanner("@@struct @@Person:\n    name: String\n    @@dept: @@Department\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true(
+        "def value_eq(self, a: EntityHandle[sqrrl__PersonTableState], b:"
+        " EntityHandle[sqrrl__PersonTableState]) -> Bool:" in out
+    )
+    assert_true("if self.get_name(a) != self.get_name(b):" in out)
+    assert_true("if self.get_dept(a) != self.get_dept(b):" in out)
+    assert_true("return False" in out)
+    assert_true("return True" in out)
+
+
+def test_emits_value_eq_for_struct_with_no_fields() raises:
+    var sc = Scanner("@@struct @@Marker:\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true(
+        "def value_eq(self, a: EntityHandle[sqrrl__MarkerTableState], b:"
+        " EntityHandle[sqrrl__MarkerTableState]) -> Bool:\n        return True\n" in out
+    )
+
+
 def test_emits_to_json_calling_sqrrl_to_json_per_field() raises:
     """`to_json` (on the `@@struct`'s own `sqrrl__<Name>Table`) is uniform
     across every field -- a leaf, a container, or a relation field's
@@ -730,6 +763,93 @@ def test_multi_plain_field_uses_element_type_not_list() raises:
     assert_true(
         "def for_tags(self, value: String) -> List[EntityHandle[sqrrl__FooTableState]]:" in out
     )
+
+
+def test_emits_group_by_for_plain_field() raises:
+    """`group_by_<field>` on a plain field walks `Rel.all_bwd()` (the
+    whole reverse index, every value at once) rather than one bucket via
+    `for_<field>`, rebuilding it into `Dict[FieldType,
+    List[EntityHandle[...]]]`."""
+    var sc = Scanner("@@struct @@Employee:\n    @@dept: @@Department\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true(
+        "def group_by_dept(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState],"
+        " List[EntityHandle[sqrrl__EmployeeTableState]]]:" in out
+    )
+    assert_true("var buckets = self.table.state[].state.dept.all_bwd()" in out)
+    assert_true("for entry in buckets.items():" in out)
+    assert_true("handles.append(self.table.handle_for(id))" in out)
+    assert_true("out[entry.key] = handles^" in out)
+
+
+def test_emits_group_by_for_unique_field() raises:
+    """`group_by_<field>` on a `unique` field walks `UniqueRel.all_bwd()`
+    -- every value mapped to its own single id, by construction of
+    `unique` -- so it's `Dict[FieldType, EntityHandle[...]]`, not wrapped
+    in a `List`/`Set` the way every other field kind's `group_by_<field>`
+    is."""
+    var sc = Scanner("@@struct @@Person:\n    unique email: String\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true(
+        "def group_by_email(self) -> Dict[String, EntityHandle[sqrrl__PersonTableState]]:"
+        in out
+    )
+    assert_true("var ids = self.table.state[].state.email.all_bwd()" in out)
+    assert_true("for entry in ids.items():" in out)
+    assert_true("out[entry.key] = self.table.handle_for(entry.value)" in out)
+
+
+def test_emits_group_by_for_multi_field() raises:
+    """`group_by_<field>` on a `multi` field walks `MultiRel.all_bwd()`,
+    keyed by the *element* type (`emit_multi_element_type`), same as
+    `for_<field>`/`add_to_<field>`/`remove_from_<field>` already are for
+    `multi` -- "for each Employee, every Department containing them," not
+    the field's own whole `Set[...]` type."""
+    var sc = Scanner("@@struct @@Department:\n    multi @@members: @@Employee\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true(
+        "def group_by_members(self) -> Dict[EntityHandle[sqrrl__EmployeeTableState],"
+        " List[EntityHandle[sqrrl__DepartmentTableState]]]:" in out
+    )
+    assert_true("var buckets = self.table.state[].state.members.all_bwd()" in out)
+    assert_true("for entry in buckets.items():" in out)
+    assert_true("handles.append(self.table.handle_for(id))" in out)
+
+
+def test_emits_group_by_for_ordered_field() raises:
+    """`group_by_<field>` on an `ordered` field walks `OrderedRel.
+    all_bwd()` -- already ascending-ordered, since `Dict`'s own iteration
+    order matches insertion order -- rebuilding it into `Dict[FieldType,
+    List[EntityHandle[...]]]` in the same order."""
+    var sc = Scanner("@@struct @@Employee:\n    ordered years_employed: UInt32\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true(
+        "def group_by_years_employed(self) -> Dict[UInt32,"
+        " List[EntityHandle[sqrrl__EmployeeTableState]]]:" in out
+    )
+    assert_true(
+        "var buckets = self.table.state[].state.years_employed.all_bwd()" in out
+    )
+    assert_true("for entry in buckets.items():" in out)
+
+
+def test_forward_only_field_has_no_group_by() raises:
+    """`ForwardOnlyRel` has no `_bwd`/`all_bwd` at all -- same reason it
+    has no `for_<field>` either (see
+    `test_forward_only_field_uses_forward_only_rel_and_has_no_for_field`)."""
+    var sc = Scanner("@@struct @@Foo:\n    forwardonly scores: List[Int]\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true("group_by_scores" not in out)
 
 
 def test_all_generated_unconditionally_but_keepalive_is_not() raises:

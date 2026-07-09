@@ -268,6 +268,32 @@ for @@e in @@Employee.for_years_employed_between(2, 5):
     print(@@e.name)
 ```
 
+**Compound queries** — every `for_<field>` is a single-field lookup; there's
+no DSL syntax for combining two conditions. No sugar is needed for it
+though — `EntityHandle` is already `Hashable`/`Equatable`, so wrapping any
+two `List`/`Set` results in `Set(...)` and intersecting with `&` works
+with what's already generated:
+
+```
+var matches = Set(@@Employee.for_dept(@@eng)) & Set(@@Employee.for_years_employed_greater_than(3))
+```
+
+**Group by** — every field also gets `group_by_<field>()`, `for_<field>`
+turned inside out: every value at once, mapped to its own matching
+entities, instead of one value looked up at a time. It falls out of the
+same reverse index `for_<field>` already reads one bucket of, so it costs
+nothing new to compute:
+
+```
+for entry in sqrrl__world.Employee.group_by_dept().items():
+    print("department has", len(entry.value), "employees")
+```
+
+An `ordered` field's own `group_by_<field>()` visits values in ascending
+order; a `unique` field's maps each value straight to its single entity,
+with no `List` wrapping. See the [README](https://github.com/kt-734/rw-squirrel-mojo/blob/main/README.md)
+for the full signature table.
+
 ## `@@`-marked functions
 
 Marking a function's own *name* with `@@` (`def @@name(...)`, not a
@@ -349,6 +375,7 @@ Reconstruction proceeds in dependency order, so by the time any entity's
 relation field is resolved, its target is already live in the reloaded
 world. `unique` fields still enforce their constraint through reload.
 
-For the full detail on generated method signatures, container-type
-inference, and the dump/reload internals, see the
+For the full generated method signature table, see the
+[Method reference](reference.md). For container-type inference and the
+dump/reload internals, see the
 [README](https://github.com/kt-734/rw-squirrel-mojo/blob/main/README.md).

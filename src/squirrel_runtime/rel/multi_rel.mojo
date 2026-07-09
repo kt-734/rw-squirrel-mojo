@@ -83,6 +83,14 @@ struct MultiRel[T: KeyElement & ImplicitlyDeletable & Copyable](RelLike, Movable
         except:
             return Set[UInt32]()
 
+    def all_bwd(self) -> Dict[Self.T, Set[UInt32]]:
+        """Every element currently a member of at least one id's set, each
+        mapped to every id whose set contains it -- the whole reverse
+        index at once, rather than one bucket via `get_bwd`. What
+        `group_by_<field>` (`codegen.table`) walks; a plain `.copy()` since
+        `_bwd` already *is* exactly this shape."""
+        return self._bwd.copy()
+
     def fetch_remove_fwd(mut self, id: UInt32) -> Optional[Self.FieldType]:
         """Clear id's value; returns the value it held, or None."""
         var old = self._fwd.clear(id)

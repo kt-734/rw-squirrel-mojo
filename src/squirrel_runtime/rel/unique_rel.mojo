@@ -59,6 +59,14 @@ struct UniqueRel[T: KeyElement & ImplicitlyDeletable & Copyable](RelLike, Movabl
                 "UniqueConstraintViolation: no entity currently holds this value"
             )
 
+    def all_bwd(self) -> Dict[Self.T, UInt32]:
+        """Every value currently in use, each mapped to the single id
+        holding it -- the whole reverse index at once, rather than one
+        value via `get_bwd`. What `group_by_<field>` (`codegen.table`)
+        walks; a plain `.copy()` since `_bwd` already *is* exactly this
+        shape (one id per value, by construction of `unique`)."""
+        return self._bwd.copy()
+
     def fetch_remove_fwd(mut self, id: UInt32) -> Optional[Self.T]:
         """Clear id's value; returns the value it held, or None."""
         var old = self._fwd.clear(id)

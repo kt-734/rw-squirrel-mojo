@@ -59,5 +59,6 @@ nav:
   - Home: index.md
   - Getting started: getting-started.md
   - DSL guide: dsl-guide.md
+  - Method reference: reference.md
   - Examples: examples.md
   - Advanced features: advanced-features.md
