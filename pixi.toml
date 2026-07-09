@@ -10,6 +10,7 @@ generate-embedded-runtime = "mojo run tools/generate_embedded_runtime.mojo"
 run = { cmd = "mojo run -I src src/main.mojo", depends-on = ["generate-embedded-runtime"] }
 test = { cmd = "mojo run -I src test/test_id_allocator.mojo && mojo run -I src test/test_entity.mojo && mojo run -I src test/test_rel.mojo && mojo run -I src test/test_parser.mojo && mojo run -I src test/test_codegen.mojo && mojo run -I src test/test_driver.mojo", depends-on = ["generate-embedded-runtime"] }
 build = { cmd = "mojo build -I src -o squirrelc src/main.mojo", depends-on = ["generate-embedded-runtime"] }
+package = { cmd = "bash tools/package_release.sh", depends-on = ["generate-embedded-runtime"] }
 
 [dependencies]
 mojo = ">=1.0.0b3.dev2026070206,<2"

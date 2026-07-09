@@ -16,11 +16,11 @@ jobs:
 
       - uses: prefix-dev/setup-pixi@v0.10.0
 
-      - run: pixi run build
+      - run: pixi run package
 
-      - run: mv squirrelc squirrelc-linux-x86_64
+      - run: tar -czf squirrelc-linux-x86_64.tar.gz -C dist squirrelc lib
 
       - uses: softprops/action-gh-release@v3
         with:
-          files: squirrelc-linux-x86_64
+          files: squirrelc-linux-x86_64.tar.gz
           generate_release_notes: true

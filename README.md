@@ -33,16 +33,27 @@ Run the test suite:
 pixi run test
 ```
 
-`pixi run build` produces a standalone `squirrelc` executable (the runtime
-it writes into every project it compiles is baked into the binary itself,
-via `embedded_runtime_files()` — see `tools/generate_embedded_runtime.mojo`
-— so it needs nothing from this checkout at runtime): copy it anywhere,
-run it from anywhere, against any project directory:
+`pixi run package` produces a standalone `squirrelc` bundle in `dist/`
+(the runtime it writes into every project it compiles is baked into the
+binary itself, via `embedded_runtime_files()` — see
+`tools/generate_embedded_runtime.mojo` — and `dist/lib/` carries the Mojo
+runtime shared libraries the executable itself links against, since Mojo
+builds aren't statically linked): copy the whole `dist/` directory
+anywhere, run `squirrelc` from anywhere, against any project directory —
+verified by running it from a location with no access to this checkout or
+its pixi environment at all:
 
 ```sh
-pixi run build
-./squirrelc /path/to/your/project
+pixi run package
+./dist/squirrelc /path/to/your/project
 ```
+
+(`pixi run build` alone produces just the bare executable, useful for
+quick local iteration — but it still dynamically links against this
+checkout's own pixi environment, so it isn't portable on its own; use
+`pixi run package` for anything you intend to move elsewhere. Every
+tagged release ships the packaged bundle — see
+[Releases](https://github.com/kt-734/rw-squirrel-mojo/releases).)
 
 ## The `@@` grammar
 
@@ -559,10 +570,12 @@ src/squirrel_runtime/    the runtime every generated file imports:
                           rel/ (Rel, UniqueRel, ForwardOnlyRel, MultiRel --
                           the per-field storage backing each modifier above)
 src/main.mojo            CLI entry point: `mojo run -I src src/main.mojo <dir>`,
-                          or build once with `pixi run build` for a
-                          standalone `squirrelc` executable
+                          or `pixi run package` for a portable `squirrelc`
+                          bundle
 tools/                    generate_embedded_runtime.mojo -- regenerates
-                          src/squirrel_compiler/driver/embedded_runtime.mojo
+                          src/squirrel_compiler/driver/embedded_runtime.mojo;
+                          package_release.sh -- builds and bundles squirrelc
+                          (pixi run package)
 examples/                see kitchen_sink for a tour of every feature;
                           kitchen_sink_plus goes further still -- deep
                           relation chains, diamonds, generic plain
@@ -590,15 +603,16 @@ is reported as `path/to/file.rel:line:col: Category: message`.
 ## Development
 
 ```sh
-pixi run test    # runs every test/test_*.mojo file
+pixi run test      # runs every test/test_*.mojo file
 pixi run run <dir> # compiles every .rel file under <dir>
-pixi run build    # builds the standalone squirrelc executable
+pixi run build     # builds squirrelc for quick local iteration (not portable on its own)
+pixi run package   # builds + bundles squirrelc into dist/, portable anywhere
 ```
 
 `src/squirrel_compiler/driver/embedded_runtime.mojo` is generated, not
 hand-written — it's what lets `squirrelc` write a fully working
 `squirrel_runtime` into any project without needing this checkout's own
-`src/` on disk. `test`/`run`/`build` all depend on the task that
+`src/` on disk. `test`/`run`/`build`/`package` all depend on the task that
 regenerates it (`generate-embedded-runtime`, see `pixi.toml`), so it's
 always rebuilt from whatever's currently under `src/squirrel_runtime/`
 before any of them run — edit a runtime file and the next `pixi run`
