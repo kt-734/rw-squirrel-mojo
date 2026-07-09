@@ -140,7 +140,9 @@ struct sqrrl__PersonTable(Movable):
                 break
 def main() raises:
     var sqrrl__world = sqrrl__init()
-    sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init()
-    var sqrrl__alice = sqrrl__world.Person.create(name = "alice", age = 30)
-    sqrrl__world.Person.set_age(sqrrl__alice, 31);
-    print(sqrrl__world.Person.get_name(sqrrl__alice), sqrrl__world.Person.get_age(sqrrl__alice))
+    try:
+        var sqrrl__alice = sqrrl__world.Person.create(name = "alice", age = 30)
+        sqrrl__world.Person.set_age(sqrrl__alice, 31);
+        print(sqrrl__world.Person.get_name(sqrrl__alice), sqrrl__world.Person.get_age(sqrrl__alice))
+    finally:
+        sqrrl__world.sqrrl__check_no_leaks()

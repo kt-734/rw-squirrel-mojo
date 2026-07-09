@@ -43,11 +43,11 @@ escape hatch [Advanced features](advanced-features.md) covers in full.
 from logic.factories import @@make_department, @@hire, @@make_person, @@make_team
 
 def main() raises:
-    @@declare()
-    @@init()
-    var @@dept = @@make_department("Engineering")
-    var @@emp = @@hire("Engineer", @@dept)
-    var @@alice = @@make_person("alice", @@emp)
+    @@{
+        var @@dept = @@make_department("Engineering")
+        var @@emp = @@hire("Engineer", @@dept)
+        var @@alice = @@make_person("alice", @@emp)
+    @@}
 ```
 
 ## The full tour

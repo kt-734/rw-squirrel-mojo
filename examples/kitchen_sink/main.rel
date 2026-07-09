@@ -11,120 +11,120 @@ def promote(mut sqrrl__world: sqrrl__World, e: EntityHandle[sqrrl__EmployeeTable
 
 
 def main() raises:
-    @@declare()
-    @@init()
-    var @@eng = @@make_department("Engineering")
-    var @@sales = @@make_department("Sales")
+    @@{
+        var @@eng = @@make_department("Engineering")
+        var @@sales = @@make_department("Sales")
 
-    var @@alice_emp = @@hire("Alice", "alice@example.com", "Engineer", 5, @@eng)
-    var @@bob_emp = @@hire("Bob", "bob@example.com", "Sales Rep", 2, @@sales)
+        var @@alice_emp = @@hire("Alice", "alice@example.com", "Engineer", 5, @@eng)
+        var @@bob_emp = @@hire("Bob", "bob@example.com", "Sales Rep", 2, @@sales)
 
-    var @@alice = @@Person { .name = "Alice", .home = Address("Springfield"), .@@job = @@alice_emp }
-    var @@bob = @@Person { .name = "Bob", .home = Address("Shelbyville"), .@@job = @@bob_emp }
+        var @@alice = @@Person { .name = "Alice", .home = Address("Springfield"), .@@job = @@alice_emp }
+        var @@bob = @@Person { .name = "Bob", .home = Address("Shelbyville"), .@@job = @@bob_emp }
 
-    # Multi-hop chain: Person -> Employee -> Department.
-    print("alice works in:", @@alice.@@job.@@dept.name)
+        # Multi-hop chain: Person -> Employee -> Department.
+        print("alice works in:", @@alice.@@job.@@dept.name)
 
-    # unique field's own for_<field> -- raises variant, returns a single
-    # tracked entity directly (not a List).
-    var @@found_by_email = @@Employee.for_email("bob@example.com")
-    print("found by email, title:", @@found_by_email.title)
+        # unique field's own for_<field> -- raises variant, returns a single
+        # tracked entity directly (not a List).
+        var @@found_by_email = @@Employee.for_email("bob@example.com")
+        print("found by email, title:", @@found_by_email.title)
 
-    # A bare (non-collection) relation field's for_<field> -- non-unique,
-    # returns every matching entity as a tracked, indexable container,
-    # writable element-by-element.
-    var @@eng_team = @@Employee.for_dept(@@eng)
-    print("eng team size (via for_dept):", len(@@eng_team))
-    print("first member title before promotion:", @@eng_team[0].title)
-    @@eng_team[0].title = "Staff Engineer"
-    print("first member title after write-through-index:", @@eng_team[0].title)
+        # A bare (non-collection) relation field's for_<field> -- non-unique,
+        # returns every matching entity as a tracked, indexable container,
+        # writable element-by-element.
+        var @@eng_team = @@Employee.for_dept(@@eng)
+        print("eng team size (via for_dept):", len(@@eng_team))
+        print("first member title before promotion:", @@eng_team[0].title)
+        @@eng_team[0].title = "Staff Engineer"
+        print("first member title after write-through-index:", @@eng_team[0].title)
 
-    # A function returning a container of freshly-constructed entities.
-    var names = List[String]()
-    names.append("Carol")
-    names.append("Dave")
-    var @@sales_team = @@hire_team(names, "@example.com", 3, @@sales)
-    print("sales team size (via hire_team):", len(@@sales_team))
+        # A function returning a container of freshly-constructed entities.
+        var names = List[String]()
+        names.append("Carol")
+        names.append("Dave")
+        var @@sales_team = @@hire_team(names, "@example.com", 3, @@sales)
+        print("sales team size (via hire_team):", len(@@sales_team))
 
-    # ordered field: years_employed keeps a sorted index alongside the
-    # usual per-id storage, giving range queries (greater_than/less_than/
-    # at_least/at_most/between) a plain unique/multi field can't answer in
-    # better than a full linear scan. Alice=5, Bob=2, Carol=3, Dave=4.
-    print("more than 3 years:", len(@@Employee.for_years_employed_greater_than(3)))
-    print("at least 3 years:", len(@@Employee.for_years_employed_at_least(3)))
-    print("less than 3 years:", len(@@Employee.for_years_employed_less_than(3)))
-    print("3 to 4 years inclusive:", len(@@Employee.for_years_employed_between(3, 4)))
-    for @@e in @@Employee.for_years_employed(3):
-        print("exactly 3 years:", @@e.title)
+        # ordered field: years_employed keeps a sorted index alongside the
+        # usual per-id storage, giving range queries (greater_than/less_than/
+        # at_least/at_most/between) a plain unique/multi field can't answer in
+        # better than a full linear scan. Alice=5, Bob=2, Carol=3, Dave=4.
+        print("more than 3 years:", len(@@Employee.for_years_employed_greater_than(3)))
+        print("at least 3 years:", len(@@Employee.for_years_employed_at_least(3)))
+        print("less than 3 years:", len(@@Employee.for_years_employed_less_than(3)))
+        print("3 to 4 years inclusive:", len(@@Employee.for_years_employed_between(3, 4)))
+        for @@e in @@Employee.for_years_employed(3):
+            print("exactly 3 years:", @@e.title)
 
-    # Retroactive marking: a value from ordinary hand-written Mojo, marked
-    # @@ after the fact via an explicit type annotation.
-    var raw = promote(sqrrl__world, @@bob_emp, "Senior Sales Rep")
-    var @@promoted_bob: @@Employee = raw
-    print("bob's new title (retroactively marked):", @@promoted_bob.title)
+        # Retroactive marking: a value from ordinary hand-written Mojo, marked
+        # @@ after the fact via an explicit type annotation.
+        var raw = promote(sqrrl__world, @@bob_emp, "Senior Sales Rep")
+        var @@promoted_bob: @@Employee = raw
+        print("bob's new title (retroactively marked):", @@promoted_bob.title)
 
-    # forwardonly field: a plain (non-relation) List[String] whose element
-    # type isn't KeyElement-relevant at all -- just needs ForwardOnlyRel
-    # storage since Rel/UniqueRel would require a hashable field type.
-    var tags = List[String]()
-    tags.append("fast-paced")
-    tags.append("hybrid")
-    @@Department.set_tags(@@eng, tags)
-    var got_tags = @@Department.get_tags(@@eng)
-    print("eng tags count (forwardonly field):", len(got_tags))
+        # forwardonly field: a plain (non-relation) List[String] whose element
+        # type isn't KeyElement-relevant at all -- just needs ForwardOnlyRel
+        # storage since Rel/UniqueRel would require a hashable field type.
+        var tags = List[String]()
+        tags.append("fast-paced")
+        tags.append("hybrid")
+        @@Department.set_tags(@@eng, tags)
+        var got_tags = @@Department.get_tags(@@eng)
+        print("eng tags count (forwardonly field):", len(got_tags))
 
-    # Writing through a hop chain, not just reading -- one hop (job), then
-    # the terminal plain field (title) is the write target.
-    @@alice.@@job.title = "Junior Engineer"
-    print("alice's job title after hop-chain write:", @@alice.@@job.title)
+        # Writing through a hop chain, not just reading -- one hop (job), then
+        # the terminal plain field (title) is the write target.
+        @@alice.@@job.title = "Junior Engineer"
+        print("alice's job title after hop-chain write:", @@alice.@@job.title)
 
-    # multi: a genuine many-to-many relation, declared on just Department's
-    # own side (Project has no field pointing back at all -- there's no
-    # need for one; MultiRel's own get_fwd/get_bwd already answer both
-    # directions from here). add_to_<field>/remove_from_<field> mutate one
-    # member in place; for_<field> is the reverse query -- "which departments
-    # run this project" -- from a bare Project value, with no Department
-    # field involved on that end either.
-    var @@website = @@Project { .name = "Website Revamp" }
-    var @@onboarding = @@Project { .name = "Onboarding Redesign" }
-    _ = @@eng.add_to_projects(@@website)
-    _ = @@Department.add_to_projects(@@eng, @@onboarding)
-    _ = @@Department.add_to_projects(@@sales, @@onboarding)
-    print("eng project count:", len(@@Department.get_projects(@@eng)))
-    print("departments running onboarding:", len(@@Department.for_projects(@@onboarding)))
-    print("eng drops onboarding:", @@Department.remove_from_projects(@@eng, @@onboarding))
-    print("departments running onboarding after drop:", len(@@Department.for_projects(@@onboarding)))
+        # multi: a genuine many-to-many relation, declared on just Department's
+        # own side (Project has no field pointing back at all -- there's no
+        # need for one; MultiRel's own get_fwd/get_bwd already answer both
+        # directions from here). add_to_<field>/remove_from_<field> mutate one
+        # member in place; for_<field> is the reverse query -- "which departments
+        # run this project" -- from a bare Project value, with no Department
+        # field involved on that end either.
+        var @@website = @@Project { .name = "Website Revamp" }
+        var @@onboarding = @@Project { .name = "Onboarding Redesign" }
+        _ = @@eng.add_to_projects(@@website)
+        _ = @@Department.add_to_projects(@@eng, @@onboarding)
+        _ = @@Department.add_to_projects(@@sales, @@onboarding)
+        print("eng project count:", len(@@Department.get_projects(@@eng)))
+        print("departments running onboarding:", len(@@Department.for_projects(@@onboarding)))
+        print("eng drops onboarding:", @@Department.remove_from_projects(@@eng, @@onboarding))
+        print("departments running onboarding after drop:", len(@@Department.for_projects(@@onboarding)))
 
-    # keepalive: AuditLog entities are created and their handles immediately
-    # discarded (@@log doesn't return one) -- no local var, no relation
-    # field anywhere pointing at them. Without `keepalive`, each one would
-    # die the instant @@log returns. all() walks the table's own id
-    # allocator directly, so it finds every entity still alive regardless
-    # of what's keeping it that way -- here, purely `keepalive` itself.
-    @@log("started")
-    @@log("did a thing")
-    @@log("finished")
-    print("audit log entries kept alive:", len(@@AuditLog.all()))
-    for @@entry in @@AuditLog.all():
-        print("audit log entry:", @@entry.message)
+        # keepalive: AuditLog entities are created and their handles immediately
+        # discarded (@@log doesn't return one) -- no local var, no relation
+        # field anywhere pointing at them. Without `keepalive`, each one would
+        # die the instant @@log returns. all() walks the table's own id
+        # allocator directly, so it finds every entity still alive regardless
+        # of what's keeping it that way -- here, purely `keepalive` itself.
+        @@log("started")
+        @@log("did a thing")
+        @@log("finished")
+        print("audit log entries kept alive:", len(@@AuditLog.all()))
+        for @@entry in @@AuditLog.all():
+            print("audit log entry:", @@entry.message)
 
-    for entry2 in @@test():
-        print("audit log entry:", @@AuditLog.get_message(entry2))
+        for entry2 in @@test():
+            print("audit log entry:", @@AuditLog.get_message(entry2))
 
-    for var @@entry3 in @@test2():
-        print("audit log entry:", @@entry3.message)
+        for var @@entry3 in @@test2():
+            print("audit log entry:", @@entry3.message)
 
-    for entry4 in @@test2().items():
-        print("audit log entry:", @@AuditLog.get_message(entry4.key))
+        for entry4 in @@test2().items():
+            print("audit log entry:", @@AuditLog.get_message(entry4.key))
 
 
-    print(
-        "keep alive:",
-        @@alice.name, @@bob.name, @@eng.name, @@sales.name,
-        @@alice_emp.title, @@bob_emp.title, @@promoted_bob.title,
-        @@sales_team[0].title, @@sales_team[1].title,
-        @@found_by_email.title, @@website.name, @@onboarding.name,
-    )
+        print(
+            "keep alive:",
+            @@alice.name, @@bob.name, @@eng.name, @@sales.name,
+            @@alice_emp.title, @@bob_emp.title, @@promoted_bob.title,
+            @@sales_team[0].title, @@sales_team[1].title,
+            @@found_by_email.title, @@website.name, @@onboarding.name,
+        )
+    @@}
 
 def @@test() -> Set[@@AuditLog]:
     return Set[@@AuditLog]()

@@ -800,13 +800,14 @@ def test_transform_source_rewrites_construct_through_world() raises:
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@alice = @@Person { .name = "alice" };\n'
-        '    var @@bob = @@Person { .name = "bob" };\n'
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@alice = @@Person { .name = "alice" };\n'
+        '        var @@bob = @@Person { .name = "bob" };\n'
+        "    @@}\n"
     )
     var out = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
-    assert_true("var sqrrl__world = sqrrl__init();" in out)
+    assert_true("var sqrrl__world = sqrrl__init()\n    try:" in out)
     assert_true("sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init();" in out)
     assert_true('var sqrrl__alice = sqrrl__world.Person.create(name = "alice");' in out)
     assert_true('var sqrrl__bob = sqrrl__world.Person.create(name = "bob");' in out)
@@ -823,9 +824,9 @@ def test_transform_source_rejects_at_marked_variable_with_unmarked_construct() r
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@alice = Person { .name = "alice" };\n'
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@alice = Person { .name = "alice" };\n'
     )
     with assert_raises():
         _ = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -836,11 +837,12 @@ def test_transform_source_rewrites_field_read_and_write() raises:
         "@@struct @@Person:\n    name: String\n    age: UInt32\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@alice = @@Person { .name = "alice", .age = 30 };\n'
-        "    @@alice.age = 31;\n"
-        "    print(@@alice.name);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@alice = @@Person { .name = "alice", .age = 30 };\n'
+        "        @@alice.age = 31;\n"
+        "        print(@@alice.name);\n"
+        "    @@}\n"
     )
     var out = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true("sqrrl__world.Person.set_age(sqrrl__alice, 31);" in out)
@@ -868,11 +870,12 @@ def test_transform_source_rewrites_single_hop_chain() raises:
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
-        "    print(@@alice.@@employee.title);\n"
-        "    @@alice.@@employee.title = \"manager\";\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
+        "        print(@@alice.@@employee.title);\n"
+        "        @@alice.@@employee.title = \"manager\";\n"
+        "    @@}\n"
     )
     var out = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true(
@@ -892,10 +895,11 @@ def test_transform_source_rewrites_multi_hop_chain() raises:
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
-        "    print(@@alice.@@employee.@@boss.name);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
+        "        print(@@alice.@@employee.@@boss.name);\n"
+        "    @@}\n"
     )
     var out = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true(
@@ -916,11 +920,12 @@ def test_transform_source_rewrites_terminal_relation_hop_as_tracked_read() raise
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
-        "    var @@e = @@alice.@@employee;\n"
-        "    print(@@e.title);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
+        "        var @@e = @@alice.@@employee;\n"
+        "        print(@@e.title);\n"
+        "    @@}\n"
     )
     var out = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true("var sqrrl__e = sqrrl__world.Person.get_employee(sqrrl__alice);" in out)
@@ -937,10 +942,10 @@ def test_transform_source_rejects_unmarked_terminal_hop_for_a_relation_field() r
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
-        "    var @@e = @@alice.employee;\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
+        "        var @@e = @@alice.employee;\n"
     )
     with assert_raises():
         _ = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -956,10 +961,10 @@ def test_transform_source_rejects_marked_terminal_hop_for_a_plain_field() raises
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
-        "    print(@@alice.@@name);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
+        "        print(@@alice.@@name);\n"
     )
     with assert_raises():
         _ = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -974,10 +979,10 @@ def test_transform_source_rejects_unmarked_variable_for_terminal_relation_hop() 
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
-        "    var e = @@alice.@@employee;\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
+        "        var e = @@alice.@@employee;\n"
     )
     with assert_raises():
         _ = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -991,11 +996,12 @@ def test_transform_source_rewrites_field_write_terminated_by_newline_not_semicol
         "@@struct @@Person:\n    name: String\n    age: UInt32\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare()\n"
-        "    @@init()\n"
-        '    var @@alice = @@Person { .name = "alice", .age = 30 }\n'
-        "    @@alice.age = 31\n"
-        "    print(@@alice.name)\n"
+        "    @@{\n"
+        "        @@init()\n"
+        '        var @@alice = @@Person { .name = "alice", .age = 30 }\n'
+        "        @@alice.age = 31\n"
+        "        print(@@alice.name)\n"
+        "    @@}\n"
     )
     var out = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true("sqrrl__world.Person.set_age(sqrrl__alice, 31);\n" in out)
@@ -1019,12 +1025,13 @@ def test_transform_source_rewrites_instance_call_without_get_prefix() raises:
         "@@struct @@Department:\n    name: String\n    multi @@projects: @@Project\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@eng = @@Department { .name = "Engineering", .@@projects = Set[@@Project]() };\n'
-        '    var @@website = @@Project { .name = "Website" };\n'
-        "    _ = @@eng.add_to_projects(@@website);\n"
-        "    _ = @@eng.remove_from_projects(@@website);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@eng = @@Department { .name = "Engineering", .@@projects = Set[@@Project]() };\n'
+        '        var @@website = @@Project { .name = "Website" };\n'
+        "        _ = @@eng.add_to_projects(@@website);\n"
+        "        _ = @@eng.remove_from_projects(@@website);\n"
+        "    @@}\n"
     )
     var schema = Dict[String, Dict[String, String]]()
     var department_fields = Dict[String, String]()
@@ -1048,10 +1055,11 @@ def test_transform_source_rewrites_nested_entity_reference_in_construct() raises
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@bob = @@Employee { .title = "engineer" };\n'
-        '    var @@alice = @@Person { .name = "alice", .@@employee = @@bob };\n'
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@bob = @@Employee { .title = "engineer" };\n'
+        '        var @@alice = @@Person { .name = "alice", .@@employee = @@bob };\n'
+        "    @@}\n"
     )
     var out = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true(
@@ -1067,9 +1075,10 @@ def test_transform_source_rewrites_nested_construct_in_construct() raises:
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@alice = @@Person { .name = "alice", .@@employee = @@Employee { .title = "engineer" } };\n'
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@alice = @@Person { .name = "alice", .@@employee = @@Employee { .title = "engineer" } };\n'
+        "    @@}\n"
     )
     var out = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true(
@@ -1087,10 +1096,11 @@ def test_transform_source_rewrites_marker_embedded_in_plain_field_value() raises
         "@@struct @@Person:\n    name: String\n    home: Address\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@dept = @@Department { .name = "Engineering" };\n'
-        '    var @@alice = @@Person { .name = "alice", .home = Address(@@dept.name) };\n'
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@dept = @@Department { .name = "Engineering" };\n'
+        '        var @@alice = @@Person { .name = "alice", .home = Address(@@dept.name) };\n'
+        "    @@}\n"
     )
     var out = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true(
@@ -1107,9 +1117,9 @@ def test_transform_source_rejects_unmarked_relation_field_in_construct() raises:
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@alice = @@Person { .name = "alice", .employee = bob };\n'
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@alice = @@Person { .name = "alice", .employee = bob };\n'
     )
     with assert_raises():
         _ = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -1120,9 +1130,9 @@ def test_transform_source_rejects_at_marked_plain_field_in_construct() raises:
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@alice = @@Person { .@@name = "alice" };\n'
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@alice = @@Person { .@@name = "alice" };\n'
     )
     with assert_raises():
         _ = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -1135,10 +1145,10 @@ def test_transform_source_rejects_unknown_relation_hop() raises:
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
-        "    print(@@alice.@@manager.title);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
+        "        print(@@alice.@@manager.title);\n"
     )
     with assert_raises():
         _ = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -1152,10 +1162,11 @@ def test_transform_source_threads_entity_across_functions() raises:
         "    print(@@subject.name);\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@alice = @@Person { .name = "alice" };\n'
-        "    @@print_name(@@alice);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@alice = @@Person { .name = "alice" };\n'
+        "        @@print_name(@@alice);\n"
+        "    @@}\n"
     )
     var out = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true(
@@ -1172,9 +1183,9 @@ def test_transform_source_rejects_entity_param_syntax_outside_signature() raises
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    @@alice: @@Person;\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        @@alice: @@Person;\n"
     )
     with assert_raises():
         _ = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -1185,9 +1196,9 @@ def test_transform_source_rejects_field_access_on_unconstructed_entity() raises:
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    print(@@alice.name);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        print(@@alice.name);\n"
     )
     with assert_raises():
         _ = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -1206,36 +1217,36 @@ def test_transform_source_rejects_construct_without_world() raises:
 
 def test_transform_source_rejects_init_without_declare() raises:
     """`@@init()` (and, symmetrically, `@@start_init_from_json(...)`) needs
-    `@@declare()` to have already brought `sqrrl__world` into scope in this
+    `@@{` to have already brought `sqrrl__world` into scope in this
     same function -- without it there's no `var sqrrl__world` for the bare
     assignment `@@init()` desugars to, to assign into."""
     var source = String(
         "def main() raises:\n"
         "    @@init();\n"
     )
-    with assert_raises(contains="needs '@@declare()'"):
+    with assert_raises(contains="needs '@@{'"):
         _ = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
 
 
 def test_transform_source_rejects_double_declare() raises:
-    """`@@declare()` twice in the same function is rejected -- `sqrrl__world`
+    """`@@{` twice in the same function is rejected -- `sqrrl__world`
     only needs declaring once; a second `var sqrrl__world: sqrrl__World`
     would be a redeclaration."""
     var source = String(
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@declare();\n"
+        "    @@{\n"
+        "    @@{\n"
     )
-    with assert_raises(contains="already called"):
+    with assert_raises(contains="already opened"):
         _ = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
 
 
 def test_transform_source_allows_conditional_init_after_declare() raises:
-    """The whole point of `@@declare()`: it lets a script choose between
+    """The whole point of `@@{`: it lets a script choose between
     `@@init()` and `@@start_init_from_json(...)` conditionally, something
     neither form could do on its own (each used to declare `sqrrl__world`
     itself, so whichever branch ran second would try to redeclare a name
-    already out of scope from its sibling branch). `@@declare()` emits a
+    already out of scope from its sibling branch). `@@{` emits a
     real, live, empty `var sqrrl__world = sqrrl__init()` up front, so
     there's no "uninitialized on some path" state to worry about at all --
     each branch's `@@init()`/`@@start_init_from_json(...)` is just a bare
@@ -1246,15 +1257,16 @@ def test_transform_source_allows_conditional_init_after_declare() raises:
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main(dump: String, restore: Bool) raises:\n"
-        "    @@declare();\n"
-        "    if restore:\n"
-        "        @@start_init_from_json(dump);\n"
-        "    else:\n"
-        "        @@init();\n"
-        '    var @@alice = @@Person { .name = "alice" };\n'
+        "    @@{\n"
+        "        if restore:\n"
+        "            @@start_init_from_json(dump);\n"
+        "        else:\n"
+        "            @@init();\n"
+        '        var @@alice = @@Person { .name = "alice" };\n'
+        "    @@}\n"
     )
     var out = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
-    assert_true("var sqrrl__world = sqrrl__init();" in out)
+    assert_true("var sqrrl__world = sqrrl__init()\n    try:" in out)
     assert_true(
         "sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world ="
         " sqrrl__init_from_json(dump);" in out
@@ -1304,9 +1316,10 @@ def test_transform_source_allows_repeated_start_init_from_json_in_one_function()
     time here, a genuine Mojo compile error, not just a style concern."""
     var source = String(
         "def main(first: String, second: String) raises:\n"
-        "    @@declare();\n"
-        "    @@start_init_from_json(first);\n"
-        "    @@start_init_from_json(second);\n"
+        "    @@{\n"
+        "        @@start_init_from_json(first);\n"
+        "        @@start_init_from_json(second);\n"
+        "    @@}\n"
     )
     var out = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true("sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init_from_json(first);" in out)
@@ -1319,9 +1332,10 @@ def test_transform_source_threads_world_through_function_params_and_calls() rais
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    @@make_person();\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        @@make_person();\n"
+        "    @@}\n"
         "\n"
         'def @@make_person() raises:\n'
         '    var @@alice = @@Person { .name = "alice" };\n'
@@ -1345,9 +1359,10 @@ def test_transform_source_rewrites_world_func_name_in_import_statement() raises:
         "from logic.factories import @@make_person, other_helper\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    @@make_person();\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        @@make_person();\n"
+        "    @@}\n"
     )
     var out = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true("from logic.factories import sqrrl__make_person, other_helper" in out)
@@ -1369,9 +1384,10 @@ def test_transform_source_keeps_string_argument_after_world_func_call() raises:
         "    return @@d;\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@dept = @@make_department("Engineering");\n'
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@dept = @@make_department("Engineering");\n'
+        "    @@}\n"
     )
     var out = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true(
@@ -1385,10 +1401,10 @@ def test_transform_source_rejects_construct_in_function_missing_world_param() ra
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    make_person();\n"
-        "\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        make_person();\n"
+        "    \n"
         "def make_person() raises:\n"
         '    var @@alice = @@Person { .name = "alice" };\n'
     )
@@ -1410,10 +1426,11 @@ def test_transform_source_rewrites_entity_returning_function() raises:
         "    return @@d;\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    var @@dept: @@Department = @@make_department();\n"
-        "    print(@@dept.name);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var @@dept: @@Department = @@make_department();\n"
+        "        print(@@dept.name);\n"
+        "    @@}\n"
     )
     var out = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true(
@@ -1443,10 +1460,11 @@ def test_transform_source_infers_type_for_at_marked_variable_from_registry() rai
         "@@struct @@Department:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    var @@dept = @@make_department();\n"
-        "    print(@@dept.name);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var @@dept = @@make_department();\n"
+        "        print(@@dept.name);\n"
+        "    @@}\n"
     )
     var out = transform_source(source, empty_schema(), _department_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true(
@@ -1465,9 +1483,9 @@ def test_transform_source_rejects_unmarked_variable_for_entity_returning_call() 
         "@@struct @@Department:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    var x = @@make_department();\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var x = @@make_department();\n"
     )
     with assert_raises():
         _ = transform_source(source, empty_schema(), _department_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -1482,9 +1500,10 @@ def test_transform_source_allows_entity_returning_call_as_argument() raises:
         "@@struct @@Department:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    report(@@make_department());\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        report(@@make_department());\n"
+        "    @@}\n"
     )
     var out = transform_source(source, empty_schema(), _department_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true("report(sqrrl__make_department(sqrrl__world));" in out)
@@ -1518,9 +1537,10 @@ def test_transform_source_rewrites_type_level_call() raises:
         "@@struct @@Person:\n    unique email: String\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@matches = @@Person.for_name("alice");\n'
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@matches = @@Person.for_name("alice");\n'
+        "    @@}\n"
     )
     var out = transform_source(source, _person_only_schema(), empty_function_returns(), _person_unique_email_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true('var sqrrl__matches = sqrrl__world.Person.for_name("alice");' in out)
@@ -1535,10 +1555,11 @@ def test_transform_source_infers_type_for_unique_lookup_call() raises:
         "@@struct @@Person:\n    unique email: String\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@found = @@Person.for_email("alice@example.com");\n'
-        "    print(@@found.name);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@found = @@Person.for_email("alice@example.com");\n'
+        "        print(@@found.name);\n"
+        "    @@}\n"
     )
     var out = transform_source(source, _person_only_schema(), empty_function_returns(), _person_unique_email_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true(
@@ -1555,9 +1576,9 @@ def test_transform_source_rejects_unmarked_variable_for_unique_lookup_call() rai
         "@@struct @@Person:\n    unique email: String\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var found = @@Person.for_email("alice@example.com");\n'
+        "    @@{\n"
+        "        @@init();\n"
+        '        var found = @@Person.for_email("alice@example.com");\n'
     )
     with assert_raises():
         _ = transform_source(source, _person_only_schema(), empty_function_returns(), _person_unique_email_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -1573,9 +1594,9 @@ def test_transform_source_rejects_unmarked_variable_for_non_unique_lookup_call()
         "@@struct @@Person:\n    unique email: String\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var matches = @@Person.for_name("alice");\n'
+        "    @@{\n"
+        "        @@init();\n"
+        '        var matches = @@Person.for_name("alice");\n'
     )
     with assert_raises():
         _ = transform_source(source, _person_only_schema(), empty_function_returns(), _person_unique_email_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -1591,10 +1612,11 @@ def test_transform_source_infers_container_type_for_non_unique_lookup_call() rai
         "@@struct @@Person:\n    unique email: String\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@matches = @@Person.for_name("alice");\n'
-        "    print(@@matches[0].name);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@matches = @@Person.for_name("alice");\n'
+        "        print(@@matches[0].name);\n"
+        "    @@}\n"
     )
     var out = transform_source(source, _person_only_schema(), empty_function_returns(), _person_unique_email_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true(
@@ -1614,10 +1636,11 @@ def test_transform_source_infers_container_type_for_all_call() raises:
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    var @@entries = @@Person.all();\n"
-        "    print(len(@@entries));\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var @@entries = @@Person.all();\n"
+        "        print(len(@@entries));\n"
+        "    @@}\n"
     )
     var out = transform_source(source, _person_only_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true("var sqrrl__entries = sqrrl__world.Person.all();" in out)
@@ -1629,9 +1652,9 @@ def test_transform_source_rejects_unmarked_variable_for_all_call() raises:
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    var entries = @@Person.all();\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var entries = @@Person.all();\n"
     )
     with assert_raises(contains="Set[@@Person]"):
         _ = transform_source(source, _person_only_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -1646,10 +1669,11 @@ def test_transform_source_rewrites_for_loop_over_all_call() raises:
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    for @@entry in @@Person.all():\n"
-        "        print(@@entry.name);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        for @@entry in @@Person.all():\n"
+        "            print(@@entry.name);\n"
+        "    @@}\n"
     )
     var out = transform_source(source, _person_only_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true("for sqrrl__entry in  sqrrl__world.Person.all():" in out)
@@ -1664,10 +1688,11 @@ def test_transform_source_rewrites_for_loop_over_for_field_call() raises:
         "@@struct @@Person:\n    unique email: String\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    for @@match in @@Person.for_name(\"alice\"):\n"
-        "        print(@@match.email);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        for @@match in @@Person.for_name(\"alice\"):\n"
+        "            print(@@match.email);\n"
+        "    @@}\n"
     )
     var out = transform_source(source, _person_only_schema(), empty_function_returns(), _person_unique_email_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true('for sqrrl__match in  sqrrl__world.Person.for_name("alice"):' in out)
@@ -1695,10 +1720,10 @@ def test_transform_source_rejects_field_access_without_index_on_container() rais
         "@@struct @@Person:\n    unique email: String\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@matches = @@Person.for_name("alice");\n'
-        "    print(@@matches.name);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@matches = @@Person.for_name("alice");\n'
+        "        print(@@matches.name);\n"
     )
     with assert_raises():
         _ = transform_source(source, _person_only_schema(), empty_function_returns(), _person_unique_email_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -1711,10 +1736,10 @@ def test_transform_source_rejects_index_on_non_container() raises:
         "@@struct @@Person:\n    unique email: String\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@found = @@Person.for_email("alice@example.com");\n'
-        "    print(@@found[0].name);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@found = @@Person.for_email("alice@example.com");\n'
+        "        print(@@found[0].name);\n"
     )
     with assert_raises():
         _ = transform_source(source, _person_only_schema(), empty_function_returns(), _person_unique_email_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -1728,10 +1753,11 @@ def test_transform_source_supports_explicit_container_entity_param() raises:
         "@@struct @@Person:\n    unique email: String\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@matches: List[@@Person] = @@Person.for_name("alice");\n'
-        "    print(@@matches[0].name);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@matches: List[@@Person] = @@Person.for_name("alice");\n'
+        "        print(@@matches[0].name);\n"
+        "    @@}\n"
     )
     var out = transform_source(source, _person_only_schema(), empty_function_returns(), _person_unique_email_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true(
@@ -1764,10 +1790,11 @@ def test_transform_source_infers_container_type_for_collection_relation_get_call
         "@@struct @@Department:\n    name: String\n    @@members: List[@@Employee]\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    var @@got = @@Department.get_members(eng);\n"
-        "    print(@@got[0].title);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var @@got = @@Department.get_members(eng);\n"
+        "        print(@@got[0].title);\n"
+        "    @@}\n"
     )
     var out = transform_source(source, _department_members_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true("var sqrrl__got = sqrrl__world.Department.get_members(eng);" in out)
@@ -1783,9 +1810,9 @@ def test_transform_source_rejects_unmarked_variable_for_collection_relation_get_
         "@@struct @@Department:\n    name: String\n    @@members: List[@@Employee]\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    var got = @@Department.get_members(eng);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var got = @@Department.get_members(eng);\n"
     )
     with assert_raises():
         _ = transform_source(source, _department_members_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -1804,11 +1831,12 @@ def test_transform_source_infers_type_for_relation_get_call() raises:
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
-        "    var @@boss = @@Employee.get_boss(bob);\n"
-        "    print(@@boss.name);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@alice = @@Person { .name = "alice", .@@employee = bob };\n'
+        "        var @@boss = @@Employee.get_boss(bob);\n"
+        "        print(@@boss.name);\n"
+        "    @@}\n"
     )
     var out = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true("var sqrrl__boss = sqrrl__world.Employee.get_boss(bob);" in out)
@@ -1824,9 +1852,9 @@ def test_transform_source_rejects_unmarked_variable_for_relation_get_call() rais
         "@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    var boss = @@Employee.get_boss(bob);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var boss = @@Employee.get_boss(bob);\n"
     )
     with assert_raises():
         _ = transform_source(source, _person_employee_boss_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -1838,9 +1866,9 @@ def test_transform_source_rejects_type_level_call_on_unknown_type() raises:
     a reference to a type that was never declared."""
     var source = String(
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    @@Foo.bar();\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        @@Foo.bar();\n"
     )
     with assert_raises():
         _ = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -1910,10 +1938,11 @@ def test_transform_source_infers_container_type_for_world_func_call() raises:
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    var @@found = @@make_team();\n"
-        "    print(@@found[0].name);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var @@found = @@make_team();\n"
+        "        print(@@found[0].name);\n"
+        "    @@}\n"
     )
     var out = transform_source(source, empty_schema(), _make_team_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true("var sqrrl__found = sqrrl__make_team(sqrrl__world);" in out)
@@ -1931,10 +1960,11 @@ def test_transform_source_rewrites_for_loop_over_container_returning_world_func_
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    for @@member in @@make_team():\n"
-        "        print(@@member.name);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        for @@member in @@make_team():\n"
+        "            print(@@member.name);\n"
+        "    @@}\n"
     )
     var out = transform_source(source, empty_schema(), _make_team_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true("for sqrrl__member in  sqrrl__make_team(sqrrl__world):" in out)
@@ -1948,9 +1978,9 @@ def test_transform_source_rejects_unmarked_variable_for_container_returning_worl
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    var found = @@make_team();\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var found = @@make_team();\n"
     )
     with assert_raises():
         _ = transform_source(source, empty_schema(), _make_team_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -1966,9 +1996,10 @@ def test_transform_source_rewrites_bare_generic_instantiation_of_entity_type() r
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    var @@team: List[@@Person] = List[@@Person]();\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var @@team: List[@@Person] = List[@@Person]();\n"
+        "    @@}\n"
     )
     var out = transform_source(source, _person_only_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true(
@@ -1993,9 +2024,9 @@ def test_transform_source_rejects_unmarked_name_for_container_declaration() rais
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    var team: List[@@Person] = List[@@Person]();\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var team: List[@@Person] = List[@@Person]();\n"
     )
     with assert_raises():
         _ = transform_source(source, _person_only_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
@@ -2012,11 +2043,12 @@ def test_transform_source_allows_container_method_call_without_indexing() raises
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@alice = @@Person { .name = "alice" };\n'
-        "    var @@team: List[@@Person] = List[@@Person]();\n"
-        "    @@team.append(@@alice);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@alice = @@Person { .name = "alice" };\n'
+        "        var @@team: List[@@Person] = List[@@Person]();\n"
+        "        @@team.append(@@alice);\n"
+        "    @@}\n"
     )
     var out = transform_source(source, _person_only_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true("sqrrl__team.append(sqrrl__alice);" in out)
@@ -2035,12 +2067,13 @@ def test_transform_source_infers_container_type_for_bare_constructor_declaration
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@alice = @@Person { .name = "alice" };\n'
-        "    var @@team = List[@@Person]();\n"
-        "    @@team.append(@@alice);\n"
-        "    print(@@team[0].name);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@alice = @@Person { .name = "alice" };\n'
+        "        var @@team = List[@@Person]();\n"
+        "        @@team.append(@@alice);\n"
+        "        print(@@team[0].name);\n"
+        "    @@}\n"
     )
     var out = transform_source(source, _person_only_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
     assert_true("var sqrrl__team = List[EntityHandle[sqrrl__PersonTableState]]();" in out)
@@ -2057,9 +2090,9 @@ def test_transform_source_rejects_unrecognized_rhs_for_marked_declaration() rais
         "@@struct @@Person:\n    name: String\n\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    var @@team = some_plain_call();\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var @@team = some_plain_call();\n"
     )
     with assert_raises():
         _ = transform_source(source, _person_only_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())

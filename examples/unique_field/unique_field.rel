@@ -4,22 +4,22 @@
 
 
 def main() raises:
-    @@declare()
-    @@init()
-    var @@alice = @@Person { .email = "alice@example.com", .name = "alice" }
-    var @@bob = @@Person { .email = "bob@example.com", .name = "bob" }
+    @@{
+        var @@alice = @@Person { .email = "alice@example.com", .name = "alice" }
+        var @@bob = @@Person { .email = "bob@example.com", .name = "bob" }
 
-    var @@found = @@Person.for_email("bob@example.com")
-    print("found by email:", @@found.name)
+        var @@found = @@Person.for_email("bob@example.com")
+        print("found by email:", @@found.name)
 
-    try:
-        var @@carol = @@Person { .email = "alice@example.com", .name = "carol" }
-        print("should not reach here")
-    except e:
-        print("rejected duplicate email:", e)
+        try:
+            var @@carol = @@Person { .email = "alice@example.com", .name = "carol" }
+            print("should not reach here")
+        except e:
+            print("rejected duplicate email:", e)
 
-    var @@matches = @@Person.for_name("alice")
-    print("for_name is not unique, so it returns a list:", len(@@matches), "match(es)")
-    print("indexed into it:", @@matches[0].name)
+        var @@matches = @@Person.for_name("alice")
+        print("for_name is not unique, so it returns a list:", len(@@matches), "match(es)")
+        print("indexed into it:", @@matches[0].name)
 
-    print(@@alice.name, @@bob.name)
+        print(@@alice.name, @@bob.name)
+    @@}

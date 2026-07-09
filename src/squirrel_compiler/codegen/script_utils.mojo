@@ -16,6 +16,21 @@ def line_start_of(source: String, pos: Int) -> Int:
     return line_start
 
 
+def indent_of(source: String, pos: Int) -> String:
+    """The leading whitespace of the line containing `pos` -- `@@{`'s
+    own indentation, used to open a `try:` at that same level and its
+    `@@}` counterpart to close it with a `finally:` at that same
+    level again, with the body one level deeper than both."""
+    var line_start = line_start_of(source, pos)
+    var bytes = source.as_bytes()
+    var indent_end = line_start
+    while indent_end < pos and (
+        bytes[indent_end] == UInt8(ord(" ")) or bytes[indent_end] == UInt8(ord("\t"))
+    ):
+        indent_end += 1
+    return String(source[byte = line_start : indent_end])
+
+
 def is_in_def_signature(source: String, pos: Int) -> Bool:
     """True if byte offset `pos` sits on a line that starts (after
     indentation) with `def ` -- i.e. `pos` is inside a function's own
@@ -62,7 +77,7 @@ def crosses_top_level_def(text: String) -> Bool:
     """True if `text` spans a line starting at column 0 with `def ` --
     i.e. it crosses into a new top-level function body. Mojo has no mutable
     global/static state (see `Table`'s doc comment in `entity.mojo`), so
-    `sqrrl__world` only lives inside whichever function called `@@declare()`
+    `sqrrl__world` only lives inside whichever function called `@@{`
     or received it as a parameter; `transform_source` uses this to reset
     its per-function bookkeeping (`entity_to_type`, `world_declared`) at
     each such boundary, rather than tracking it once for the whole file --

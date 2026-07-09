@@ -162,24 +162,24 @@ def discover_hand_written_plain_structs(rel_files: List[String], target_root: St
 
 
 def check_single_declare_call(rel_files: List[String]) raises:
-    """Rejects more than one `@@declare()` call across the whole project.
-    `@@declare()` is the single point that brings `sqrrl__world` into
+    """Rejects more than one `@@{` call across the whole project.
+    `@@{` is the single point that brings `sqrrl__world` into
     scope (`var sqrrl__world: sqrrl__World`, deliberately uninitialized)
     for a whole script -- any number of `@@init()`/`@@start_init_from_json(
     ...)` calls may follow it, in any control-flow shape, each assigning
     into the same `sqrrl__world` (see `rewrite_markers`'s own handling of
     all three), so unlike the old "exactly one construction call" rule
-    this replaced, it's `@@declare()` itself, not the construction calls,
+    this replaced, it's `@@{` itself, not the construction calls,
     that has to be unique project-wide -- two of *those* would mean two
     disconnected `sqrrl__world` bindings with no shared scope between them,
     silently defeating the whole `@@` threading design (confirmed: nothing
     else stops that from compiling and running, just with two independent
     sets of tables instead of one shared one). A project with no
-    `@@declare()` at all is fine (a schema-only library file, say) -- an
-    `@@init()`/`@@start_init_from_json(...)` call with no `@@declare()`
+    `@@{` at all is fine (a schema-only library file, say) -- an
+    `@@init()`/`@@start_init_from_json(...)` call with no `@@{`
     before it in the same function is instead caught by
     `rewrite_markers` itself, once codegen actually reaches that call
-    site, since only `@@declare()` establishes the `sqrrl__world` name
+    site, since only `@@{` establishes the `sqrrl__world` name
     for those to assign into."""
     var declare_sites = List[String]()
     for path in rel_files:
@@ -199,13 +199,13 @@ def check_single_declare_call(rel_files: List[String]) raises:
                 files += ", "
             files += declare_sites[i]
         raise Error(
-            "InvalidSquirrelSyntax: @@declare() called "
+            "InvalidSquirrelSyntax: @@{ used "
             + String(len(declare_sites))
             + " times across the project ("
             + files
-            + ") -- it should be called exactly once (typically in the"
+            + ") -- it should appear exactly once (typically in the"
             " entry point); thread the result to every other function via"
-            " '@@' in its parameters instead of calling @@declare() again"
+            " '@@' in its parameters instead of opening @@{ again"
         )
 
 

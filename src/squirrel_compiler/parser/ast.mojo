@@ -288,6 +288,8 @@ struct MarkerKind(ImplicitlyCopyable, Movable, Equatable):
     comptime START_INIT_FROM_JSON = Self(11)
     comptime FINALIZE_INIT_FROM_JSON = Self(12)
     comptime DECLARE = Self(13)
+    comptime INIT_FROM_JSON = Self(14)
+    comptime UNDECLARE = Self(15)
 
     def __eq__(self, other: Self) -> Bool:
         return self.value == other.value

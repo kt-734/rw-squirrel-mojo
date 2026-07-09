@@ -123,9 +123,9 @@ def emit_world_module(discovery: DiscoveryResult, relation_targets: Dict[String,
     `.all()` call two lines above it, in the same function, still saw at
     full count. Moving the assignment into its own function avoids it.
 
-    `sqrrl__check_no_leaks`/`__del__` are the other side of `@@declare()`'s
+    `sqrrl__check_no_leaks`/`__del__` are the other side of `@@{`'s
     own simplification (see `rewrite_markers`'s doc comment): since
-    `@@declare()` builds a real, live `sqrrl__World` immediately rather
+    `@@{` builds a real, live `sqrrl__World` immediately rather
     than leaving it uninitialized, `sqrrl__world` is *never* in a state
     where reading it would be unsafe -- there's no `world_available` left
     to track. What *is* worth catching instead: `@@init()`/
@@ -297,7 +297,7 @@ def emit_world_module(discovery: DiscoveryResult, relation_targets: Dict[String,
     # directly rather than a `sqrrl__JsonScanner` the caller has to build
     # itself. Not just convenience: `@@start_init_from_json(...)` may now
     # be called more than once in the same straight-line function (any
-    # number of times after `@@declare()`), and inlining `var sqrrl__scanner
+    # number of times after `@@{`), and inlining `var sqrrl__scanner
     # = sqrrl__JsonScanner(...)` at each call site the way a single call
     # could get away with would redeclare that same name a second time --
     # a real Mojo error, not just a style concern. Wrapping the scanner

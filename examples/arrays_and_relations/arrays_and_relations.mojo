@@ -254,36 +254,38 @@ def hire(mut sqrrl__world: sqrrl__World, title: String, dept: EntityHandle[sqrrl
 
 def main() raises:
     var sqrrl__world = sqrrl__init()
-    sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init()
-    var sqrrl__eng = sqrrl__world.Department.create(name = "Engineering")
-    var sqrrl__alice = sqrrl__world.Employee.create(title = "Engineer", dept = sqrrl__eng)
-    var sqrrl__bob = sqrrl__world.Employee.create(title = "Senior Engineer", dept = sqrrl__eng)
+    try:
+        var sqrrl__eng = sqrrl__world.Department.create(name = "Engineering")
+        var sqrrl__alice = sqrrl__world.Employee.create(title = "Engineer", dept = sqrrl__eng)
+        var sqrrl__bob = sqrrl__world.Employee.create(title = "Senior Engineer", dept = sqrrl__eng)
 
-    # A relation field's own for_<field> works exactly like a plain
-    # field's -- @@dept isn't unique, so for_dept returns a List, tracked
-    # (via "var @@team = ...", no explicit annotation needed) and
-    # indexable with proper @@name[i].field access.
-    var sqrrl__team = sqrrl__world.Employee.for_dept(sqrrl__eng)
-    print("team size:", len(sqrrl__team))
-    print("first team member:", sqrrl__world.Employee.get_title(sqrrl__team[0]))
-    sqrrl__world.Employee.set_title(sqrrl__team[0], "Lead Engineer");
-    print("after writing through the index:", sqrrl__world.Employee.get_title(sqrrl__team[0]))
+        # A relation field's own for_<field> works exactly like a plain
+        # field's -- @@dept isn't unique, so for_dept returns a List, tracked
+        # (via "var @@team = ...", no explicit annotation needed) and
+        # indexable with proper @@name[i].field access.
+        var sqrrl__team = sqrrl__world.Employee.for_dept(sqrrl__eng)
+        print("team size:", len(sqrrl__team))
+        print("first team member:", sqrrl__world.Employee.get_title(sqrrl__team[0]))
+        sqrrl__world.Employee.set_title(sqrrl__team[0], "Lead Engineer");
+        print("after writing through the index:", sqrrl__world.Employee.get_title(sqrrl__team[0]))
 
-    # get_<field> on a relation field returns a single tracked entity too --
-    # of the relation's *target* type (Department), not Employee.
-    var sqrrl__alices_dept = sqrrl__world.Employee.get_dept(sqrrl__alice)
-    print("alice's department:", sqrrl__world.Department.get_name(sqrrl__alices_dept))
+        # get_<field> on a relation field returns a single tracked entity too --
+        # of the relation's *target* type (Department), not Employee.
+        var sqrrl__alices_dept = sqrrl__world.Employee.get_dept(sqrrl__alice)
+        print("alice's department:", sqrrl__world.Department.get_name(sqrrl__alices_dept))
 
-    # Indexing without a following field extracts a bare, untracked
-    # EntityHandle -- usable as-is, or re-marked with an explicit
-    # annotation exactly like a value from ordinary hand-written Mojo
-    # (hire, below) can be.
-    var raw_member = sqrrl__team[1]
-    var sqrrl__second: EntityHandle[sqrrl__EmployeeTableState] = raw_member
-    print("second team member (retroactively marked):", sqrrl__world.Employee.get_title(sqrrl__second))
+        # Indexing without a following field extracts a bare, untracked
+        # EntityHandle -- usable as-is, or re-marked with an explicit
+        # annotation exactly like a value from ordinary hand-written Mojo
+        # (hire, below) can be.
+        var raw_member = sqrrl__team[1]
+        var sqrrl__second: EntityHandle[sqrrl__EmployeeTableState] = raw_member
+        print("second team member (retroactively marked):", sqrrl__world.Employee.get_title(sqrrl__second))
 
-    var raw_hire = hire(sqrrl__world, "Intern", sqrrl__eng)
-    var sqrrl__intern: EntityHandle[sqrrl__EmployeeTableState] = raw_hire
-    print("hired outside @@ syntax, marked after the fact:", sqrrl__world.Employee.get_title(sqrrl__intern))
+        var raw_hire = hire(sqrrl__world, "Intern", sqrrl__eng)
+        var sqrrl__intern: EntityHandle[sqrrl__EmployeeTableState] = raw_hire
+        print("hired outside @@ syntax, marked after the fact:", sqrrl__world.Employee.get_title(sqrrl__intern))
 
-    print("keep alive:", sqrrl__world.Employee.get_title(sqrrl__alice), sqrrl__world.Employee.get_title(sqrrl__bob), sqrrl__world.Department.get_name(sqrrl__eng))
+        print("keep alive:", sqrrl__world.Employee.get_title(sqrrl__alice), sqrrl__world.Employee.get_title(sqrrl__bob), sqrrl__world.Department.get_name(sqrrl__eng))
+    finally:
+        sqrrl__world.sqrrl__check_no_leaks()

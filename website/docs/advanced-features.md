@@ -49,7 +49,7 @@ doing it for you.
 
 ## One `sqrrl__world` per project
 
-Squirrel deliberately restricts a project to exactly one `@@declare()`. Every
+Squirrel deliberately restricts a project to exactly one `@@{`. Every
 `@@`-marked construct only ever proves that a value is *some* live entity —
 never that it belongs to the *same* `sqrrl__world` as whatever it's about to
 be used alongside. A plain struct with a relation field (or a `List`/`Set`
@@ -62,4 +62,4 @@ to.
 
 If you genuinely need two independent worlds in one process, that's exactly
 the kind of boundary this page is for — thread each one by hand, explicitly,
-rather than asking `@@declare()` to manage more than one.
+rather than asking `@@{` to manage more than one.

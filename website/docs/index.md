@@ -49,17 +49,17 @@ manual refcounting to get right.
 
 ```
 def main() raises:
-    @@declare()
-    @@init()
-    var @@eng = @@Department { .name = "Engineering" }
-    var @@alice = @@Employee {
-        .email = "alice@co.com",
-        .title = "Engineer",
-        .@@dept = @@eng,
-    }
+    @@{
+        var @@eng = @@Department { .name = "Engineering" }
+        var @@alice = @@Employee {
+            .email = "alice@co.com",
+            .title = "Engineer",
+            .@@dept = @@eng,
+        }
 
-    for @@e in @@Employee.for_dept(@@eng):
-        print(@@e.title)
+        for @@e in @@Employee.for_dept(@@eng):
+            print(@@e.title)
+    @@}
 ```
 
 `for_dept` — the reverse lookup — didn't need declaring. It comes free with
@@ -118,7 +118,7 @@ the `@@dept: @@Department` field above.
 ## No hidden runtime, no hand-threaded state — until you want it
 
 Every `@@`-marked construct is sugar over a single, ordinary Mojo value:
-`sqrrl__world`. `@@declare()`/`@@init()` bring it into scope once; every
+`sqrrl__world`. `@@{`/`@@}` bring it into scope once; every
 `@@`-marked function after that just threads it through automatically. When
 the sugar doesn't reach — a library function you'd rather write in real Mojo,
 a boundary outside any `.rel` file — you can thread `sqrrl__world` by hand

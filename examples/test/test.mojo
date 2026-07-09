@@ -118,10 +118,11 @@ def sqrrl__testFunc(mut sqrrl__world: sqrrl__World) -> List[EntityHandle[sqrrl__
 
 def main():
     var sqrrl__world = sqrrl__init()
-    sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init()
+    try:
+        var sqrrl__localList = sqrrl__testFunc(sqrrl__world)
+        for sqrrl__l in  sqrrl__localList:
+            print(sqrrl__world.Test.get_name(sqrrl__l))
 
-    var sqrrl__localList = sqrrl__testFunc(sqrrl__world)
-    for sqrrl__l in  sqrrl__localList:
-        print(sqrrl__world.Test.get_name(sqrrl__l))
-
-    print(sqrrl__world.Test.get_name(sqrrl__localList[0]))
+        print(sqrrl__world.Test.get_name(sqrrl__localList[0]))
+    finally:
+        sqrrl__world.sqrrl__check_no_leaks()

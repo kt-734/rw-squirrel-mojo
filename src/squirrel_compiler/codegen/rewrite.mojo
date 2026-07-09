@@ -27,6 +27,7 @@ from squirrel_compiler.codegen.script_utils import (
     is_unmarked_var_target,
     enforce_entity_binding,
     build_create_call,
+    indent_of,
 )
 
 
@@ -90,14 +91,14 @@ def rewrite_markers(
     project-wide `sqrrl__World` (see `driver.emit_world_module`) --
     there's no per-file, per-type table variable anymore. A script brings
     it into scope explicitly, once per function that needs it, starting
-    with `@@declare()`, which becomes `var sqrrl__world = sqrrl__init()`
+    with `@@{`, which becomes `var sqrrl__world = sqrrl__init()`
     -- a real, live, empty world immediately, not an uninitialized
     declaration. That's what lets `@@init()`/`@@start_init_from_json(...)`
     be called any number of times afterward, in any control-flow shape
     (including conditionally, `if .../else @@init();`), each one just
     replacing whatever `sqrrl__world` currently holds: there's no
     "uninitialized on some path" state for Mojo's own definite-
-    initialization checking to need to rule out, since `@@declare()`
+    initialization checking to need to rule out, since `@@{`
     already guaranteed a valid value up front. `@@init()` becomes
     `sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init()`,
     `@@start_init_from_json(json)` becomes
@@ -115,11 +116,11 @@ def rewrite_markers(
     actually empty (`abort`ing with a `LeakedEntities` message if not,
     deliberately not `raises` -- see its own doc comment) before either
     one proceeds -- harmless the very first time this runs, since
-    `@@declare()`'s own world starts out empty by construction, so there's
+    `@@{`'s own world starts out empty by construction, so there's
     no special-casing needed for "is this the first call." Both `@@init()`/
     `@@start_init_from_json(...)` are bare assignments, never a fresh
-    `var`, since `@@declare()` already declared the name; using either one
-    before `@@declare()` has run is rejected (see their own branches
+    `var`, since `@@{` already declared the name; using either one
+    before `@@{` has run is rejected (see their own branches
     below). Or a function whose own name
     is marked (`@@name(`, `MarkerKind.WORLD_FUNC`) gets
     `sqrrl__world` auto-inserted as its first parameter (a definition) or
@@ -160,11 +161,11 @@ def rewrite_markers(
     entity variable nor `sqrrl__world` itself outlives the function it was
     bound in. There's no separate "is `sqrrl__world` initialized and
     usable yet" flag the way there used to be (`world_available`) --
-    `@@declare()` makes `sqrrl__world` a real, live value immediately (see
+    `@@{` makes `sqrrl__world` a real, live value immediately (see
     above), so once it's declared, it's *always* safe to read; the only
     thing left to guard against is `@@Type{...}`/`@@name(`/
     `@@finalize_init_from_json()`/`@@init()`/`@@start_init_from_json(...)`
-    appearing before `@@declare()` has run at all in this function, which
+    appearing before `@@{` has run at all in this function, which
     `world_declared` alone is enough to catch. Referencing an entity that
     was never constructed via `@@Type{...}` in this same function, or
     using `@@Type{...}`/`@@entity.field`/a bare `@@` before this function
@@ -176,6 +177,16 @@ def rewrite_markers(
 
     var pending_decl: Optional[String] = None
     var pending_for_loop_decl: Optional[String] = None
+    # Set by `MarkerKind.DECLARE` (`@@{`) and cleared by `MarkerKind.
+    # UNDECLARE` (`@@}`) -- tracks whether a `try:` is currently open in
+    # this function, so a missing `@@}` can be caught (at the next top-level
+    # `def` or end of file) instead of silently leaving `sqrrl__world`
+    # declared. Unlike the two markers' first implementation, there's no
+    # byte-offset/re-indentation bookkeeping needed here anymore: `@@{`/
+    # `@@}` don't touch the indentation of anything between them -- the
+    # script itself is expected to already be written one level deeper in
+    # between, exactly as a hand-written `try:`/`finally:` would be.
+    var declare_open = False
 
     while True:
         var kind = sc.find_next_marker()
@@ -197,8 +208,14 @@ def rewrite_markers(
             # body's own, unrelated markers.
             pending_for_loop_decl = None
         if crosses_top_level_def(between):
+            if declare_open:
+                raise sc.err(
+                    "InvalidSquirrelSyntax: '@@{' needs a matching '@@}'"
+                    " before this function ends"
+                )
             entity_to_type = Dict[String, String]()
             world_declared = False
+            declare_open = False
 
         if kind == MarkerKind.STRUCT:
             var parsed = sc.parse_struct()
@@ -216,12 +233,49 @@ def rewrite_markers(
             sc.parse_declare()
             if world_declared:
                 raise sc.err(
-                    "InvalidSquirrelSyntax: '@@declare()' already called in"
+                    "InvalidSquirrelSyntax: '@@{' already opened in"
                     " this function -- 'sqrrl__world' only needs declaring"
                     " once"
                 )
-            out += "var sqrrl__world = sqrrl__init()"
+            # Opens a `try:` right here, closed by `MarkerKind.UNDECLARE`'s
+            # (`@@}`'s) own `finally:`. Unlike this pair's first
+            # implementation, nothing between `@@{` and `@@}` is
+            # re-indented -- the script is expected to already be written
+            # one level deeper there, exactly like a hand-written
+            # `try:`/`finally:` body would be. This exists specifically
+            # because `sqrrl__World`'s `__del__` (invoked implicitly at
+            # ordinary end-of-scope) has been observed to run before a
+            # same-scope temporary's own destructor -- a Mojo
+            # destructor-ordering bug, not a bug in generated code (see
+            # `mojo-del-destructor-ordering-bug.md`) -- so `sqrrl__world`
+            # needing an explicit `finally:`-based check, rather than
+            # relying on `__del__` alone, is the workaround. `__del__`
+            # itself is left in place regardless, as a backstop for
+            # anything that manages to skip `@@}` anyway (a `raise`
+            # propagating past the `try:`, say).
+            var declare_indent = indent_of(source, marker_start)
+            out += "var sqrrl__world = sqrrl__init()\n" + declare_indent + "try:"
+            declare_open = True
             world_declared = True
+            pending_decl = None
+            pending_for_loop_decl = None
+
+        elif kind == MarkerKind.UNDECLARE:
+            sc.parse_undeclare()
+            if not declare_open:
+                raise sc.err(
+                    "InvalidSquirrelSyntax: '@@}' needs a matching '@@{'"
+                    " earlier in this function"
+                )
+            # `@@}` is replaced in place, on the same line as whatever
+            # indentation `between` already copied into `out` -- only the
+            # *second* line (`sqrrl__check_no_leaks()`) is a fresh line that
+            # needs its own indent prepended explicitly, same reasoning as
+            # `MarkerKind.DECLARE`'s own `try:` line above.
+            var undeclare_indent = indent_of(source, marker_start)
+            out += "finally:\n" + undeclare_indent + "    sqrrl__world.sqrrl__check_no_leaks()"
+            world_declared = False
+            declare_open = False
             pending_decl = None
             pending_for_loop_decl = None
 
@@ -229,12 +283,12 @@ def rewrite_markers(
             sc.parse_init()
             if not world_declared:
                 raise sc.err(
-                    "InvalidSquirrelSyntax: '@@init()' needs '@@declare()'"
+                    "InvalidSquirrelSyntax: '@@init()' needs '@@{'"
                     " called first in this function"
                 )
             # `sqrrl__check_no_leaks` verifies whatever `sqrrl__world`
             # currently holds is empty before it's replaced -- harmless the
-            # very first time this runs (right after `@@declare()`, still
+            # very first time this runs (right after `@@{`, still
             # empty by construction), so every occurrence gets the same
             # codegen, first or not (see `driver.emit_world_module`).
             out += "sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init()"
@@ -246,7 +300,7 @@ def rewrite_markers(
             if not world_declared:
                 raise sc.err(
                     "InvalidSquirrelSyntax: '@@start_init_from_json(...)'"
-                    " needs '@@declare()' called first in this function"
+                    " needs '@@{' called first in this function"
                 )
             # `sqrrl__init_from_json` (see `driver.emit_world_module`) wraps
             # building a `sqrrl__JsonScanner` and calling
@@ -254,7 +308,7 @@ def rewrite_markers(
             # inlining `var sqrrl__scanner = sqrrl__JsonScanner(...)` here
             # -- `@@start_init_from_json(...)` may now be called more than
             # once in the same straight-line function (any number of times
-            # after `@@declare()`), and inlining it would redeclare that
+            # after `@@{`), and inlining it would redeclare that
             # same local a second time, a genuine Mojo error, not just a
             # style concern. Same `sqrrl__check_no_leaks()` call as
             # `@@init()`, and for the same reason.
@@ -265,12 +319,40 @@ def rewrite_markers(
             pending_decl = None
             pending_for_loop_decl = None
 
+        elif kind == MarkerKind.INIT_FROM_JSON:
+            var json_expr = sc.parse_init_from_json()
+            if not world_declared:
+                raise sc.err(
+                    "InvalidSquirrelSyntax: '@@init_from_json(...)' needs"
+                    " '@@{' called first in this function"
+                )
+            # `@@start_init_from_json(...)` immediately followed by
+            # `@@finalize_init_from_json()`, for the common case where the
+            # caller doesn't need to grab anything from the reload beyond
+            # what real relation fields/`keepalive` tags already keep
+            # alive on their own -- finalizing isn't an optional cleanup
+            # step (see `FINALIZE_INIT_FROM_JSON` below): skip it and the
+            # very next leak check (the next `@@init()`-family call, or
+            # `sqrrl__world.__del__` if the function just returns) aborts,
+            # since every non-`keepalive` entity `@@start_init_from_json`
+            # retained is still "live" as far as `Table.all()` is
+            # concerned until `sqrrl__finalize_temp_keep_alives()` drops
+            # them. This marker exists so that's not a footgun you can
+            # forget to reach for.
+            out += String(
+                t"sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world ="
+                t" sqrrl__init_from_json({json_expr});"
+                t" sqrrl__world.sqrrl__finalize_temp_keep_alives()"
+            )
+            pending_decl = None
+            pending_for_loop_decl = None
+
         elif kind == MarkerKind.FINALIZE_INIT_FROM_JSON:
             sc.parse_finalize_init_from_json()
             if not world_declared:
                 raise sc.err(
                     "InvalidSquirrelSyntax: '@@finalize_init_from_json()' needs"
-                    " 'sqrrl__world' -- call @@declare() then @@init() or"
+                    " 'sqrrl__world' -- open @@{ then @@init() or"
                     " @@start_init_from_json(...) first"
                 )
             # `sqrrl__world.sqrrl__finalize_temp_keep_alives()`, not an
@@ -297,7 +379,7 @@ def rewrite_markers(
                     raise sc.err(
                         "InvalidSquirrelSyntax: calling '@@"
                         + func_name
-                        + "(...)' needs 'sqrrl__world' -- call @@declare()"
+                        + "(...)' needs 'sqrrl__world' -- open @@{"
                         " or mark this function's own name with '@@' too"
                     )
                 out += String(t"{sqrrl_prefixed(func_name)}(sqrrl__world")
@@ -387,7 +469,7 @@ def rewrite_markers(
                 raise sc.err(
                     "InvalidSquirrelSyntax: constructing '@@"
                     + c.type_name
-                    + "' needs 'sqrrl__world' -- call @@declare() or add"
+                    + "' needs 'sqrrl__world' -- open @@{ or add"
                     " '@@' to this function's own parameters first"
                 )
             out += build_create_call(
@@ -502,7 +584,7 @@ def rewrite_markers(
                         + fa.entity
                         + "."
                         + fa.field
-                        + "(...)' needs 'sqrrl__world' -- call @@declare() or"
+                        + "(...)' needs 'sqrrl__world' -- open @@{ or"
                         " add '@@' to this function's own parameters first"
                     )
                 # `create` and a `unique` field's own `for_<field>` return
@@ -627,7 +709,7 @@ def rewrite_markers(
                             + fa.entity
                             + "."
                             + fa.field
-                            + "' needs 'sqrrl__world' -- call @@declare() or"
+                            + "' needs 'sqrrl__world' -- open @@{ or"
                             " add '@@' to this function's own parameters"
                             " first"
                         )
@@ -831,6 +913,12 @@ def rewrite_markers(
             pending_for_loop_decl = None
 
         pos = sc.pos
+
+    if declare_open:
+        raise sc.err(
+            "InvalidSquirrelSyntax: '@@{' needs a matching '@@}' before"
+            " this function ends"
+        )
 
     out += String(source[byte = pos : source.byte_length()])
     return out

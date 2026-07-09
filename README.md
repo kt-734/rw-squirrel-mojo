@@ -72,90 +72,130 @@ per field:
     age: UInt32
 ```
 
-**Constructing and using one** — `@@declare()` brings the shared world into
-scope once (typically in `main`), followed by `@@init()` to actually build
-it; every other function that needs it takes `@@` on its own parameter
-list instead of declaring/initializing again:
+**Constructing and using one** — `@@{` brings the shared world into scope
+once (typically in `main`), already a real, live, empty world; `@@}` closes
+the block, checking that nothing built inside it is still alive before the
+function returns. Everything between the two has to be written one level
+deeper, exactly like a hand-written `try:`/`finally:` body — `@@{`/`@@}`
+supply that boilerplate, not the indentation:
 
 ```
 def main() raises:
-    @@declare()
-    @@init()
-    var @@alice = @@Person { .name = "alice", .age = 30 }
-    @@alice.age = 31
-    print(@@alice.name, @@alice.age)
+    @@{
+        var @@alice = @@Person { .name = "alice", .age = 30 }
+        @@alice.age = 31
+        print(@@alice.name, @@alice.age)
+    @@}
 ```
 
-`@@start_init_from_json(json)` is `@@init()`'s reload counterpart — obtains
-the same shared world, but by reconstructing it from a previous
+Every other function that needs `sqrrl__world` takes `@@` on its own
+parameter list instead of opening a block of its own. `@@init()` inside
+the block re-initializes it to a fresh, empty world (rarely needed right
+after `@@{`, which already starts empty — useful for actually resetting
+mid-function). `@@start_init_from_json(json)` is its reload counterpart,
+obtaining the same shared world by reconstructing it from a previous
 `sqrrl__world.to_json()` dump (see "JSON serialization" below) instead of
 building an empty one:
 
 ```
 def main(dump: String) raises:
-    @@declare()
-    @@start_init_from_json(dump)
-    print(@@Person.all())
+    @@{
+        @@start_init_from_json(dump)
+        print(@@Person.all())
+    @@}
 ```
 
-`@@declare()` must appear exactly once, project-wide, before any
-`@@init()`/`@@start_init_from_json(...)` call — it's what makes
-`sqrrl__world` exist, as a real, live, empty world immediately (not an
-uninitialized placeholder). That's what lets `@@init()`/
-`@@start_init_from_json(...)` be called any number of times afterward, in
-any control-flow shape — including *conditionally*, letting a script
-choose between them at runtime — since each one just replaces whatever
-`sqrrl__world` currently holds, rather than needing to be the one thing
-that first brings it into existence:
+Either one may be called any number of times after `@@{`, in any
+control-flow shape — including *conditionally*, letting a script choose
+between them at runtime — since each just replaces whatever `sqrrl__world`
+currently holds, rather than needing to be the one thing that first
+brings it into existence:
 
 ```
 def main(dump: String, restoring: Bool) raises:
-    @@declare()
-    if restoring:
-        @@start_init_from_json(dump)
-    else:
-        @@init()
-    print(@@Person.all())
+    @@{
+        if restoring:
+            @@start_init_from_json(dump)
+        else:
+            @@init()
+        print(@@Person.all())
+    @@}
 ```
 
-Every `@@init()`/`@@start_init_from_json(...)` call — including the first
-one, right after `@@declare()` — checks that whatever `sqrrl__world`
-*currently* holds is empty before replacing it (harmless the first time,
-since `@@declare()`'s own world starts out empty). If something is still
-alive in it — a stray local variable, a list built out of its handles,
-anything other than the world's own internal bookkeeping — that's a real
-bug worth surfacing rather than silently discarding: it `abort`s with a
-`LeakedEntities` message. The same check runs when `sqrrl__world` itself
-is destroyed (typically when its declaring function returns) — not
-`raises` at either point, deliberately: a leak is the same kind of bug
-regardless of when it's discovered, never a legitimate condition worth
-making catchable in one case and fatal in the other (a destructor
-can't propagate a raise at all). `@@start_init_from_json(...)` still
-needs the enclosing function to be `raises` (reconstructing from JSON can
-fail for unrelated reasons — a `unique` field's constraint, say), but
-plain `@@init()` alone no longer requires it.
+Every `@@init()`/`@@start_init_from_json(...)` call checks that whatever
+`sqrrl__world` *currently* holds is empty before replacing it. If something
+is still alive in it — a stray local variable, a list built out of its
+handles, anything other than the world's own internal bookkeeping —
+that's a real bug worth surfacing rather than silently discarding: it
+`abort`s with a `LeakedEntities` message. `@@}` runs the same check, via an
+explicit `finally:` rather than relying on `sqrrl__World`'s own `__del__` —
+not `raises`, deliberately: a leak is the same kind of bug regardless of
+when it's discovered, never a legitimate condition worth making catchable
+in one case and fatal in the other (a destructor can't propagate a raise
+at all). `@@start_init_from_json(...)` still needs the enclosing function
+to be `raises` (reconstructing from JSON can fail for unrelated reasons —
+a `unique` field's constraint, say), but plain `@@init()` alone doesn't.
 
-A second, independent `@@declare()` anywhere else in the project is
-rejected outright — that would mean two disconnected `sqrrl__world`
-bindings with no shared scope between them, defeating the whole point of
-threading one world through `@@`.
+Every `@@{` needs a matching `@@}` before its own function ends — checked
+at compile time, not left to fail at runtime.
 
-`@@finalize_init_from_json()` is optional, and valid after either form of
-`@@init` — it drops every entity `@@start_init_from_json(...)` retained
-only *temporarily* while reconstructing the world (see "JSON
-serialization" below for why that retention is needed and where it lives).
-Call it once a script has grabbed whatever references it actually cares
-about from the reload; anything else — with no relation and no
-`keepalive` tag holding it — is destroyed right then, same as any other
-last handle dropping:
+> **Known limitation:** `sqrrl__World`'s own `__del__`, invoked implicitly
+> at ordinary end-of-scope, has been observed to run *before* a same-scope
+> temporary's own destructor — a false-positive `LeakedEntities` abort that
+> the same check, called explicitly, never produces. This appears to be a
+> Mojo compiler bug in destructor-insertion ordering around `deinit self`,
+> not a bug in generated code (see
+> [`mojo-del-destructor-ordering-bug.md`](mojo-del-destructor-ordering-bug.md)
+> for a minimal, Squirrel-independent reproduction). `@@{`/`@@}` exist
+> specifically to work around it: everything between them runs inside a
+> `try:`, and `@@}`'s `finally:` runs the leak check explicitly, at the
+> block's real exit point, for every exit path (including an early
+> `return` or a `raise` propagating out) — not relying on `__del__` at all.
+> `__del__` is still generated as a backstop for anything that manages to
+> skip `@@}` regardless (a `raise` propagating past the `try:`, say), but
+> the ordinary path through a `@@{`/`@@}` block never depends on it firing
+> correctly.
+
+A second, independent `@@{` anywhere else in the project is rejected
+outright — that would mean two disconnected `sqrrl__world` bindings with
+no shared scope between them, defeating the whole point of threading one
+world through `@@`.
+
+`@@finalize_init_from_json()` is required, not optional cleanup — it drops
+every entity `@@start_init_from_json(...)` retained only *temporarily*
+while reconstructing the world (see "JSON serialization" below for why
+that retention is needed and where it lives). Skip it and the *next* leak
+check — the next `@@init()`-family call, or `@@}`/`sqrrl__world.__del__`
+if the function just returns — aborts: every non-`keepalive` entity the
+reload retained is still "live" as far as the leak check is concerned
+until this runs. Call it once a script has grabbed whatever references it
+actually cares about from the reload; anything else — with no relation
+and no `keepalive` tag holding it — is destroyed right then, same as any
+other last handle dropping:
 
 ```
 def main(dump: String) raises:
-    @@declare()
-    @@start_init_from_json(dump)
-    var kept = @@Person.all()      # re-establish whatever references matter first
-    @@finalize_init_from_json()    # drop everything else the reload retained
-    print(len(kept))
+    @@{
+        @@start_init_from_json(dump)
+        var kept = @@Person.all()      # re-establish whatever references matter first
+        @@finalize_init_from_json()    # required -- drop everything else the reload retained
+        print(len(kept))
+    @@}
+```
+
+If a script doesn't need to grab anything from the reload beyond what real
+relation fields and `keepalive` tags already keep alive on their own,
+`@@init_from_json(json)` does both steps in one call —
+`@@start_init_from_json(json)` immediately followed by
+`@@finalize_init_from_json()` — so there's nothing to remember to call
+separately:
+
+```
+def main(dump: String) raises:
+    @@{
+        @@init_from_json(dump)
+        print(@@Person.all())
+    @@}
 ```
 
 **Relation fields** — a field typed `@@Type` points at another entity

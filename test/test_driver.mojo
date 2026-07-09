@@ -413,11 +413,12 @@ def test_convert_directory_handles_a_script_alongside_its_struct() raises:
         "    age: UInt32\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@alice = @@Person { .name = "alice", .age = 30 };\n'
-        "    @@alice.age = 31;\n"
-        "    print(@@alice.name, @@alice.age);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@alice = @@Person { .name = "alice", .age = 30 };\n'
+        "        @@alice.age = 31;\n"
+        "        print(@@alice.name, @@alice.age);\n"
+        "    @@}\n"
     )
     greeter_rel.close()
 
@@ -427,7 +428,7 @@ def test_convert_directory_handles_a_script_alongside_its_struct() raises:
     var generated = f.read()
     f.close()
     assert_true("from sqrrl__world import sqrrl__init, sqrrl__World" in generated)
-    assert_true("var sqrrl__world = sqrrl__init();" in generated)
+    assert_true("var sqrrl__world = sqrrl__init()\n    try:" in generated)
     assert_true("sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init();" in generated)
     assert_true('var sqrrl__alice = sqrrl__world.Person.create(name = "alice", age = 30);' in generated)
     assert_true("sqrrl__world.Person.set_age(sqrrl__alice, 31);" in generated)
@@ -1072,10 +1073,11 @@ def test_convert_directory_infers_and_enforces_entity_return_binding_cross_file(
         "from factories import sqrrl__make_department\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    var @@dept = @@make_department();\n"
-        "    print(@@dept.name);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var @@dept = @@make_department();\n"
+        "        print(@@dept.name);\n"
+        "    @@}\n"
     )
     main_rel.close()
 
@@ -1109,10 +1111,11 @@ def test_convert_directory_recognizes_multi_param_container_return_type() raises
         "    return Dict[@@AuditLog, String]();\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    for @@entry in @@make_log():\n"
-        "        print(@@entry.message);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        for @@entry in @@make_log():\n"
+        "            print(@@entry.message);\n"
+        "    @@}\n"
     )
     main_rel.close()
 
@@ -1143,9 +1146,9 @@ def test_convert_directory_recognizes_multi_param_container_return_type() raises
         "from factories import sqrrl__make_department\n"
         "\n"
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    var dept = @@make_department();\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var dept = @@make_department();\n"
     )
     main_rel2.close()
 
@@ -1156,11 +1159,11 @@ def test_convert_directory_recognizes_multi_param_container_return_type() raises
 
 
 def test_convert_directory_rejects_multiple_declare_calls() raises:
-    """Calling `@@declare()` more than once anywhere in the project used to
+    """Opening `@@{` more than once anywhere in the project used to
     (with `@@init()` itself as the thing being counted) compile and run
     fine, silently creating a second, disconnected `sqrrl__World` instead
     of sharing the one the rest of the program uses -- a footgun with no
-    error at all. `@@declare()` is meant to be called exactly once; every
+    error at all. `@@{` is meant to appear exactly once; every
     other function should receive the result via `@@` in its own
     parameters instead."""
     var root = "test/tmp_driver_double_init_fixture"
@@ -1175,22 +1178,22 @@ def test_convert_directory_rejects_multiple_declare_calls() raises:
     var factories_rel = open(join(root, "factories.rel"), "w")
     factories_rel.write(
         "def make_department_oops() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        '    var @@d = @@Department { .name = "engineering" };\n'
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@d = @@Department { .name = "engineering" };\n'
     )
     factories_rel.close()
 
     var main_rel = open(join(root, "main.rel"), "w")
     main_rel.write(
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    make_department_oops();\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        make_department_oops();\n"
     )
     main_rel.close()
 
-    with assert_raises(contains="@@declare() called 2 times"):
+    with assert_raises(contains="@@{ used 2 times"):
         convert_directory(root)
 
     _rmtree(root)
@@ -1199,12 +1202,12 @@ def test_convert_directory_rejects_multiple_declare_calls() raises:
 def test_convert_directory_rejects_start_init_from_json_without_declare_in_that_function() raises:
     """`world_declared` is function-scoped, reset at every top-level `def`
     (same as `world_available` always was) -- a *different* function using
-    `@@start_init_from_json(...)` needs its *own* `@@declare()` in that
+    `@@start_init_from_json(...)` needs its *own* `@@{` in that
     same function, even if `main()` already declared and initialized its
     own `sqrrl__world`; there's no way for the two to end up sharing one
     binding this way regardless (see
     `test_convert_directory_rejects_multiple_declare_calls` for why two
-    independent `@@declare()`s are rejected too)."""
+    independent `@@{`s are rejected too)."""
     var root = "test/tmp_driver_mixed_init_fixture"
     if exists(root):
         _rmtree(root)
@@ -1217,28 +1220,29 @@ def test_convert_directory_rejects_start_init_from_json_without_declare_in_that_
     var main_rel = open(join(root, "main.rel"), "w")
     main_rel.write(
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
-        "    var dump = String(\"{}\");\n"
-        "    reload(dump);\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var dump = String(\"{}\");\n"
+        "        reload(dump);\n"
+        "    @@}\n"
         "\n"
         "def reload(dump: String) raises:\n"
         "    @@start_init_from_json(dump);\n"
     )
     main_rel.close()
 
-    with assert_raises(contains="needs '@@declare()'"):
+    with assert_raises(contains="needs '@@{'"):
         convert_directory(root)
 
     _rmtree(root)
 
 
 def test_convert_directory_allows_conditional_reload_or_init_after_declare() raises:
-    """The end-to-end point of `@@declare()`: a real project can now choose
+    """The end-to-end point of `@@{`: a real project can now choose
     between `@@init()` and `@@start_init_from_json(...)` conditionally, in
     one function, with both branches sharing the same declared
     `sqrrl__world` -- something neither form could do alone before
-    `@@declare()` existed (see `misc_builders.check_single_declare_call`'s
+    `@@{` existed (see `misc_builders.check_single_declare_call`'s
     own doc comment)."""
     var root = "test/tmp_driver_conditional_declare_fixture"
     if exists(root):
@@ -1252,13 +1256,14 @@ def test_convert_directory_allows_conditional_reload_or_init_after_declare() rai
     var main_rel = open(join(root, "main.rel"), "w")
     main_rel.write(
         "def main(dump: String, restore: Bool) raises:\n"
-        "    @@declare();\n"
-        "    if restore:\n"
-        "        @@start_init_from_json(dump);\n"
-        "    else:\n"
-        "        @@init();\n"
-        '    var @@d = @@Department { .name = "engineering" };\n'
-        "    print(@@d.name);\n"
+        "    @@{\n"
+        "        if restore:\n"
+        "            @@start_init_from_json(dump);\n"
+        "        else:\n"
+        "            @@init();\n"
+        '        var @@d = @@Department { .name = "engineering" };\n'
+        "        print(@@d.name);\n"
+        "    @@}\n"
     )
     main_rel.close()
 
@@ -1267,7 +1272,7 @@ def test_convert_directory_allows_conditional_reload_or_init_after_declare() rai
     var f = open(join(root, "main.mojo"), "r")
     var generated = f.read()
     f.close()
-    assert_true("var sqrrl__world = sqrrl__init();" in generated)
+    assert_true("var sqrrl__world = sqrrl__init()\n    try:" in generated)
     assert_true(
         "sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world ="
         " sqrrl__init_from_json(dump);" in generated
@@ -1299,10 +1304,11 @@ def test_convert_directory_generates_start_init_from_json() raises:
     var main_rel = open(join(root, "main.rel"), "w")
     main_rel.write(
         "def main(dump: String) raises:\n"
-        "    @@declare();\n"
-        "    @@start_init_from_json(dump);\n"
-        '    var @@d = @@Department { .name = "engineering" };\n'
-        "    print(@@d.name);\n"
+        "    @@{\n"
+        "        @@start_init_from_json(dump);\n"
+        '        var @@d = @@Department { .name = "engineering" };\n'
+        "        print(@@d.name);\n"
+        "    @@}\n"
     )
     main_rel.close()
 
@@ -1311,7 +1317,7 @@ def test_convert_directory_generates_start_init_from_json() raises:
     var f = open(join(root, "main.mojo"), "r")
     var generated = f.read()
     f.close()
-    assert_true("var sqrrl__world = sqrrl__init();" in generated)
+    assert_true("var sqrrl__world = sqrrl__init()\n    try:" in generated)
     assert_true(
         "sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world ="
         " sqrrl__init_from_json(dump);" in generated
@@ -1348,8 +1354,9 @@ def test_convert_directory_generates_check_no_leaks_and_del() raises:
     var main_rel = open(join(root, "main.rel"), "w")
     main_rel.write(
         "def main() raises:\n"
-        "    @@declare();\n"
-        "    @@init();\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "    @@}\n"
     )
     main_rel.close()
 
@@ -1397,10 +1404,11 @@ def test_convert_directory_generates_finalize_init_from_json() raises:
     var main_rel = open(join(root, "main.rel"), "w")
     main_rel.write(
         "def main(dump: String) raises:\n"
-        "    @@declare();\n"
-        "    @@start_init_from_json(dump);\n"
-        "    @@finalize_init_from_json();\n"
-        "    print(len(@@Department.all()));\n"
+        "    @@{\n"
+        "        @@start_init_from_json(dump);\n"
+        "        @@finalize_init_from_json();\n"
+        "        print(len(@@Department.all()));\n"
+        "    @@}\n"
     )
     main_rel.close()
 
@@ -1437,6 +1445,80 @@ def test_convert_directory_rejects_finalize_init_from_json_before_declare() rais
     main_rel.close()
 
     with assert_raises(contains="InvalidSquirrelSyntax"):
+        convert_directory(root)
+
+    _rmtree(root)
+
+
+def test_convert_directory_generates_init_from_json() raises:
+    """`@@init_from_json(json)` desugars to `@@start_init_from_json(json)`
+    immediately followed by `@@finalize_init_from_json()`, in one
+    statement -- for the common case where a script doesn't need to grab
+    anything from the reload beyond what real relation fields/`keepalive`
+    tags already keep alive on their own, so there's nothing to remember
+    to call separately (finalizing isn't optional cleanup -- skip it and
+    the next leak check aborts, see `sqrrl__check_no_leaks`)."""
+    var root = "test/tmp_driver_init_from_json_combined_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var schema_rel = open(join(root, "schema.rel"), "w")
+    schema_rel.write("@@struct @@Department:\n    name: String\n\n")
+    schema_rel.close()
+
+    var main_rel = open(join(root, "main.rel"), "w")
+    main_rel.write(
+        "def main(dump: String) raises:\n"
+        "    @@{\n"
+        "        @@init_from_json(dump);\n"
+        "        print(len(@@Department.all()));\n"
+        "    @@}\n"
+    )
+    main_rel.close()
+
+    convert_directory(root)
+
+    var f = open(join(root, "main.mojo"), "r")
+    var generated = f.read()
+    f.close()
+    assert_true(
+        "sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world ="
+        " sqrrl__init_from_json(dump);"
+        " sqrrl__world.sqrrl__finalize_temp_keep_alives()" in generated
+    )
+
+    _rmtree(root)
+
+
+def test_convert_directory_rejects_init_from_json_without_declare_in_that_function() raises:
+    """Same `world_declared` gate as `@@start_init_from_json(...)`'s own --
+    a different function using `@@init_from_json(...)` needs its own
+    `@@{` in that same function."""
+    var root = "test/tmp_driver_init_from_json_no_declare_fixture"
+    if exists(root):
+        _rmtree(root)
+    makedirs(root, exist_ok=True)
+
+    var schema_rel = open(join(root, "schema.rel"), "w")
+    schema_rel.write("@@struct @@Department:\n    name: String\n\n")
+    schema_rel.close()
+
+    var main_rel = open(join(root, "main.rel"), "w")
+    main_rel.write(
+        "def main() raises:\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var dump = String(\"{}\");\n"
+        "        reload(dump);\n"
+        "    @@}\n"
+        "\n"
+        "def reload(dump: String) raises:\n"
+        "    @@init_from_json(dump);\n"
+    )
+    main_rel.close()
+
+    with assert_raises(contains="needs '@@{'"):
         convert_directory(root)
 
     _rmtree(root)

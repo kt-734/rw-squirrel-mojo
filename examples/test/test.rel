@@ -7,11 +7,10 @@ def @@testFunc() -> List[@@Test]:
     return ret^
 
 def main():
-    @@declare()
-    @@init()
+    @@{
+        var @@localList = @@testFunc()
+        for @@l in @@localList:
+            print(@@l.name)
 
-    var @@localList = @@testFunc()
-    for @@l in @@localList:
-        print(@@l.name)
-
-    print(@@localList[0].name)
+        print(@@localList[0].name)
+    @@}

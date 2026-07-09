@@ -78,17 +78,17 @@ Create a directory with one `.rel` file:
     age: UInt32
 
 def main() raises:
-    @@declare()
-    @@init()
-    var @@alice = @@Person { .name = "alice", .age = 30 }
-    @@alice.age = 31
-    print(@@alice.name, @@alice.age)
+    @@{
+        var @@alice = @@Person { .name = "alice", .age = 30 }
+        @@alice.age = 31
+        print(@@alice.name, @@alice.age)
+    @@}
 ```
 
-Compile and run it the same way as above. `@@declare()` brings a shared
-`sqrrl__world` into scope — once, project-wide — and `@@init()` builds it.
-Everything else in this file is ordinary Mojo; only the `@@`-marked pieces
-get rewritten.
+Compile and run it the same way as above. `@@{` brings a shared
+`sqrrl__world` into scope — once, project-wide, already a real, empty
+world — and `@@}` closes the block. Everything else in this file is
+ordinary Mojo; only the `@@`-marked pieces get rewritten.
 
 ## Run the test suite
 
