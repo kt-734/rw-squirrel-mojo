@@ -1,5 +1,7 @@
 # DSL guide
 
+![](images/emblems/dsl.png){ align=right width="180" }
+
 `@@` marks everything Squirrel-specific — struct declarations, entity
 construction, relation fields, and world threading. A `.rel` file is
 otherwise just Mojo; anything not `@@`-marked passes through untouched. See

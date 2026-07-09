@@ -7,6 +7,8 @@ hide:
 
 <div class="hero" markdown>
 
+![RW Squirrel](images/emblems/home.png){ width="200" }
+
 # Relational data, without writing the relations by hand
 
 **Squirrel** is a small DSL, embedded directly in Mojo source via `@@`-prefixed

@@ -1,5 +1,7 @@
 # Examples
 
+![](images/emblems/examples.png){ align=right width="180" }
+
 Every example lives under
 [`examples/`](https://github.com/kt-734/rw-squirrel-mojo/tree/main/examples)
 and runs the same way:

@@ -1,5 +1,7 @@
 # Getting started
 
+![](images/emblems/getting-started.png){ align=right width="180" }
+
 Squirrel isn't published as a package manager package — but you don't need
 to build it yourself either. A tagged release ships a ready-to-run
 `squirrelc` bundle; nothing about using it requires pixi, Mojo's own

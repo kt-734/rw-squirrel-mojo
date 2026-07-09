@@ -1,5 +1,7 @@
 # Advanced features
 
+![](images/emblems/advanced.png){ align=right width="180" }
+
 Everything in the [DSL guide](dsl-guide.md) is written to avoid
 `sqrrl__`-prefixed names entirely — `@@init()`, `@@`-marked functions, and
 `@@Type.method(...)` calls thread the generated `sqrrl__World` world and its

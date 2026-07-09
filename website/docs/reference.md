@@ -1,5 +1,7 @@
 # Generated method reference
 
+![](images/emblems/method.png){ align=right width="180" }
+
 Every `@@struct` produces a `sqrrl__NameTable`, called as
 `sqrrl__world.Name.<method>(...)` — every method below is unprefixed
 (`create`, `get_<field>`, ...), regardless of the `sqrrl__`-prefixed names
