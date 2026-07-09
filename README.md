@@ -15,7 +15,7 @@ through untouched.
 
 Compile every `.rel` file under a directory into `.mojo` (writing each
 generated file alongside its source, plus a shared `sqrrl__world.mojo`
-and a copy of the runtime):
+and the runtime it imports):
 
 ```sh
 pixi run run examples/greeter
@@ -31,6 +31,17 @@ Run the test suite:
 
 ```sh
 pixi run test
+```
+
+`pixi run build` produces a standalone `squirrelc` executable (the runtime
+it writes into every project it compiles is baked into the binary itself,
+via `embedded_runtime_files()` — see `tools/generate_embedded_runtime.mojo`
+— so it needs nothing from this checkout at runtime): copy it anywhere,
+run it from anywhere, against any project directory:
+
+```sh
+pixi run build
+./squirrelc /path/to/your/project
 ```
 
 ## The `@@` grammar
@@ -538,15 +549,20 @@ manually-threaded world — avoids it.
 ## Project layout
 
 ```
-src/squirrel_compiler/   the compiler: parser.mojo (scans .rel text into
-                          markers), codegen.mojo (marker -> Mojo text),
-                          driver.mojo (walks a directory, resolves
-                          cross-file relations, writes output)
+src/squirrel_compiler/   the compiler: parser/ (scans .rel text into
+                          markers), codegen/ (marker -> Mojo text),
+                          driver/ (walks a directory, resolves cross-file
+                          relations, writes output -- including
+                          embedded_runtime.mojo, generated, see below)
 src/squirrel_runtime/    the runtime every generated file imports:
                           entity/ (EntityHandle, Table, id allocation),
                           rel/ (Rel, UniqueRel, ForwardOnlyRel, MultiRel --
                           the per-field storage backing each modifier above)
-src/main.mojo            CLI entry point: `mojo run -I src src/main.mojo <dir>`
+src/main.mojo            CLI entry point: `mojo run -I src src/main.mojo <dir>`,
+                          or build once with `pixi run build` for a
+                          standalone `squirrelc` executable
+tools/                    generate_embedded_runtime.mojo -- regenerates
+                          src/squirrel_compiler/driver/embedded_runtime.mojo
 examples/                see kitchen_sink for a tour of every feature;
                           kitchen_sink_plus goes further still -- deep
                           relation chains, diamonds, generic plain
@@ -574,9 +590,21 @@ is reported as `path/to/file.rel:line:col: Category: message`.
 ## Development
 
 ```sh
-pixi run test        # runs every test/test_*.mojo file
-pixi run run <dir>    # compiles every .rel file under <dir>
+pixi run test    # runs every test/test_*.mojo file
+pixi run run <dir> # compiles every .rel file under <dir>
+pixi run build    # builds the standalone squirrelc executable
 ```
+
+`src/squirrel_compiler/driver/embedded_runtime.mojo` is generated, not
+hand-written — it's what lets `squirrelc` write a fully working
+`squirrel_runtime` into any project without needing this checkout's own
+`src/` on disk. `test`/`run`/`build` all depend on the task that
+regenerates it (`generate-embedded-runtime`, see `pixi.toml`), so it's
+always rebuilt from whatever's currently under `src/squirrel_runtime/`
+before any of them run — edit a runtime file and the next `pixi run`
+picks it up automatically, no separate step to remember. Commit the
+regenerated file alongside whatever runtime change caused it, same as any
+other generated output this project checks in.
 
 No compiler warnings are tolerated in generated or example code — treat one
 as a bug the same as a hard error.

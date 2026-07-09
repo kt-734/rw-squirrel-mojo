@@ -26,15 +26,15 @@ from squirrel_compiler.driver.emit_file import emit_file
 from squirrel_compiler.driver.runtime_copy import ensure_init_files, copy_runtime
 
 
-def convert_directory(this_project_root: String, target_root: String) raises:
+def convert_directory(target_root: String) raises:
     """Walks `target_root` for `.rel` files, writes a generated `.mojo` file
     alongside each one (resolving cross-file relation imports along the
     way), writes the project-wide `sqrrl__world.mojo`
-    (`emit_world_module`), and copies `squirrel_runtime` into
-    `target_root`. Mirrors `main.zig`'s `pub fn main`, minus the init/deinit
-    aggregator -- `sqrrl__World` is a plain instance a script obtains via
-    `@@init()` and threads by hand, so there's no static lifecycle to
-    aggregate."""
+    (`emit_world_module`), and writes `squirrel_runtime` into `target_root`
+    from `copy_runtime`'s embedded copy. Mirrors `main.zig`'s `pub fn
+    main`, minus the init/deinit aggregator -- `sqrrl__World` is a plain
+    instance a script obtains via `@@init()` and threads by hand, so
+    there's no static lifecycle to aggregate."""
     var rel_files = find_rel_files(target_root)
     var discovery = discover_structs(rel_files, target_root)
     var plain_structs = discover_plain_structs(rel_files, target_root)
@@ -101,5 +101,5 @@ def convert_directory(this_project_root: String, target_root: String) raises:
         print(path, "->", out_path)
         converted += 1
 
-    copy_runtime(this_project_root, target_root)
+    copy_runtime(target_root)
     print("Done:", converted, "file(s) converted.")

@@ -1,5 +1,7 @@
-from std.os import listdir, makedirs
-from std.os.path import dirname, isdir, isfile, join
+from std.os import makedirs
+from std.os.path import dirname, isfile, join
+
+from squirrel_compiler.driver.embedded_runtime import embedded_runtime_files
 
 
 def ensure_init_files(rel_files: List[String], target_root: String) raises:
@@ -43,40 +45,23 @@ def ensure_init_files(rel_files: List[String], target_root: String) raises:
             dir = dirname(dir)
 
 
-def copy_runtime(this_project_root: String, dest_root: String) raises:
-    """Copies `squirrel_runtime`'s `.mojo` files into
+def copy_runtime(dest_root: String) raises:
+    """Writes `squirrel_runtime`'s `.mojo` files into
     `dest_root/squirrel_runtime`, so generated files' `from
     squirrel_runtime...` imports resolve at the conversion root -- matching
-    `main.zig`'s `copyRuntime`, but as a plain filesystem copy (reading from
-    this project's own `src/squirrel_runtime`) rather than Zig's
-    `@embedFile`-into-the-binary approach; this tool isn't distributed as a
-    standalone binary yet, so there's nothing to embed into."""
-    var src_dir = join(this_project_root, "src", "squirrel_runtime")
+    `main.zig`'s `copyRuntime`, from `embedded_runtime_files()` (generated
+    by `tools/generate_embedded_runtime.mojo`, baked into the compiler
+    itself at build time) rather than a plain filesystem copy: this way a
+    `mojo build`-produced executable is fully standalone -- runnable from
+    any working directory, copied anywhere -- with no dependency on this
+    project's own source tree existing on disk alongside it, the same
+    guarantee Zig's `@embedFile` gave the original version of this tool."""
     var dest_dir = join(dest_root, "squirrel_runtime")
-    _copy_tree(src_dir, dest_dir)
-
-
-def _copy_tree(src_dir: String, dest_dir: String) raises:
-    """Recursively copies every file and subdirectory under `src_dir` into
-    `dest_dir`, mirroring the structure exactly -- so `squirrel_runtime`'s
-    own package layout (e.g. `rel/` being a subpackage of several files,
-    not a single flat one) never needs a maintained file list here that
-    has to be kept in sync by hand whenever a file's added, removed, or
-    renamed. Mirrors `find_rel_files`/`_collect_rel_files`'s own
-    `listdir`/`isdir` recursion above, just copying instead of collecting."""
-    makedirs(dest_dir, exist_ok=True)
-    for entry in listdir(src_dir):
-        var src_path = join(src_dir, entry)
-        var dest_path = join(dest_dir, entry)
-        if isdir(src_path):
-            _copy_tree(src_path, dest_path)
-        else:
-            var f = open(src_path, "r")
-            var content = f.read()
-            f.close()
-
-            var out = open(dest_path, "w")
-            out.write(content)
-            out.close()
+    for entry in embedded_runtime_files().items():
+        var dest_path = join(dest_dir, entry.key)
+        makedirs(dirname(dest_path), exist_ok=True)
+        var out = open(dest_path, "w")
+        out.write(entry.value)
+        out.close()
 
 

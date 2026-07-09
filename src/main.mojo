@@ -9,4 +9,4 @@ def main() raises:
         print("Usage:", args[0], "<directory>")
         raise Error("MissingArgument")
 
-    convert_directory(".", args[1])
+    convert_directory(args[1])

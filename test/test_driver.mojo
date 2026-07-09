@@ -52,7 +52,7 @@ def test_convert_directory_end_to_end() raises:
     person_rel.write("@@struct @@Person:\n    name: String\n    @@employee: @@Employee\n\n")
     person_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     assert_true(isfile(join(root, "person.mojo")))
     assert_true(isfile(join(root, "sub", "employee.mojo")))
@@ -146,7 +146,7 @@ def test_convert_directory_generates_json_container_dispatch() raises:
     person_rel.write("@@struct @@Person:\n    tags: List[String]\n\n")
     person_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var jf = open(join(root, "sqrrl__json.mojo"), "r")
     var json_generated = jf.read()
@@ -187,7 +187,7 @@ def test_convert_directory_registers_nested_container_types() raises:
     foo_rel.write("@@struct @@Foo:\n    bar: Optional[List[String]]\n\n")
     foo_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var jf = open(join(root, "sqrrl__json.mojo"), "r")
     var json_generated = jf.read()
@@ -220,7 +220,7 @@ def test_convert_directory_registers_generic_instantiations_container_types() ra
     holder_rel.write("@@struct @@Holder:\n    name: String\n    forwardonly items: Example[String]\n\n")
     holder_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var jf = open(join(root, "sqrrl__json.mojo"), "r")
     var json_generated = jf.read()
@@ -249,7 +249,7 @@ def test_convert_directory_registers_dict_element_types() raises:
     foo_rel.write("@@struct @@Foo:\n    nested: Dict[String, List[Int]]\n\n")
     foo_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var jf = open(join(root, "sqrrl__json.mojo"), "r")
     var json_generated = jf.read()
@@ -281,7 +281,7 @@ def test_convert_directory_generates_dispatch_for_plain_struct_nested_in_contain
     foo_rel.write("@@struct @@Foo:\n    addresses: List[Address]\n\n")
     foo_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var jf = open(join(root, "sqrrl__json.mojo"), "r")
     var json_generated = jf.read()
@@ -309,7 +309,7 @@ def test_convert_directory_generates_dispatch_for_generic_instantiation_nested_i
     foo_rel.write("@@struct @@Foo:\n    boxes: List[Box[String]]\n\n")
     foo_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var jf = open(join(root, "sqrrl__json.mojo"), "r")
     var json_generated = jf.read()
@@ -348,7 +348,7 @@ def test_convert_directory_rejects_relation_embedding_plain_struct_nested_in_con
     holder_rel.close()
 
     with assert_raises(contains="Assignment"):
-        convert_directory(".", root)
+        convert_directory(root)
 
     _rmtree(root)
 
@@ -377,7 +377,7 @@ def test_convert_directory_emits_ordinary_rel_for_collection_relation_field() ra
     )
     department_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     assert_true(isfile(join(root, "department.mojo")))
 
@@ -421,7 +421,7 @@ def test_convert_directory_handles_a_script_alongside_its_struct() raises:
     )
     greeter_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var f = open(join(root, "greeter.mojo"), "r")
     var generated = f.read()
@@ -449,7 +449,7 @@ def test_convert_directory_rejects_direct_two_struct_cycle() raises:
     b_rel.close()
 
     with assert_raises(contains="CyclicRelation"):
-        convert_directory(".", root)
+        convert_directory(root)
 
     _rmtree(root)
 
@@ -472,7 +472,7 @@ def test_convert_directory_rejects_cycle_through_wrapped_relation_field() raises
     b_rel.close()
 
     with assert_raises(contains="CyclicRelation"):
-        convert_directory(".", root)
+        convert_directory(root)
 
     _rmtree(root)
 
@@ -496,7 +496,7 @@ def test_convert_directory_rejects_cycle_through_container_of_plain_struct() rai
     b_rel.close()
 
     with assert_raises(contains="CyclicRelation"):
-        convert_directory(".", root)
+        convert_directory(root)
 
     _rmtree(root)
 
@@ -512,7 +512,7 @@ def test_convert_directory_rejects_self_relation_cycle() raises:
     node_rel.close()
 
     with assert_raises(contains="CyclicRelation"):
-        convert_directory(".", root)
+        convert_directory(root)
 
     _rmtree(root)
 
@@ -534,7 +534,7 @@ def test_convert_directory_rejects_transitive_three_struct_cycle() raises:
     c_rel.close()
 
     with assert_raises(contains="CyclicRelation"):
-        convert_directory(".", root)
+        convert_directory(root)
 
     _rmtree(root)
 
@@ -558,7 +558,7 @@ def test_convert_directory_allows_acyclic_diamond_relations() raises:
     d_rel.write("@@struct @@D:\n    name: String\n\n")
     d_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
     assert_true(isfile(join(root, "a.mojo")))
 
     _rmtree(root)
@@ -587,7 +587,7 @@ def test_convert_directory_rejects_bidirectional_multi_relation() raises:
     course_rel.close()
 
     with assert_raises(contains="CyclicRelation"):
-        convert_directory(".", root)
+        convert_directory(root)
 
     _rmtree(root)
 
@@ -611,7 +611,7 @@ def test_convert_directory_allows_one_sided_multi_relation() raises:
     course_rel.write("@@struct @@Course:\n    title: String\n    multi @@students: @@Student\n\n")
     course_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
     assert_true(isfile(join(root, "course.mojo")))
 
     var f = open(join(root, "course.mojo"), "r")
@@ -665,7 +665,7 @@ def test_convert_directory_rejects_cycle_smuggled_through_plain_struct() raises:
     schema_rel.close()
 
     with assert_raises(contains="CyclicRelation"):
-        convert_directory(".", root)
+        convert_directory(root)
 
     _rmtree(root)
 
@@ -707,7 +707,7 @@ def test_convert_directory_rejects_cycle_smuggled_through_hand_written_plain_str
     note_rel.close()
 
     with assert_raises(contains="CyclicRelation"):
-        convert_directory(".", root)
+        convert_directory(root)
 
     _rmtree(root)
 
@@ -735,7 +735,7 @@ def test_convert_directory_tolerates_a_real_mojo_plain_struct() raises:
     )
     address_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
     assert_true(isfile(join(root, "address.mojo")))
 
     _rmtree(root)
@@ -762,7 +762,7 @@ def test_convert_directory_generates_real_struct_from_shorthand_plain_struct() r
     note_rel.write("struct Note { @@author: @@Employee, text: String }\n")
     note_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
     assert_true(isfile(join(root, "note.mojo")))
 
     var f = open(join(root, "note.mojo"), "r")
@@ -798,7 +798,7 @@ def test_convert_directory_imports_cross_file_plain_struct_field() raises:
     person_rel.write("@@struct @@Person:\n    name: String\n    home: Address\n\n")
     person_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var f = open(join(root, "person.mojo"), "r")
     var generated = f.read()
@@ -841,7 +841,7 @@ def test_convert_directory_generates_from_json_for_hand_written_plain_struct() r
     person_rel.write("@@struct @@Person:\n    name: String\n    home: Address\n\n")
     person_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var jf = open(join(root, "sqrrl__json.mojo"), "r")
     var json_generated = jf.read()
@@ -891,7 +891,7 @@ def test_convert_directory_generates_from_json_for_generic_plain_struct() raises
     product_rel.write("@@struct @@Product:\n    name: String\n    price: Box[UInt32]\n\n")
     product_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var jf = open(join(root, "sqrrl__json.mojo"), "r")
     var json_generated = jf.read()
@@ -948,7 +948,7 @@ def test_convert_directory_generates_from_json_for_hand_written_plain_struct_wit
     report_rel.write("@@struct @@Report:\n    forwardonly note: Note\n\n")
     report_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var jf = open(join(root, "sqrrl__json.mojo"), "r")
     var json_generated = jf.read()
@@ -1002,7 +1002,7 @@ def test_convert_directory_imports_cross_file_entity_param() raises:
     )
     reports_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var f = open(join(root, "reports.mojo"), "r")
     var generated = f.read()
@@ -1033,7 +1033,7 @@ def test_convert_directory_imports_cross_file_return_type() raises:
     )
     factories_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var f = open(join(root, "factories.mojo"), "r")
     var generated = f.read()
@@ -1079,7 +1079,7 @@ def test_convert_directory_infers_and_enforces_entity_return_binding_cross_file(
     )
     main_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var f = open(join(root, "main.mojo"), "r")
     var generated = f.read()
@@ -1116,7 +1116,7 @@ def test_convert_directory_recognizes_multi_param_container_return_type() raises
     )
     main_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var f = open(join(root, "main.mojo"), "r")
     var generated = f.read()
@@ -1150,7 +1150,7 @@ def test_convert_directory_recognizes_multi_param_container_return_type() raises
     main_rel2.close()
 
     with assert_raises():
-        convert_directory(".", root)
+        convert_directory(root)
 
     _rmtree(root)
 
@@ -1191,7 +1191,7 @@ def test_convert_directory_rejects_multiple_declare_calls() raises:
     main_rel.close()
 
     with assert_raises(contains="@@declare() called 2 times"):
-        convert_directory(".", root)
+        convert_directory(root)
 
     _rmtree(root)
 
@@ -1228,7 +1228,7 @@ def test_convert_directory_rejects_start_init_from_json_without_declare_in_that_
     main_rel.close()
 
     with assert_raises(contains="needs '@@declare()'"):
-        convert_directory(".", root)
+        convert_directory(root)
 
     _rmtree(root)
 
@@ -1262,7 +1262,7 @@ def test_convert_directory_allows_conditional_reload_or_init_after_declare() rai
     )
     main_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var f = open(join(root, "main.mojo"), "r")
     var generated = f.read()
@@ -1306,7 +1306,7 @@ def test_convert_directory_generates_start_init_from_json() raises:
     )
     main_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var f = open(join(root, "main.mojo"), "r")
     var generated = f.read()
@@ -1353,7 +1353,7 @@ def test_convert_directory_generates_check_no_leaks_and_del() raises:
     )
     main_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var sf = open(join(root, "sqrrl__world.mojo"), "r")
     var world_generated = sf.read()
@@ -1404,7 +1404,7 @@ def test_convert_directory_generates_finalize_init_from_json() raises:
     )
     main_rel.close()
 
-    convert_directory(".", root)
+    convert_directory(root)
 
     var f = open(join(root, "main.mojo"), "r")
     var generated = f.read()
@@ -1437,7 +1437,7 @@ def test_convert_directory_rejects_finalize_init_from_json_before_declare() rais
     main_rel.close()
 
     with assert_raises(contains="InvalidSquirrelSyntax"):
-        convert_directory(".", root)
+        convert_directory(root)
 
     _rmtree(root)
 
