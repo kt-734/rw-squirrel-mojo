@@ -174,6 +174,54 @@ print(@@alice.@@job.@@dept.name)
 var @@alices_job_dept = @@alice.@@job.@@dept
 ```
 
+## Relation cycles
+
+A relation cycle — any chain of relation fields that leads back to where it
+started, project-wide — is rejected at compile time with a
+`CyclicRelation` error, naming the whole cycle and where each struct in it
+is declared:
+
+```
+CyclicRelation: A (a) -> B (b) -> A
+```
+
+This is checked before any code is generated, for two reasons: `create()`
+needs every relation field's target to already exist (a cycle would mean
+two structs each waiting on the other), and Mojo's `ArcPointer` has no
+cycle collector — a real reference cycle would leak forever rather than
+ever reaching zero.
+
+A cycle doesn't need to be direct (`@@a: @@A` on `B` and `@@b: @@B` on
+`A`) — any of these count as a graph edge, and a chain through any mix of
+them is caught the same way:
+
+- **Self-relations** — `@@Node` with a `@@friend: @@Node` field is a
+  one-struct cycle.
+- **Transitive chains** — `A -> B -> C -> A`, spanning any number of
+  structs across any number of files.
+- **Wrapped relation fields** — `List[@@Employee]`/`Set[@@Employee]` are
+  graph edges exactly like a bare `@@Employee` field would be.
+- **Plain fields naming a known struct** — `members: List[A]` (no `@@`) is
+  still an edge if `A` is a declared struct: an embed-by-value collection
+  can smuggle a cycle back through whatever `A`'s own fields point at.
+- **Plain structs** — a `@@`-marked field *inside* a plain (non-`@@`)
+  struct that's embedded into an entity struct carries the cycle through
+  just as well, even though the plain struct itself is never written as
+  `@@Type` on either end. This is caught for a hand-written plain struct
+  too (a real Mojo struct, not the brace-shorthand form), since its own
+  relation field is recovered back to the same `@@Employee` shape the
+  cycle check already understands.
+
+**What isn't a cycle:** a diamond — `A` pointing at both `B` and `C`,
+which both point at `D` — is perfectly fine; nothing leads back to `A`.
+And declaring `multi` redundantly on *both* sides of a relationship
+(`Student.courses`/`Course.students`, each pointing at the other) *is*
+rejected as a cycle like any other pairing — but there's no reason to
+write it that way in the first place: a single `multi @@students: @@Student`
+field declared on just `Course` already answers both directions —
+`Course.get_students(math)`/`add_to_students`/`for_students` (from
+`Course`'s own side) — with no edge back from `Student` needed at all.
+
 ## Field modifiers
 
 One keyword before a field name:
