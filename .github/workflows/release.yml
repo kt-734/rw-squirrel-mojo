@@ -1,0 +1,26 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: prefix-dev/setup-pixi@v0.10.0
+
+      - run: pixi run build
+
+      - run: mv squirrelc squirrelc-linux-x86_64
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: squirrelc-linux-x86_64
+          generate_release_notes: true
