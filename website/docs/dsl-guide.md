@@ -59,6 +59,23 @@ function returns).
 A second, independent `@@declare()` anywhere else in the project is rejected
 outright.
 
+`@@finalize_init_from_json()` is optional, and valid after either form of
+`@@init` — it drops every entity `@@start_init_from_json(...)` retained only
+*temporarily* while reconstructing the world (see "JSON serialization"
+below for why that retention is needed and where it lives). Call it once a
+script has grabbed whatever references it actually cares about from the
+reload; anything else — with no relation and no `keepalive` tag holding it
+— is destroyed right then, same as any other last handle dropping:
+
+```
+def main(dump: String) raises:
+    @@declare()
+    @@start_init_from_json(dump)
+    var kept = @@Person.all()      # re-establish whatever references matter first
+    @@finalize_init_from_json()    # drop everything else the reload retained
+    print(len(kept))
+```
+
 ## Relation fields
 
 A field typed `@@Type` points at another entity (refcounted: the target
@@ -230,18 +247,20 @@ print("all projects:", len(@@Project.all()))
 
 ## JSON serialization
 
-`sqrrl__world` itself has whole-world dump/reload — there's no per-entity
+`sqrrl__world` itself has `to_json`/a reload counterpart, dumping and
+restoring every table's every live entity at once — there's no per-entity
 `@@Type.to_json(...)` sugar, since a relation field only ever serializes as
-the target's bare id, not its contents. `@@start_init_from_json`/
-`@@finalize_init_from_json` are the DSL-reachable reload path:
+the target's bare id, not its contents. `@@init()`'s reload counterpart is
+`@@start_init_from_json`/`@@finalize_init_from_json` (see "Constructing and
+using one" above); the dump half has no sugar at all — there's nothing to
+inject, it just always dumps everything — so that's thread-`sqrrl__world`-
+by-hand territory (see [Advanced features](advanced-features.md)):
 
 ```
-def main(dump: String) raises:
-    @@declare()
-    @@start_init_from_json(dump)
-    var kept = @@Person.all()      # re-establish whatever references matter first
-    @@finalize_init_from_json()    # drop everything else the reload retained
-    print(len(kept))
+var dump = sqrrl__world.to_json()      # -> String, every table's every live entity
+
+var sc = sqrrl__JsonScanner(dump)
+var reloaded = sqrrl__world_from_json(sc)    # -> sqrrl__World, a fresh one
 ```
 
 Reconstruction proceeds in dependency order, so by the time any entity's
