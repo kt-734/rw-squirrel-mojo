@@ -695,3 +695,8 @@ other generated output this project checks in.
 
 No compiler warnings are tolerated in generated or example code — treat one
 as a bug the same as a hard error.
+
+## Support this project
+
+If Squirrel is useful to you, consider
+[sponsoring on GitHub](https://github.com/sponsors/kt-734).

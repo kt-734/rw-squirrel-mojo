@@ -135,5 +135,6 @@ pixi run mojo run -I examples/kitchen_sink_plus examples/kitchen_sink_plus/main.
 ```
 
 [Get started](getting-started.md){ .md-button .md-button--primary }
+[:material-heart: Sponsor](https://github.com/sponsors/kt-734){ .md-button }
 
 </div>
