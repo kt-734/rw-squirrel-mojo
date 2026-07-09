@@ -41,18 +41,9 @@ the block re-initializes it to a fresh, empty world (rarely needed right
 after `@@{`, which already starts empty). `@@start_init_from_json(json)` is
 its reload counterpart, reconstructing the world from a previous
 `sqrrl__world.to_json()` dump instead. Either may be called any number of
-times after `@@{`, in any control-flow shape — including conditionally:
-
-```
-def main(dump: String, restoring: Bool) raises:
-    @@{
-        if restoring:
-            @@start_init_from_json(dump)
-        else:
-            @@init()
-        print(@@Person.all())
-    @@}
-```
+times after `@@{`, in any control-flow shape — including conditionally
+(see `@@finalize_init_from_json()`/`@@init_from_json(...)` below for the
+reload side's own cleanup step).
 
 Every `@@init()`/`@@start_init_from_json(...)` call checks that whatever
 `sqrrl__world` currently holds is empty before replacing it. If something is

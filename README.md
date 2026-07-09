@@ -109,18 +109,8 @@ Either one may be called any number of times after `@@{`, in any
 control-flow shape — including *conditionally*, letting a script choose
 between them at runtime — since each just replaces whatever `sqrrl__world`
 currently holds, rather than needing to be the one thing that first
-brings it into existence:
-
-```
-def main(dump: String, restoring: Bool) raises:
-    @@{
-        if restoring:
-            @@start_init_from_json(dump)
-        else:
-            @@init()
-        print(@@Person.all())
-    @@}
-```
+brings it into existence (see `@@finalize_init_from_json()`/
+`@@init_from_json(...)` below for the reload side's own cleanup step).
 
 Every `@@init()`/`@@start_init_from_json(...)` call checks that whatever
 `sqrrl__world` *currently* holds is empty before replacing it. If something
