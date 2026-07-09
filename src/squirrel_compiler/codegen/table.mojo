@@ -162,6 +162,13 @@ def emit_table(parsed: ParsedStruct, plain_struct_fields: Dict[String, List[Fiel
     out += "\n"
     out += String(t"    def all(self) -> Set[EntityHandle[{state_name}]]:\n")
     out += "        return self.table.all()\n"
+    out += "\n"
+    # `count()` is `len(self.all())` without building a handle for every
+    # live entity just to throw it away right after -- `Table.count()`
+    # is O(1) (`IdAllocator.live_count()`, tracked from `free_list`'s own
+    # size, not scanned).
+    out += "    def count(self) -> Int:\n"
+    out += "        return self.table.count()\n"
     if parsed.is_keepalive:
         out += "\n"
         out += String(
@@ -251,6 +258,12 @@ def emit_table(parsed: ParsedStruct, plain_struct_fields: Dict[String, List[Fiel
             out += String(t"            out.append(self.table.handle_for(id))\n")
             out += "        return out^\n"
             out += "\n"
+            # `count_{f.name}` is `len(for_{f.name}(value))` without
+            # building a handle for every owning row just to throw it away
+            # right after.
+            out += String(t"    def count_{f.name}(self, value: {element_type}) -> Int:\n")
+            out += String(t"        return len(self.table.state[].state.{f.name}.get_bwd(value))\n")
+            out += "\n"
             # `group_by_<field>` walks `MultiRel.all_bwd()` -- the whole
             # `_bwd` (element -> every owning id) at once, rather than one
             # element's bucket via `for_<field>`. Keyed by the element type,
@@ -259,17 +272,47 @@ def emit_table(parsed: ParsedStruct, plain_struct_fields: Dict[String, List[Fiel
             # Department containing them," not the *other* many-to-many
             # direction ("for each Department, its own members"), which is
             # just `all()` + `get_<field>` per row and needs no new method.
+            # `ref`, not `var` -- `all_bwd()` hands back a borrowed
+            # reference straight into the field's own storage now, not a
+            # copy (see its own doc comment), so binding it with `var`
+            # here would be the one place that still forced a copy back.
             out += String(
                 t"    def group_by_{f.name}(self) ->"
                 t" Dict[{element_type}, List[EntityHandle[{state_name}]]]:\n"
             )
-            out += String(t"        var buckets = self.table.state[].state.{f.name}.all_bwd()\n")
+            out += String(t"        ref buckets = self.table.state[].state.{f.name}.all_bwd()\n")
             out += String(t"        var out = Dict[{element_type}, List[EntityHandle[{state_name}]]]()\n")
             out += "        for entry in buckets.items():\n"
             out += String(t"            var handles = List[EntityHandle[{state_name}]]()\n")
             out += "            for id in entry.value:\n"
             out += String(t"                handles.append(self.table.handle_for(id))\n")
             out += "            out[entry.key] = handles^\n"
+            out += "        return out^\n"
+            out += "\n"
+            # `count_by_<field>` is `group_by_<field>` without ever
+            # building the `List[EntityHandle[...]]` for each bucket, just
+            # `len()`-ing it -- for when only the count matters, not which
+            # entities specifically.
+            out += String(
+                t"    def count_by_{f.name}(self) -> Dict[{element_type}, Int]:\n"
+            )
+            out += String(t"        ref buckets = self.table.state[].state.{f.name}.all_bwd()\n")
+            out += String(t"        var out = Dict[{element_type}, Int]()\n")
+            out += "        for entry in buckets.items():\n"
+            out += "            out[entry.key] = len(entry.value)\n"
+            out += "        return out^\n"
+            out += "\n"
+            # `distinct_<field>` is every distinct element currently a
+            # member of at least one set, with no `EntityHandle` built at
+            # all -- unlike `group_by_<field>().keys()`/`count_by_<field>
+            # ().keys()`, which would've already paid for a full pass
+            # (`group_by_<field>`) or at least walked every bucket
+            # (`count_by_<field>`) first; this only ever reads `all_bwd()`'s
+            # own keys.
+            out += String(t"    def distinct_{f.name}(self) -> Set[{element_type}]:\n")
+            out += String(t"        var out = Set[{element_type}]()\n")
+            out += String(t"        for key in self.table.state[].state.{f.name}.all_bwd().keys():\n")
+            out += "            out.add(key)\n"
             out += "        return out^\n"
             continue
         if f.modifier == FieldModifier.FORWARD_ONLY:
@@ -300,6 +343,12 @@ def emit_table(parsed: ParsedStruct, plain_struct_fields: Dict[String, List[Fiel
             out += "        for id in ids:\n"
             out += String(t"            out.add(self.table.handle_for(id))\n")
             out += "        return out^\n"
+            out += "\n"
+            # `count_{f.name}` is `len(for_{f.name}(value))` (exact match)
+            # without building a handle for every matching row just to
+            # throw it away right after.
+            out += String(t"    def count_{f.name}(self, value: {field_type}) -> Int:\n")
+            out += String(t"        return len(self.table.state[].state.{f.name}.get_bwd(value))\n")
             for method_name in ["greater_than", "less_than", "at_least", "at_most"]:
                 out += "\n"
                 out += String(
@@ -339,24 +388,82 @@ def emit_table(parsed: ParsedStruct, plain_struct_fields: Dict[String, List[Fiel
             out += String(t"                handles.append(self.table.handle_for(id))\n")
             out += "            out[entry.key] = handles^\n"
             out += "        return out^\n"
+            out += "\n"
+            # `count_by_<field>` is `group_by_<field>` without ever
+            # building the `List[EntityHandle[...]]` for each bucket, just
+            # `len()`-ing it. `OrderedRel.all_bwd()` is rebuilt fresh here
+            # too (each generated method gets its own call -- there's
+            # nothing to share between them), still ascending-ordered.
+            out += String(
+                t"    def count_by_{f.name}(self) -> Dict[{field_type}, Int]:\n"
+            )
+            out += String(t"        var buckets = self.table.state[].state.{f.name}.all_bwd()\n")
+            out += String(t"        var out = Dict[{field_type}, Int]()\n")
+            out += "        for entry in buckets.items():\n"
+            out += "            out[entry.key] = len(entry.value)\n"
+            out += "        return out^\n"
+            out += "\n"
+            # `distinct_<field>` is every distinct value currently in use,
+            # with no `EntityHandle` built at all -- `List`, not `Set`,
+            # unlike every other field kind's own `distinct_<field>`: the
+            # ascending order is the whole point of `ordered` (same reason
+            # the range-shaped `for_<field>_*` methods stay `List`-returning
+            # rather than `Set`), so it's made explicit in the return type
+            # itself rather than resting on `Set`'s own (real, but less
+            # obviously-ordered-to-a-reader) iteration behavior.
+            out += String(t"    def distinct_{f.name}(self) -> List[{field_type}]:\n")
+            out += String(t"        var out = List[{field_type}]()\n")
+            out += String(t"        for key in self.table.state[].state.{f.name}.all_bwd().keys():\n")
+            out += "            out.append(key)\n"
+            out += "        return out^\n"
             continue
         if f.modifier == FieldModifier.UNIQUE:
             out += String(t"    def for_{f.name}(self, value: {field_type}) raises -> EntityHandle[{state_name}]:\n")
             out += String(t"        var id = self.table.state[].state.{f.name}.get_bwd(value)\n")
             out += String(t"        return self.table.handle_for(id)\n")
             out += "\n"
+            # `count_<field>` is the one genuinely *new* capability in this
+            # group, not just a faster version of something already
+            # possible: `for_<field>` *raises* if `value` isn't in use, so
+            # there's no way today to ask "is this value taken" without a
+            # try/except. `0`/`1`, via a plain `in` check against
+            # `all_bwd()`'s own `_bwd` reference -- no raising, no handle
+            # built either way.
+            out += String(t"    def count_{f.name}(self, value: {field_type}) -> Int:\n")
+            out += String(
+                t"        return 1 if value in self.table.state[].state.{f.name}.all_bwd() else 0\n"
+            )
+            out += "\n"
             # `group_by_<field>` walks `UniqueRel.all_bwd()` -- every value
             # currently in use, each mapped to its own single id (by
             # construction of `unique`), so no `List`/`Set` wrapping is
             # needed the way every other field kind's `group_by_<field>`
-            # does -- each group has exactly one member.
+            # does -- each group has exactly one member. `ref`, not `var`
+            # -- see the `multi` branch's own comment above.
             out += String(
                 t"    def group_by_{f.name}(self) -> Dict[{field_type}, EntityHandle[{state_name}]]:\n"
             )
-            out += String(t"        var ids = self.table.state[].state.{f.name}.all_bwd()\n")
+            out += String(t"        ref ids = self.table.state[].state.{f.name}.all_bwd()\n")
             out += String(t"        var out = Dict[{field_type}, EntityHandle[{state_name}]]()\n")
             out += "        for entry in ids.items():\n"
             out += String(t"            out[entry.key] = self.table.handle_for(entry.value)\n")
+            out += "        return out^\n"
+            # No `count_by_<field>` for `unique` -- every group is exactly
+            # 1 by construction, so it would carry zero information beyond
+            # what `unique` already guarantees. Unlike `group_by_<field>`
+            # (still useful here -- it's a real value -> entity lookup
+            # table), a count that's always 1 isn't worth generating.
+            out += "\n"
+            # `distinct_<field>` *is* worth generating here, though --
+            # "which values are currently taken" without paying for
+            # `group_by_<field>`'s own `handle_for` call per value (a real
+            # `WeakPointer` upgrade + `EntityHandle` construction each
+            # time). This is the cheap way to ask that question for
+            # `unique` specifically.
+            out += String(t"    def distinct_{f.name}(self) -> Set[{field_type}]:\n")
+            out += String(t"        var out = Set[{field_type}]()\n")
+            out += String(t"        for key in self.table.state[].state.{f.name}.all_bwd().keys():\n")
+            out += "            out.add(key)\n"
             out += "        return out^\n"
         else:
             out += String(t"    def for_{f.name}(self, value: {field_type}) -> List[EntityHandle[{state_name}]]:\n")
@@ -366,20 +473,47 @@ def emit_table(parsed: ParsedStruct, plain_struct_fields: Dict[String, List[Fiel
             out += String(t"            out.append(self.table.handle_for(id))\n")
             out += "        return out^\n"
             out += "\n"
+            # `count_{f.name}` is `len(for_{f.name}(value))` without
+            # building a handle for every matching row just to throw it
+            # away right after.
+            out += String(t"    def count_{f.name}(self, value: {field_type}) -> Int:\n")
+            out += String(t"        return len(self.table.state[].state.{f.name}.get_bwd(value))\n")
+            out += "\n"
             # `group_by_<field>` walks `Rel.all_bwd()` -- every value
             # currently in use, each mapped to every id holding it, all at
-            # once, rather than one bucket via `for_<field>`.
+            # once, rather than one bucket via `for_<field>`. `ref`, not
+            # `var` -- see the `multi` branch's own comment above.
             out += String(
                 t"    def group_by_{f.name}(self) ->"
                 t" Dict[{field_type}, List[EntityHandle[{state_name}]]]:\n"
             )
-            out += String(t"        var buckets = self.table.state[].state.{f.name}.all_bwd()\n")
+            out += String(t"        ref buckets = self.table.state[].state.{f.name}.all_bwd()\n")
             out += String(t"        var out = Dict[{field_type}, List[EntityHandle[{state_name}]]]()\n")
             out += "        for entry in buckets.items():\n"
             out += String(t"            var handles = List[EntityHandle[{state_name}]]()\n")
             out += "            for id in entry.value:\n"
             out += String(t"                handles.append(self.table.handle_for(id))\n")
             out += "            out[entry.key] = handles^\n"
+            out += "        return out^\n"
+            out += "\n"
+            # `count_by_<field>` is `group_by_<field>` without ever
+            # building the `List[EntityHandle[...]]` for each bucket, just
+            # `len()`-ing it.
+            out += String(
+                t"    def count_by_{f.name}(self) -> Dict[{field_type}, Int]:\n"
+            )
+            out += String(t"        ref buckets = self.table.state[].state.{f.name}.all_bwd()\n")
+            out += String(t"        var out = Dict[{field_type}, Int]()\n")
+            out += "        for entry in buckets.items():\n"
+            out += "            out[entry.key] = len(entry.value)\n"
+            out += "        return out^\n"
+            out += "\n"
+            # `distinct_<field>` is every distinct value currently in use,
+            # with no `EntityHandle` built at all.
+            out += String(t"    def distinct_{f.name}(self) -> Set[{field_type}]:\n")
+            out += String(t"        var out = Set[{field_type}]()\n")
+            out += String(t"        for key in self.table.state[].state.{f.name}.all_bwd().keys():\n")
+            out += "            out.add(key)\n"
             out += "        return out^\n"
 
     out += "\n"

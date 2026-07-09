@@ -153,6 +153,28 @@ def build_ordered_fields(discovery: DiscoveryResult) -> Dict[String, List[String
     return ordered_fields^
 
 
+def build_multi_fields(discovery: DiscoveryResult) -> Dict[String, List[String]]:
+    """Struct name -> names of its `multi`-marked fields, for every
+    `@@struct` declared project-wide. Lets `rewrite_markers` tell whether a
+    `@@Type.distinct_<field>(...)` table-level call is keyed by the
+    field's own *element* type (`relation_schema`'s already-`Set[...]`-
+    encoded entry for a `multi` relation field, matching `emit_table`'s own
+    `Set[ElementType]` codegen for it) rather than the field's whole
+    (possibly also container-wrapped, e.g. `List[@@Employee]`) type the way
+    a bare or wrapped-but-not-`multi` relation field's `distinct_<field>`
+    is -- `relation_schema` alone can't distinguish those two container
+    cases from each other (both get the same `Wrapper[Target]` encoding),
+    same reasoning as `build_unique_fields`/`build_ordered_fields`."""
+    var multi_fields = Dict[String, List[String]]()
+    for ds in discovery.structs:
+        var names = List[String]()
+        for field in ds.parsed.fields:
+            if field.modifier == FieldModifier.MULTI:
+                names.append(field.name)
+        multi_fields[ds.parsed.name] = names^
+    return multi_fields^
+
+
 def build_plain_struct_fields(
     plain_structs: List[DiscoveredStruct],
     rel_files: List[String],

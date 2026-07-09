@@ -1,5 +1,5 @@
 ---
-title: Squirrel
+title: RW Squirrel
 hide:
   - navigation
   - toc

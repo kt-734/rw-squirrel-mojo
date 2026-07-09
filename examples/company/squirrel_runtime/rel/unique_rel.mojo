@@ -59,6 +59,18 @@ struct UniqueRel[T: KeyElement & ImplicitlyDeletable & Copyable](RelLike, Movabl
                 "UniqueConstraintViolation: no entity currently holds this value"
             )
 
+    def all_bwd(self) -> ref [self._bwd] Dict[Self.T, UInt32]:
+        """Every value currently in use, each mapped to the single id
+        holding it -- the whole reverse index at once, rather than one
+        value via `get_bwd`. What `group_by_<field>` (`codegen.table`)
+        walks. A borrowed reference straight into `_bwd` (one id per
+        value, by construction of `unique`), not a copy -- see `Rel.
+        all_bwd`'s own doc comment for why: read-only since `self` itself
+        is only borrowed here, and `group_by_<field>` immediately builds
+        its own fresh `Dict` from this one anyway (converting each id to a
+        real handle), so copying `_bwd` first would be wasted work."""
+        return self._bwd
+
     def fetch_remove_fwd(mut self, id: UInt32) -> Optional[Self.T]:
         """Clear id's value; returns the value it held, or None."""
         var old = self._fwd.clear(id)

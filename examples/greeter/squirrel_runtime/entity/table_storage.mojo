@@ -62,6 +62,9 @@ struct TableStorage[State: TableStateLike & Movable & ImplicitlyDeletable](Movab
     def id_count(self) -> Int:
         return self.ids.id_count()
 
+    def live_count(self) -> Int:
+        return self.ids.live_count()
+
     def cleanup_relations(mut self, id: UInt32):
         self.state.sqrrl__cleanup_relations(id)
 

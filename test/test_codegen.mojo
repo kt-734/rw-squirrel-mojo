@@ -28,6 +28,10 @@ def empty_ordered_fields() -> Dict[String, List[String]]:
     return Dict[String, List[String]]()
 
 
+def empty_multi_fields() -> Dict[String, List[String]]:
+    return Dict[String, List[String]]()
+
+
 def empty_plain_struct_fields() -> Dict[String, List[Field]]:
     return Dict[String, List[Field]]()
 
@@ -778,7 +782,7 @@ def test_emits_group_by_for_plain_field() raises:
         "def group_by_dept(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState],"
         " List[EntityHandle[sqrrl__EmployeeTableState]]]:" in out
     )
-    assert_true("var buckets = self.table.state[].state.dept.all_bwd()" in out)
+    assert_true("ref buckets = self.table.state[].state.dept.all_bwd()" in out)
     assert_true("for entry in buckets.items():" in out)
     assert_true("handles.append(self.table.handle_for(id))" in out)
     assert_true("out[entry.key] = handles^" in out)
@@ -798,7 +802,7 @@ def test_emits_group_by_for_unique_field() raises:
         "def group_by_email(self) -> Dict[String, EntityHandle[sqrrl__PersonTableState]]:"
         in out
     )
-    assert_true("var ids = self.table.state[].state.email.all_bwd()" in out)
+    assert_true("ref ids = self.table.state[].state.email.all_bwd()" in out)
     assert_true("for entry in ids.items():" in out)
     assert_true("out[entry.key] = self.table.handle_for(entry.value)" in out)
 
@@ -817,7 +821,7 @@ def test_emits_group_by_for_multi_field() raises:
         "def group_by_members(self) -> Dict[EntityHandle[sqrrl__EmployeeTableState],"
         " List[EntityHandle[sqrrl__DepartmentTableState]]]:" in out
     )
-    assert_true("var buckets = self.table.state[].state.members.all_bwd()" in out)
+    assert_true("ref buckets = self.table.state[].state.members.all_bwd()" in out)
     assert_true("for entry in buckets.items():" in out)
     assert_true("handles.append(self.table.handle_for(id))" in out)
 
@@ -850,6 +854,199 @@ def test_forward_only_field_has_no_group_by() raises:
     var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
 
     assert_true("group_by_scores" not in out)
+    assert_true("count_scores" not in out)
+    assert_true("count_by_scores" not in out)
+    assert_true("distinct_scores" not in out)
+
+
+def test_emits_count_field_for_plain_field() raises:
+    """`count_<field>(value)` is `len(for_<field>(value))` without
+    building a handle for every matching row just to throw it away right
+    after."""
+    var sc = Scanner("@@struct @@Employee:\n    @@dept: @@Department\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true(
+        "def count_dept(self, value: EntityHandle[sqrrl__DepartmentTableState]) -> Int:"
+        in out
+    )
+    assert_true(
+        "return len(self.table.state[].state.dept.get_bwd(value))" in out
+    )
+
+
+def test_emits_count_field_for_unique_field() raises:
+    """`count_<field>(value)` on a `unique` field is the one genuinely new
+    capability in this family, not just a faster version of something
+    already possible -- `for_<field>` *raises* if `value` isn't in use, so
+    there's no existing way to ask "is this taken" without a try/except.
+    `0`/`1`, via a plain `in` check against `all_bwd()`, no raising."""
+    var sc = Scanner("@@struct @@Person:\n    unique email: String\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true("def count_email(self, value: String) -> Int:" in out)
+    assert_true(
+        "return 1 if value in self.table.state[].state.email.all_bwd() else 0"
+        in out
+    )
+
+
+def test_emits_count_field_for_multi_field() raises:
+    """`count_<field>(value)` on a `multi` field takes the bare element
+    type, same as `for_<field>` does for `multi`."""
+    var sc = Scanner("@@struct @@Department:\n    multi @@members: @@Employee\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true(
+        "def count_members(self, value: EntityHandle[sqrrl__EmployeeTableState]) -> Int:"
+        in out
+    )
+    assert_true(
+        "return len(self.table.state[].state.members.get_bwd(value))" in out
+    )
+
+
+def test_emits_count_field_for_ordered_field() raises:
+    """`count_<field>(value)` on an `ordered` field is the exact-match
+    count (same `get_bwd`/`between(value, value)` as `for_<field>`'s own
+    exact-match form)."""
+    var sc = Scanner("@@struct @@Employee:\n    ordered years_employed: UInt32\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true("def count_years_employed(self, value: UInt32) -> Int:" in out)
+    assert_true(
+        "return len(self.table.state[].state.years_employed.get_bwd(value))"
+        in out
+    )
+
+
+def test_emits_count_by_for_plain_field() raises:
+    """`count_by_<field>` is `group_by_<field>` without ever building the
+    `List[EntityHandle[...]]` for each bucket, just `len()`-ing it."""
+    var sc = Scanner("@@struct @@Employee:\n    @@dept: @@Department\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true(
+        "def count_by_dept(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState], Int]:"
+        in out
+    )
+    assert_true("ref buckets = self.table.state[].state.dept.all_bwd()" in out)
+    assert_true("out[entry.key] = len(entry.value)" in out)
+
+
+def test_emits_count_by_for_multi_field() raises:
+    var sc = Scanner("@@struct @@Department:\n    multi @@members: @@Employee\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true(
+        "def count_by_members(self) -> Dict[EntityHandle[sqrrl__EmployeeTableState], Int]:"
+        in out
+    )
+
+
+def test_emits_count_by_for_ordered_field() raises:
+    """Unlike `Rel`/`UniqueRel`/`MultiRel`'s `all_bwd` (a `ref`),
+    `OrderedRel.all_bwd` is rebuilt fresh (`var`, not `ref`) -- there's no
+    persistent grouped structure to alias, since `OrderedRel` only keeps
+    `_sorted` (flat) and `_fwd`, and `count_by_<field>` calls `all_bwd()`
+    again independently of `group_by_<field>`'s own call, not sharing it."""
+    var sc = Scanner("@@struct @@Employee:\n    ordered years_employed: UInt32\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true(
+        "def count_by_years_employed(self) -> Dict[UInt32, Int]:" in out
+    )
+    assert_true(
+        "var buckets = self.table.state[].state.years_employed.all_bwd()" in out
+    )
+
+
+def test_no_count_by_for_unique_field() raises:
+    """No `count_by_<field>` for `unique` -- every group is exactly 1 by
+    construction, so it would carry zero information beyond what `unique`
+    already guarantees. `count_<field>` (the 0/1 existence check) is still
+    generated -- see `test_emits_count_field_for_unique_field`."""
+    var sc = Scanner("@@struct @@Person:\n    unique email: String\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true("count_by_email" not in out)
+    assert_true("count_email" in out)
+
+
+def test_emits_distinct_for_plain_field() raises:
+    """`distinct_<field>` is every distinct value currently in use, with no
+    `EntityHandle` built at all -- unlike `group_by_<field>().keys()`,
+    which would already have paid for a `handle_for` call per value."""
+    var sc = Scanner("@@struct @@Employee:\n    @@dept: @@Department\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true(
+        "def distinct_dept(self) -> Set[EntityHandle[sqrrl__DepartmentTableState]]:"
+        in out
+    )
+    assert_true(
+        "for key in self.table.state[].state.dept.all_bwd().keys():" in out
+    )
+    assert_true("out.add(key)" in out)
+
+
+def test_emits_distinct_for_unique_field() raises:
+    """`distinct_<field>` on a `unique` field is the cheap way to ask
+    "which values are currently taken" -- `group_by_<field>` answers the
+    same question but pays for a `handle_for` call (a real `WeakPointer`
+    upgrade + `EntityHandle` construction) per value; `count_by_<field>`
+    isn't generated at all for `unique` (see
+    `test_no_count_by_for_unique_field`), so this is the only cheap path."""
+    var sc = Scanner("@@struct @@Person:\n    unique email: String\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true("def distinct_email(self) -> Set[String]:" in out)
+    assert_true(
+        "for key in self.table.state[].state.email.all_bwd().keys():" in out
+    )
+
+
+def test_emits_distinct_for_multi_field() raises:
+    """`distinct_<field>` on a `multi` field is keyed by the bare element
+    type, same as `for_<field>`/`group_by_<field>`/`count_by_<field>` are
+    for `multi`."""
+    var sc = Scanner("@@struct @@Department:\n    multi @@members: @@Employee\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true(
+        "def distinct_members(self) -> Set[EntityHandle[sqrrl__EmployeeTableState]]:"
+        in out
+    )
+
+
+def test_emits_distinct_for_ordered_field_returns_list() raises:
+    """`distinct_<field>` on an `ordered` field returns `List`, not `Set`,
+    unlike every other field kind's own `distinct_<field>` -- the ascending
+    order is the whole point of `ordered` (same reason the range-shaped
+    `for_<field>_*` methods stay `List`-returning), made explicit in the
+    return type itself rather than resting on `Set`'s own iteration
+    behavior."""
+    var sc = Scanner("@@struct @@Employee:\n    ordered years_employed: UInt32\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true("def distinct_years_employed(self) -> List[UInt32]:" in out)
+    assert_true(
+        "for key in self.table.state[].state.years_employed.all_bwd().keys():"
+        in out
+    )
+    assert_true("out.append(key)" in out)
 
 
 def test_all_generated_unconditionally_but_keepalive_is_not() raises:
@@ -868,6 +1065,8 @@ def test_all_generated_unconditionally_but_keepalive_is_not() raises:
 
     assert_true("def all(self) -> Set[EntityHandle[sqrrl__FooTableState]]:" in out)
     assert_true("return self.table.all()" in out)
+    assert_true("def count(self) -> Int:" in out)
+    assert_true("return self.table.count()" in out)
     assert_true("var keepalive: Set[EntityHandle[sqrrl__FooTableState]]" not in out)
     assert_true(
         "def dont_keepalive(mut self, e: EntityHandle[sqrrl__FooTableState]) -> Bool:" not in out
@@ -2216,6 +2415,255 @@ def test_transform_source_rejects_unrecognized_rhs_for_marked_declaration() rais
     )
     with assert_raises():
         _ = transform_source(source, _person_only_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
+
+
+def _employee_dept_schema() -> Dict[String, Dict[String, String]]:
+    """Employee.dept -> a bare "Department" target -- an ordinary
+    (unwrapped, non-`multi`) relation field, the shape `distinct_<field>`
+    wraps in `Set[...]` itself (unlike `get_<field>`, which returns the
+    bare entity directly for this shape)."""
+    var schema = Dict[String, Dict[String, String]]()
+    var employee_fields = Dict[String, String]()
+    employee_fields["dept"] = "Department"
+    schema["Employee"] = employee_fields^
+    return schema^
+
+
+def _department_members_multi_schema() -> Tuple[
+    Dict[String, Dict[String, String]], Dict[String, List[String]]
+]:
+    """Department.members -> a `multi` relation field -- `relation_schema`
+    encodes it as `"Set[Employee]"` (`build_relation_schema`'s own doc
+    comment), the same shape `distinct_members` itself returns, so
+    `rewrite_markers`'s `multi` branch can reuse it as-is. `multi_fields`
+    is what tells that branch this *is* the `multi` case, rather than a
+    wrapped-but-not-`multi` collection field encoded the exact same way in
+    `relation_schema` alone (see `_is_multi_field_query`'s own doc
+    comment)."""
+    var schema = Dict[String, Dict[String, String]]()
+    var department_fields = Dict[String, String]()
+    department_fields["members"] = encode_container_type("Set", "Employee")
+    schema["Department"] = department_fields^
+    var multi_fields = Dict[String, List[String]]()
+    var department_multi = List[String]()
+    department_multi.append("members")
+    multi_fields["Department"] = department_multi^
+    return (schema^, multi_fields^)
+
+
+def test_transform_source_infers_container_type_for_distinct_call() raises:
+    """`var @@x = @@Type.distinct_<field>();` for an ordinary (unwrapped,
+    non-`multi`) relation field infers `Set[TargetType]` -- `distinct_
+    <field>` wraps the field's own bare target type in `Set[...]` itself,
+    unlike `get_<field>`, which returns the bare entity directly for this
+    same field shape."""
+    var source = String(
+        "@@struct @@Department:\n    name: String\n\n"
+        "\n"
+        "@@struct @@Employee:\n    @@dept: @@Department\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var @@depts = @@Employee.distinct_dept();\n"
+        "        print(len(@@depts));\n"
+        "    @@}\n"
+    )
+    var out = transform_source(source, _employee_dept_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
+    assert_true("var sqrrl__depts = sqrrl__world.Employee.distinct_dept();" in out)
+    assert_true("print(len(sqrrl__depts));" in out)
+
+
+def test_transform_source_rewrites_for_loop_over_distinct_call() raises:
+    """`for @@d in @@Employee.distinct_dept():` binds `@@d` to `Department`
+    (the field's own target type), not `Employee` (`fa.entity`) -- unlike
+    `for_<field>`/`all()`, whose container element is always `fa.entity`
+    itself."""
+    var source = String(
+        "@@struct @@Department:\n    name: String\n\n"
+        "\n"
+        "@@struct @@Employee:\n    @@dept: @@Department\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        for @@d in @@Employee.distinct_dept():\n"
+        "            print(@@d.name);\n"
+        "    @@}\n"
+    )
+    var out = transform_source(source, _employee_dept_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
+    assert_true("for sqrrl__d in  sqrrl__world.Employee.distinct_dept():" in out)
+    assert_true("print(sqrrl__world.Department.get_name(sqrrl__d));" in out)
+
+
+def test_transform_source_rejects_unmarked_variable_for_distinct_call() raises:
+    var source = String(
+        "@@struct @@Department:\n    name: String\n\n"
+        "\n"
+        "@@struct @@Employee:\n    @@dept: @@Department\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var depts = @@Employee.distinct_dept();\n"
+    )
+    with assert_raises(contains="Set[@@Department]"):
+        _ = transform_source(source, _employee_dept_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
+
+
+def test_transform_source_infers_element_type_for_multi_distinct_call() raises:
+    """`@@Type.distinct_<field>()` for a `multi` relation field is keyed by
+    the *element* type (`Employee`), same as `for_<field>`/
+    `add_to_<field>`/`remove_from_<field>` already are for `multi` --
+    needs `multi_fields` to tell it apart from a wrapped-but-not-`multi`
+    collection field encoded identically in `relation_schema` alone."""
+    var schema_and_multi = _department_members_multi_schema()
+    var source = String(
+        "@@struct @@Employee:\n    name: String\n\n"
+        "\n"
+        "@@struct @@Department:\n    multi @@members: @@Employee\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        for @@e in @@Department.distinct_members():\n"
+        "            print(@@e.name);\n"
+        "    @@}\n"
+    )
+    var out = transform_source(
+        source,
+        schema_and_multi[0],
+        empty_function_returns(),
+        empty_unique_fields(),
+        empty_ordered_fields(),
+        empty_plain_struct_fields(),
+        empty_relation_targets(),
+        schema_and_multi[1],
+    )
+    assert_true("for sqrrl__e in  sqrrl__world.Department.distinct_members():" in out)
+    assert_true("print(sqrrl__world.Employee.get_name(sqrrl__e));" in out)
+
+
+def test_transform_source_leaves_plain_field_distinct_call_untracked() raises:
+    """`distinct_<field>` for a *plain* (non-relation) field returns a
+    container of ordinary values, not entities -- `@@`-marking its result
+    is rejected the same as any other unrecognized shape, not silently
+    accepted. Uses `_employee_dept_schema()` specifically so `Employee` is
+    a known type with `dept` as its only registered relation field --
+    `name` deliberately isn't one, exercising the "field exists but isn't
+    a relation" gate, not just "type isn't known at all"."""
+    var source = String(
+        "@@struct @@Department:\n    name: String\n\n"
+        "\n"
+        "@@struct @@Employee:\n    name: String\n    @@dept: @@Department\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var @@names = @@Employee.distinct_name();\n"
+    )
+    with assert_raises():
+        _ = transform_source(source, _employee_dept_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
+
+
+def test_transform_source_rewrites_for_loop_over_group_by_call() raises:
+    """`for @@d in @@Employee.group_by_dept():` binds `@@d` to `Department`
+    (the field's own target type, the first/key type parameter of
+    `group_by_dept`'s real `Dict[Department, ...]` return) -- same target-
+    type resolution `distinct_<field>` uses (`_resolve_relation_field_target`,
+    shared), wrapped in `Dict[...]` instead of `Set[...]`. Iterating a bare
+    `Dict` yields keys, so binding `@@d` to just the key type is correct --
+    the value side (`List[EntityHandle[...]]` per department) isn't
+    `@@`-tracked at all."""
+    var source = String(
+        "@@struct @@Department:\n    name: String\n\n"
+        "\n"
+        "@@struct @@Employee:\n    @@dept: @@Department\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        for @@d in @@Employee.group_by_dept():\n"
+        "            print(@@d.name);\n"
+        "    @@}\n"
+    )
+    var out = transform_source(source, _employee_dept_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
+    assert_true("for sqrrl__d in  sqrrl__world.Employee.group_by_dept():" in out)
+    assert_true("print(sqrrl__world.Department.get_name(sqrrl__d));" in out)
+
+
+def test_transform_source_rewrites_for_loop_over_count_by_call() raises:
+    """Same target-type resolution as `group_by_<field>` above, for
+    `count_by_<field>`'s own `Dict[Department, Int]` return -- the `Int`
+    value side was never trackable to begin with (not an entity type)."""
+    var source = String(
+        "@@struct @@Department:\n    name: String\n\n"
+        "\n"
+        "@@struct @@Employee:\n    @@dept: @@Department\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        for @@d in @@Employee.count_by_dept():\n"
+        "            print(@@d.name);\n"
+        "    @@}\n"
+    )
+    var out = transform_source(source, _employee_dept_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
+    assert_true("for sqrrl__d in  sqrrl__world.Employee.count_by_dept():" in out)
+    assert_true("print(sqrrl__world.Department.get_name(sqrrl__d));" in out)
+
+
+def test_transform_source_infers_element_type_for_multi_group_by_call() raises:
+    """`@@Type.group_by_<field>()` for a `multi` relation field is keyed by
+    the *element* type, same as `distinct_<field>`/`for_<field>` are for
+    `multi` -- needs `multi_fields` to tell it apart from a wrapped-but-
+    not-`multi` collection field encoded identically in `relation_schema`
+    alone."""
+    var schema_and_multi = _department_members_multi_schema()
+    var source = String(
+        "@@struct @@Employee:\n    name: String\n\n"
+        "\n"
+        "@@struct @@Department:\n    multi @@members: @@Employee\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        for @@e in @@Department.group_by_members():\n"
+        "            print(@@e.name);\n"
+        "    @@}\n"
+    )
+    var out = transform_source(
+        source,
+        schema_and_multi[0],
+        empty_function_returns(),
+        empty_unique_fields(),
+        empty_ordered_fields(),
+        empty_plain_struct_fields(),
+        empty_relation_targets(),
+        schema_and_multi[1],
+    )
+    assert_true("for sqrrl__e in  sqrrl__world.Department.group_by_members():" in out)
+    assert_true("print(sqrrl__world.Employee.get_name(sqrrl__e));" in out)
+
+
+def test_transform_source_leaves_plain_field_group_by_call_untracked() raises:
+    """`group_by_<field>`/`count_by_<field>` for a *plain* (non-relation)
+    field return a `Dict` keyed by ordinary values, not entities --
+    `@@`-marking a loop over one is rejected the same as `distinct_<field>`
+    is for a plain field."""
+    var source = String(
+        "@@struct @@Department:\n    name: String\n\n"
+        "\n"
+        "@@struct @@Employee:\n    name: String\n    @@dept: @@Department\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        for @@n in @@Employee.group_by_name():\n"
+        "            print(@@n);\n"
+    )
+    with assert_raises():
+        _ = transform_source(source, _employee_dept_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
 
 
 def main() raises:

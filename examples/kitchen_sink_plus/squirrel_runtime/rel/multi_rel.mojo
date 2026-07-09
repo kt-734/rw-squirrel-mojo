@@ -83,6 +83,18 @@ struct MultiRel[T: KeyElement & ImplicitlyDeletable & Copyable](RelLike, Movable
         except:
             return Set[UInt32]()
 
+    def all_bwd(self) -> ref [self._bwd] Dict[Self.T, Set[UInt32]]:
+        """Every element currently a member of at least one id's set, each
+        mapped to every id whose set contains it -- the whole reverse
+        index at once, rather than one bucket via `get_bwd`. What
+        `group_by_<field>` (`codegen.table`) walks. A borrowed reference
+        straight into `_bwd`, not a copy -- see `Rel.all_bwd`'s own doc
+        comment for why: read-only since `self` itself is only borrowed
+        here, and `group_by_<field>` immediately builds its own fresh
+        `Dict` from this one anyway (converting each id to a real handle),
+        so copying `_bwd` first would be wasted work."""
+        return self._bwd
+
     def fetch_remove_fwd(mut self, id: UInt32) -> Optional[Self.FieldType]:
         """Clear id's value; returns the value it held, or None."""
         var old = self._fwd.clear(id)

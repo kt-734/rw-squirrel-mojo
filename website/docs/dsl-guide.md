@@ -291,8 +291,61 @@ for entry in sqrrl__world.Employee.group_by_dept().items():
 
 An `ordered` field's own `group_by_<field>()` visits values in ascending
 order; a `unique` field's maps each value straight to its single entity,
-with no `List` wrapping. See the [README](https://github.com/kt-734/rw-squirrel-mojo/blob/main/README.md)
-for the full signature table.
+with no `List` wrapping.
+
+**Counting, without materializing entities** — `count_<field>(value)` and
+`count_by_<field>()` are the `for_<field>`/`group_by_<field>` you reach
+for when you only want a number, not the entities themselves: no
+`EntityHandle`s get built just to be `len()`-ed and discarded. For `unique`
+fields, `count_<field>(value)` is also the only non-raising way to ask "is
+this value taken" (`for_<field>` raises instead of returning something you
+could check the length of):
+
+```
+print(@@Employee.count_dept(@@eng))            # cheaper than len(for_dept(...))
+print(@@Person.count_email("a@b.com"))         # 0 or 1, no try/except
+```
+
+For the whole table (not grouped by any field), `sqrrl__world.Name.count()`
+is the same idea applied to `all()` — generated for every struct
+unconditionally.
+
+`distinct_<field>()` goes a step further: no entity *and* no count, just
+which values are currently in use. This matters most for `unique` —
+`group_by_<field>()` also enumerates every value, but pays for a real
+`EntityHandle` per value to do it; `distinct_<field>()` reads straight off
+the reverse index's own keys instead:
+
+```
+print(@@Person.distinct_email())   # every email currently taken, no handles built
+```
+
+When the field is a relation (`@@dept: @@Department`), `distinct_<field>()`'s
+result is a real, `@@`-trackable entity container — bind it to an
+`@@`-marked variable or iterate it directly, same as `for_<field>`/`all()`:
+
+```
+for @@d in @@Employee.distinct_dept():
+    print(@@d.name)
+```
+
+For a plain field, it's a container of ordinary values instead, and
+`@@`-marking it is rejected.
+
+`group_by_<field>`/`count_by_<field>` get the same treatment for their
+*first* type parameter (the `Dict`'s key) — iterating a bare `Dict` already
+yields keys, so that's the only parameter binding needs:
+
+```
+for @@d in @@Employee.group_by_dept():
+    print("department:", @@d.name)
+```
+
+The value side (`List[EntityHandle[...]]`/`EntityHandle[...]`/`Int` per
+key) isn't `@@`-tracked — there's no way to bind both a `Dict`'s key and
+value through the marker system yet.
+
+See the [Method reference](reference.md) for the full signature table.
 
 ## `@@`-marked functions
 

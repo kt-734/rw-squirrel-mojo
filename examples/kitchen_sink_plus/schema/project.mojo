@@ -60,6 +60,20 @@ struct sqrrl__ProjectTable(Movable):
     def all(self) -> Set[EntityHandle[sqrrl__ProjectTableState]]:
         return self.table.all()
 
+    def count(self) -> Int:
+        return self.table.count()
+
+    def value_eq(self, a: EntityHandle[sqrrl__ProjectTableState], b: EntityHandle[sqrrl__ProjectTableState]) -> Bool:
+        if self.get_name(a) != self.get_name(b):
+            return False
+        if self.get_priority(a) != self.get_priority(b):
+            return False
+        if self.get_vendor(a) != self.get_vendor(b):
+            return False
+        if self.get_budget(a) != self.get_budget(b):
+            return False
+        return True
+
     def get_name(self, e: EntityHandle[sqrrl__ProjectTableState]) -> String:
         var got = self.table.state[].state.name.get_fwd(e.id())
         return got.take()
@@ -72,6 +86,32 @@ struct sqrrl__ProjectTable(Movable):
         var out = List[EntityHandle[sqrrl__ProjectTableState]]()
         for id in ids:
             out.append(self.table.handle_for(id))
+        return out^
+
+    def count_name(self, value: String) -> Int:
+        return len(self.table.state[].state.name.get_bwd(value))
+
+    def group_by_name(self) -> Dict[String, List[EntityHandle[sqrrl__ProjectTableState]]]:
+        ref buckets = self.table.state[].state.name.all_bwd()
+        var out = Dict[String, List[EntityHandle[sqrrl__ProjectTableState]]]()
+        for entry in buckets.items():
+            var handles = List[EntityHandle[sqrrl__ProjectTableState]]()
+            for id in entry.value:
+                handles.append(self.table.handle_for(id))
+            out[entry.key] = handles^
+        return out^
+
+    def count_by_name(self) -> Dict[String, Int]:
+        ref buckets = self.table.state[].state.name.all_bwd()
+        var out = Dict[String, Int]()
+        for entry in buckets.items():
+            out[entry.key] = len(entry.value)
+        return out^
+
+    def distinct_name(self) -> Set[String]:
+        var out = Set[String]()
+        for key in self.table.state[].state.name.all_bwd().keys():
+            out.add(key)
         return out^
 
     def get_priority(self, e: EntityHandle[sqrrl__ProjectTableState]) -> UInt32:
@@ -87,6 +127,9 @@ struct sqrrl__ProjectTable(Movable):
         for id in ids:
             out.add(self.table.handle_for(id))
         return out^
+
+    def count_priority(self, value: UInt32) -> Int:
+        return len(self.table.state[].state.priority.get_bwd(value))
 
     def for_priority_greater_than(self, value: UInt32) -> List[EntityHandle[sqrrl__ProjectTableState]]:
         var ids = self.table.state[].state.priority.greater_than(value)
@@ -123,6 +166,29 @@ struct sqrrl__ProjectTable(Movable):
             out.append(self.table.handle_for(id))
         return out^
 
+    def group_by_priority(self) -> Dict[UInt32, List[EntityHandle[sqrrl__ProjectTableState]]]:
+        var buckets = self.table.state[].state.priority.all_bwd()
+        var out = Dict[UInt32, List[EntityHandle[sqrrl__ProjectTableState]]]()
+        for entry in buckets.items():
+            var handles = List[EntityHandle[sqrrl__ProjectTableState]]()
+            for id in entry.value:
+                handles.append(self.table.handle_for(id))
+            out[entry.key] = handles^
+        return out^
+
+    def count_by_priority(self) -> Dict[UInt32, Int]:
+        var buckets = self.table.state[].state.priority.all_bwd()
+        var out = Dict[UInt32, Int]()
+        for entry in buckets.items():
+            out[entry.key] = len(entry.value)
+        return out^
+
+    def distinct_priority(self) -> List[UInt32]:
+        var out = List[UInt32]()
+        for key in self.table.state[].state.priority.all_bwd().keys():
+            out.append(key)
+        return out^
+
     def get_vendor(self, e: EntityHandle[sqrrl__ProjectTableState]) -> EntityHandle[sqrrl__VendorTableState]:
         var got = self.table.state[].state.vendor.get_fwd(e.id())
         return got.take()
@@ -135,6 +201,32 @@ struct sqrrl__ProjectTable(Movable):
         var out = List[EntityHandle[sqrrl__ProjectTableState]]()
         for id in ids:
             out.append(self.table.handle_for(id))
+        return out^
+
+    def count_vendor(self, value: EntityHandle[sqrrl__VendorTableState]) -> Int:
+        return len(self.table.state[].state.vendor.get_bwd(value))
+
+    def group_by_vendor(self) -> Dict[EntityHandle[sqrrl__VendorTableState], List[EntityHandle[sqrrl__ProjectTableState]]]:
+        ref buckets = self.table.state[].state.vendor.all_bwd()
+        var out = Dict[EntityHandle[sqrrl__VendorTableState], List[EntityHandle[sqrrl__ProjectTableState]]]()
+        for entry in buckets.items():
+            var handles = List[EntityHandle[sqrrl__ProjectTableState]]()
+            for id in entry.value:
+                handles.append(self.table.handle_for(id))
+            out[entry.key] = handles^
+        return out^
+
+    def count_by_vendor(self) -> Dict[EntityHandle[sqrrl__VendorTableState], Int]:
+        ref buckets = self.table.state[].state.vendor.all_bwd()
+        var out = Dict[EntityHandle[sqrrl__VendorTableState], Int]()
+        for entry in buckets.items():
+            out[entry.key] = len(entry.value)
+        return out^
+
+    def distinct_vendor(self) -> Set[EntityHandle[sqrrl__VendorTableState]]:
+        var out = Set[EntityHandle[sqrrl__VendorTableState]]()
+        for key in self.table.state[].state.vendor.all_bwd().keys():
+            out.add(key)
         return out^
 
     def get_budget(self, e: EntityHandle[sqrrl__ProjectTableState]) -> Money:

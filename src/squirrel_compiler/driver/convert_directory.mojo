@@ -6,6 +6,7 @@ from squirrel_compiler.driver.discovery import (
     build_relation_schema,
     build_unique_fields,
     build_ordered_fields,
+    build_multi_fields,
     build_plain_struct_fields,
 )
 from squirrel_compiler.driver.json_container_types import (
@@ -49,6 +50,7 @@ def convert_directory(target_root: String) raises:
     var function_returns = build_function_returns(rel_files)
     var unique_fields = build_unique_fields(discovery)
     var ordered_fields = build_ordered_fields(discovery)
+    var multi_fields = build_multi_fields(discovery)
     var cross_file_symbols = build_cross_file_symbols(discovery, rel_files, target_root)
     var plain_struct_type_params = Dict[String, List[TypeParam]]()
     var plain_struct_fields = build_plain_struct_fields(plain_structs, rel_files, plain_struct_type_params)
@@ -91,6 +93,7 @@ def convert_directory(target_root: String) raises:
             cross_file_symbols,
             plain_struct_fields,
             relation_targets,
+            multi_fields,
         )
         var out_path = mojo_output_path(path)
 

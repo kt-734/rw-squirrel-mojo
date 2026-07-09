@@ -504,10 +504,14 @@ Every `@@struct` produces two Mojo structs:
 | `get_<field>` | `(e) -> FieldType` | |
 | `set_<field>` | `(e, v: FieldType)` | `raises` only if *this* field is `unique` |
 | `for_<field>` | shape depends on the field's own modifier — see below | reverse lookup by value |
+| `count_<field>` | `(value: FieldType) -> Int` (or `ElementType` for `multi`) | how many entities have this value — see below |
 | `group_by_<field>` | shape depends on the field's own modifier — see below | every value at once, mapped to its own matching entities |
+| `count_by_<field>` | shape depends on the field's own modifier — see below | every value at once, mapped to its own count — see below |
+| `distinct_<field>` | `() -> Set[FieldType]` (`List` for `ordered`, `Set[ElementType]` for `multi`) | every distinct value currently in use, no entities built at all — see below |
 | `add_to_<field>` | `(e, value: ElementType) -> Bool` | `multi` fields only — `True` if newly added, `False` if already a member |
 | `remove_from_<field>` | `(e, value: ElementType) -> Bool` | `multi` fields only — `True` if it was actually removed |
 | `all` | `() -> Set[EntityHandle[...]]` | every currently-live entity in the table — generated for every struct, `keepalive` or not |
+| `count` | `() -> Int` | `len(all())` without building a handle for every entity just to throw it away right after — O(1), generated for every struct |
 | `value_eq` | `(a, b) -> Bool` | field-by-field comparison — see below |
 | `dont_keepalive` | `(e) -> Bool` | `keepalive`-tagged structs only — see below |
 
@@ -524,6 +528,19 @@ A relation field (`@@dept: @@Department`) is not a special case in this
 table — it's just an ordinary field whose `FieldType` happens to be
 `EntityHandle[...]`, so `get_dept`/`set_dept`/`for_dept` all follow the same
 plain-field row above.
+
+`count_<field>(value)` is `len(for_<field>(value))` without building a
+handle for every matching entity just to throw it away right after — for
+plain/`multi`/`ordered` it's a strictly cheaper way to ask something
+`for_<field>` already answers. `unique` is the one exception: `for_<field>`
+*raises* if `value` isn't in use at all, so there was previously no way to
+ask "is this value taken" without a `try`/`except` — `count_<field>` gives
+you `0`/`1` instead, no raising, genuinely new rather than just faster:
+
+```
+print(@@Employee.count_dept(@@eng))          # how many employees in this dept
+print(@@Person.count_email("a@b.com"))       # 0 or 1 -- no try/except needed
+```
 
 `group_by_<field>` is `for_<field>` turned inside out — every value at
 once, mapped to its own matching entities, instead of one value looked up
@@ -545,6 +562,80 @@ it:
 ("for each row, its own member set") isn't a new method at all: it's just
 `get_<field>` on a value you already have, or `all()` plus `get_<field>`
 per row if you want it for every row at once.
+
+`count_by_<field>` is `group_by_<field>` without ever building the
+`List[EntityHandle[...]]`/`EntityHandle` for each group, just `len()`-ing
+it (`unique` isn't generated at all here — every group is exactly `1` by
+construction, carrying zero information beyond what `unique` already
+guarantees). Signature and behavior otherwise mirror `group_by_<field>`'s
+own table above, `Int` in place of the entity/entities:
+
+```
+for entry in @@Employee.count_by_dept().items():
+    print("department has", entry.value, "employees")   # no handles built at all
+```
+
+`distinct_<field>()` goes a step further than `count_by_<field>` — no
+`EntityHandle` *and* no count, just which values are currently in use.
+This turns out to matter for `unique` specifically: `group_by_<field>()`
+gives you every value mapped to its entity, but building that entity costs
+a real `handle_for` call (a `WeakPointer` upgrade + `EntityHandle`
+construction) *per value*, even if all you wanted was to know which values
+exist — `.keys()` afterward doesn't undo that cost, since the expensive
+part already ran building the `Dict` in the first place. `distinct_<field>`
+skips it entirely, reading straight from the reverse index's own keys:
+
+```
+print(@@Person.distinct_email())   # every email currently taken, no handles built
+```
+
+Returns `Set[FieldType]` for every field kind except `ordered`, which
+returns `List` instead (and `Set[ElementType]` for `multi`, keyed the same
+way every other method in this family is) — `ordered`'s ascending order is
+made explicit in the return type itself, the same reason its range-shaped
+`for_<field>_*` methods stay `List`-returning rather than `Set`, instead of
+resting on `Set`'s own (real, but less obviously-ordered-to-a-reader)
+iteration behavior.
+
+When the field is itself a relation (`@@dept: @@Department`,
+`multi @@projects: @@Project`), `distinct_<field>()`'s result is tracked
+like any other entity container — bind it to an `@@`-marked variable, or
+iterate it directly, and `@@`-marked field access on its elements works
+the same way it does for `for_<field>`/`all()`:
+
+```
+for @@d in @@Employee.distinct_dept():
+    print(@@d.name)
+```
+
+For a *plain* (non-relation) field, `distinct_<field>()` returns a
+container of ordinary values (`String`, `UInt32`, ...), not entities —
+`@@`-marking its result is rejected the same as any other non-entity
+shape.
+
+`group_by_<field>`/`count_by_<field>` get the same treatment, but only for
+their *first* type parameter (the `Dict`'s key) — iterating a bare `Dict`
+already yields keys, so that's the only parameter `for @@name in ...:`
+binding actually needs, and it's the same trick a `@@`-marked function's
+own `-> Dict[@@Type, V]:` return type already uses (the `V` there is
+discarded the moment the signature is parsed, never tracked at all):
+
+```
+for @@d in @@Employee.group_by_dept():
+    print("department:", @@d.name)   # @@d is Department, the key type
+```
+
+The *value* side of a `group_by_<field>`/`count_by_<field>` `Dict`
+(`List[EntityHandle[...]]`/`EntityHandle[...]`/`Int` per key) isn't
+`@@`-tracked at all — there's no way to bind both a `Dict`'s key and value
+through the marker system yet, only whichever one iterating the bare
+container already gives you for free.
+
+**How you get the count of a whole table** (not grouped by any field):
+`sqrrl__world.Name.count()` — generated unconditionally, same as `all()`.
+Not `len(all())`: that builds a handle for every live entity just to
+`len()` the result and discard them; `count()` is O(1), backed by
+`IdAllocator`'s own live/free bookkeeping rather than a scan.
 
 `value_eq(a, b)` compares two handles field-by-field, deliberately *not*
 what `@@alice == @@bob` gives you — `EntityHandle`'s own `==` is id-based

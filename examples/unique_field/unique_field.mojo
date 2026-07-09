@@ -41,6 +41,16 @@ struct sqrrl__PersonTable(Movable):
     def all(self) -> Set[EntityHandle[sqrrl__PersonTableState]]:
         return self.table.all()
 
+    def count(self) -> Int:
+        return self.table.count()
+
+    def value_eq(self, a: EntityHandle[sqrrl__PersonTableState], b: EntityHandle[sqrrl__PersonTableState]) -> Bool:
+        if self.get_email(a) != self.get_email(b):
+            return False
+        if self.get_name(a) != self.get_name(b):
+            return False
+        return True
+
     def get_email(self, e: EntityHandle[sqrrl__PersonTableState]) -> String:
         var got = self.table.state[].state.email.get_fwd(e.id())
         return got.take()
@@ -51,6 +61,22 @@ struct sqrrl__PersonTable(Movable):
     def for_email(self, value: String) raises -> EntityHandle[sqrrl__PersonTableState]:
         var id = self.table.state[].state.email.get_bwd(value)
         return self.table.handle_for(id)
+
+    def count_email(self, value: String) -> Int:
+        return 1 if value in self.table.state[].state.email.all_bwd() else 0
+
+    def group_by_email(self) -> Dict[String, EntityHandle[sqrrl__PersonTableState]]:
+        ref ids = self.table.state[].state.email.all_bwd()
+        var out = Dict[String, EntityHandle[sqrrl__PersonTableState]]()
+        for entry in ids.items():
+            out[entry.key] = self.table.handle_for(entry.value)
+        return out^
+
+    def distinct_email(self) -> Set[String]:
+        var out = Set[String]()
+        for key in self.table.state[].state.email.all_bwd().keys():
+            out.add(key)
+        return out^
 
     def get_name(self, e: EntityHandle[sqrrl__PersonTableState]) -> String:
         var got = self.table.state[].state.name.get_fwd(e.id())
@@ -64,6 +90,32 @@ struct sqrrl__PersonTable(Movable):
         var out = List[EntityHandle[sqrrl__PersonTableState]]()
         for id in ids:
             out.append(self.table.handle_for(id))
+        return out^
+
+    def count_name(self, value: String) -> Int:
+        return len(self.table.state[].state.name.get_bwd(value))
+
+    def group_by_name(self) -> Dict[String, List[EntityHandle[sqrrl__PersonTableState]]]:
+        ref buckets = self.table.state[].state.name.all_bwd()
+        var out = Dict[String, List[EntityHandle[sqrrl__PersonTableState]]]()
+        for entry in buckets.items():
+            var handles = List[EntityHandle[sqrrl__PersonTableState]]()
+            for id in entry.value:
+                handles.append(self.table.handle_for(id))
+            out[entry.key] = handles^
+        return out^
+
+    def count_by_name(self) -> Dict[String, Int]:
+        ref buckets = self.table.state[].state.name.all_bwd()
+        var out = Dict[String, Int]()
+        for entry in buckets.items():
+            out[entry.key] = len(entry.value)
+        return out^
+
+    def distinct_name(self) -> Set[String]:
+        var out = Set[String]()
+        for key in self.table.state[].state.name.all_bwd().keys():
+            out.add(key)
         return out^
 
     def sqrrl__to_json(self, e: EntityHandle[sqrrl__PersonTableState]) -> String:

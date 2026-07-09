@@ -10,6 +10,7 @@ def transform_source(
     ordered_fields: Dict[String, List[String]],
     plain_struct_fields: Dict[String, List[Field]],
     relation_targets: Dict[String, List[String]],
+    multi_fields: Dict[String, List[String]] = Dict[String, List[String]](),
 ) raises -> String:
     """Entry point for converting one whole `.rel` file: starts
     `entity_to_type`/`world_declared` fresh and hands off to
@@ -30,4 +31,5 @@ def transform_source(
         relation_targets,
         entity_to_type,
         world_declared,
+        multi_fields,
     )

@@ -85,3 +85,11 @@ struct Table[State: TableStateLike & Movable & ImplicitlyDeletable](Movable):
             if self.state[].is_live(id):
                 out.add(self.handle_for(id))
         return out^
+
+    def count(self) -> Int:
+        """How many entities are currently live in this table -- `len(self.
+        all())` without the wasted work of actually building a handle for
+        every one just to throw it away right after: `IdAllocator.
+        live_count()` is O(1), tracked from `free_list`'s own size rather
+        than scanned."""
+        return self.state[].live_count()

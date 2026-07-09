@@ -17,6 +17,7 @@ from squirrel_compiler.codegen.helpers import (
     container_wrapper_of,
     container_element_of,
     _is_ordered_field_query,
+    _resolve_relation_field_target,
 )
 from squirrel_compiler.codegen.table import emit_table
 from squirrel_compiler.codegen.plain_struct import emit_plain_struct
@@ -41,6 +42,7 @@ def rewrite_markers(
     relation_targets: Dict[String, List[String]],
     mut entity_to_type: Dict[String, String],
     mut world_declared: Bool,
+    multi_fields: Dict[String, List[String]] = Dict[String, List[String]](),
 ) raises -> String:
     """Rewrites every `@@`-marked construct in `source` to plain Mojo,
     leaving everything else byte-for-byte untouched -- mirrors the Zig
@@ -485,6 +487,7 @@ def rewrite_markers(
                 relation_targets,
                 entity_to_type,
                 world_declared,
+                multi_fields,
             )
             if pending_decl:
                 entity_to_type[pending_decl.value()] = c.type_name
@@ -653,6 +656,52 @@ def rewrite_markers(
                     # type.
                     is_list_returning = True
                     registered_type = encode_container_type("Set", fa.entity)
+                elif fa.field.startswith("distinct_") and fa.entity in relation_schema:
+                    # `distinct_<field>`/`group_by_<field>`/`count_by_<field>`
+                    # (`codegen.table`) are all keyed by the *field's own*
+                    # type, not `fa.entity` -- unlike every other case above,
+                    # whose container element is always `fa.entity` itself.
+                    # `_resolve_relation_field_target` (shared by all three,
+                    # `codegen.helpers`) is what resolves that shared target
+                    # type -- see its own doc comment for why a plain field or
+                    # a wrapped-but-not-`multi` one isn't tracked at all.
+                    # `distinct_<field>` itself wraps the result in `Set[...]`
+                    # (`List[...]` for `ordered` -- not tracked here at all,
+                    # since `ordered` on a relation field can't actually
+                    # compile in the first place, `EntityHandle` not being
+                    # `Comparable`).
+                    var target_field = String(fa.field[byte=9 : fa.field.byte_length()])
+                    var target = _resolve_relation_field_target(fa.entity, target_field, relation_schema, multi_fields)
+                    if target:
+                        is_list_returning = True
+                        registered_type = encode_container_type("Set", target.value())
+                elif fa.field.startswith("group_by_") and fa.entity in relation_schema:
+                    # Same target-type resolution as `distinct_<field>`
+                    # above, wrapped in `Dict[...]` instead -- matching
+                    # `group_by_<field>`'s own `Dict[Target, ...]` return.
+                    # Only the *first* type parameter (the key) is tracked
+                    # here, same as a `@@`-marked function's own `-> Dict[
+                    # @@Type, V]:` return type already is
+                    # (`build_function_returns`) -- iterating a bare `Dict`
+                    # yields keys, so that's the only parameter `for @@name
+                    # in ...:` binding needs; the value side (a `List[
+                    # EntityHandle[...]]`/`EntityHandle[...]` per key) isn't
+                    # `@@`-tracked at all yet.
+                    var target_field = String(fa.field[byte=9 : fa.field.byte_length()])
+                    var target = _resolve_relation_field_target(fa.entity, target_field, relation_schema, multi_fields)
+                    if target:
+                        is_list_returning = True
+                        registered_type = encode_container_type("Dict", target.value())
+                elif fa.field.startswith("count_by_") and fa.entity in relation_schema:
+                    # Same as `group_by_<field>` immediately above --
+                    # `count_by_<field>` returns `Dict[Target, Int]`, so the
+                    # key side is tracked identically; the `Int` value side
+                    # was never trackable to begin with (it isn't an entity).
+                    var target_field = String(fa.field[byte=9 : fa.field.byte_length()])
+                    var target = _resolve_relation_field_target(fa.entity, target_field, relation_schema, multi_fields)
+                    if target:
+                        is_list_returning = True
+                        registered_type = encode_container_type("Dict", target.value())
                 if is_entity_returning or is_list_returning:
                     enforce_entity_binding(
                         source,

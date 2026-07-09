@@ -79,6 +79,31 @@ struct OrderedRel[T: KeyElement & Comparable & ImplicitlyDeletable & Copyable](R
         lookup, same result."""
         return self.between(value, value)
 
+    def all_bwd(self) -> Dict[Self.T, List[UInt32]]:
+        """Every distinct value currently in use, each mapped to every id
+        holding it -- the whole reverse index at once, rather than one
+        bucket via `get_bwd`. Unlike `Rel`/`UniqueRel`/`MultiRel`'s own
+        `all_bwd` (a plain `.copy()`, since their own `_bwd` already has
+        this shape), `OrderedRel` has no `_bwd` dict to copy -- built here
+        by walking `_sorted` instead, grouping each contiguous run of equal
+        values (free, since `_sorted` already keeps them contiguous),
+        inserting each group in ascending order. `Dict`'s own iteration
+        order matches insertion order (documented, not just observed --
+        same guarantee Python's `dict` makes), so a caller iterating this
+        still sees `ordered`'s own sort order, same shape as the other
+        three `Rel` variants' `all_bwd`. What `group_by_<field>`
+        (`codegen.table`) walks."""
+        var out = Dict[Self.T, List[UInt32]]()
+        var i = 0
+        while i < len(self._sorted):
+            var value = self._value_at(i)
+            var ids = List[UInt32]()
+            while i < len(self._sorted) and self._value_at(i) == value:
+                ids.append(self._sorted[i])
+                i += 1
+            out[value^] = ids^
+        return out^
+
     def greater_than(self, value: Self.T) -> List[UInt32]:
         """Every id whose value is strictly greater than `value`."""
         return self._slice(self._upper_bound(value), len(self._sorted))

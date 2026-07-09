@@ -41,6 +41,7 @@ def emit_file(
     cross_file_symbols: Dict[String, String],
     plain_struct_fields: Dict[String, List[Field]],
     relation_targets: Dict[String, List[String]],
+    multi_fields: Dict[String, List[String]] = Dict[String, List[String]](),
 ) raises -> String:
     """Pass 2: emits the generated Mojo source for `path` (a single `.rel`
     file, module `module_path`), prefixed with the runtime imports, an
@@ -101,6 +102,7 @@ def emit_file(
             ordered_fields,
             plain_struct_fields,
             relation_targets,
+            multi_fields,
         )
     except e:
         raise Error(path + ": " + String(e))

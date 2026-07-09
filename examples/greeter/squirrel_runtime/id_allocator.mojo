@@ -83,6 +83,16 @@ struct IdAllocator(Movable):
     def is_live(self, id: UInt32) -> Bool:
         return Int(id) < len(self.live) and self.live[Int(id)]
 
+    def live_count(self) -> Int:
+        """How many ids are currently live -- O(1), unlike `Table.all()`
+        (a full scan building a handle per live id just to `len()` the
+        result). Every id in `[0, id_count())` is either live or sitting in
+        `free_list` (`free`/`alloc_specific` always maintain both together,
+        never one without the other), so the count of live ones is just
+        the total minus however many are on the free list, no scan
+        needed."""
+        return len(self.live) - len(self.free_list)
+
     def id_count(self) -> Int:
         """One past the highest id ever handed out -- the upper bound
         `Table.all()` walks (paired with `is_live`) to enumerate a table's

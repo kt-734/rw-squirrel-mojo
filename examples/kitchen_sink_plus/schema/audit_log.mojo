@@ -46,6 +46,9 @@ struct sqrrl__AuditLogTable(Movable):
     def all(self) -> Set[EntityHandle[sqrrl__AuditLogTableState]]:
         return self.table.all()
 
+    def count(self) -> Int:
+        return self.table.count()
+
     def dont_keepalive(mut self, e: EntityHandle[sqrrl__AuditLogTableState]) -> Bool:
         try:
             self.keepalive.remove(e)
@@ -55,6 +58,11 @@ struct sqrrl__AuditLogTable(Movable):
 
     def sqrrl__clear_keepalive(mut self):
         self.keepalive = Set[EntityHandle[sqrrl__AuditLogTableState]]()
+
+    def value_eq(self, a: EntityHandle[sqrrl__AuditLogTableState], b: EntityHandle[sqrrl__AuditLogTableState]) -> Bool:
+        if self.get_message(a) != self.get_message(b):
+            return False
+        return True
 
     def get_message(self, e: EntityHandle[sqrrl__AuditLogTableState]) -> String:
         var got = self.table.state[].state.message.get_fwd(e.id())
@@ -68,6 +76,32 @@ struct sqrrl__AuditLogTable(Movable):
         var out = List[EntityHandle[sqrrl__AuditLogTableState]]()
         for id in ids:
             out.append(self.table.handle_for(id))
+        return out^
+
+    def count_message(self, value: String) -> Int:
+        return len(self.table.state[].state.message.get_bwd(value))
+
+    def group_by_message(self) -> Dict[String, List[EntityHandle[sqrrl__AuditLogTableState]]]:
+        ref buckets = self.table.state[].state.message.all_bwd()
+        var out = Dict[String, List[EntityHandle[sqrrl__AuditLogTableState]]]()
+        for entry in buckets.items():
+            var handles = List[EntityHandle[sqrrl__AuditLogTableState]]()
+            for id in entry.value:
+                handles.append(self.table.handle_for(id))
+            out[entry.key] = handles^
+        return out^
+
+    def count_by_message(self) -> Dict[String, Int]:
+        ref buckets = self.table.state[].state.message.all_bwd()
+        var out = Dict[String, Int]()
+        for entry in buckets.items():
+            out[entry.key] = len(entry.value)
+        return out^
+
+    def distinct_message(self) -> Set[String]:
+        var out = Set[String]()
+        for key in self.table.state[].state.message.all_bwd().keys():
+            out.add(key)
         return out^
 
     def sqrrl__to_json(self, e: EntityHandle[sqrrl__AuditLogTableState]) -> String:

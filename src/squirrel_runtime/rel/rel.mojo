@@ -82,12 +82,19 @@ struct Rel[T: KeyElement & ImplicitlyDeletable & Copyable](RelLike, Movable):
         except:
             return Set[UInt32]()
 
-    def all_bwd(self) -> Dict[Self.T, Set[UInt32]]:
+    def all_bwd(self) -> ref [self._bwd] Dict[Self.T, Set[UInt32]]:
         """Every value currently in use, each mapped to every id holding it
         -- the whole reverse index at once, rather than one bucket via
-        `get_bwd`. What `group_by_<field>` (`codegen.table`) walks; a plain
-        `.copy()` since `_bwd` already *is* exactly this shape."""
-        return self._bwd.copy()
+        `get_bwd`. What `group_by_<field>` (`codegen.table`) walks. A
+        borrowed reference straight into `_bwd`, not a copy -- `self`
+        itself is only borrowed here (no `mut`), so the reference is
+        read-only (confirmed: attempting to mutate through it is rejected
+        at compile time, same as any other borrowed `ref`); a full `Dict`
+        (down to every `Set` value) `.copy()` just to hand it to a caller
+        that only ever reads it (`group_by_<field>` immediately builds its
+        *own* fresh `Dict` from this one, converting each id to a real
+        handle) would be wasted work."""
+        return self._bwd
 
     def fetch_remove_fwd(mut self, id: UInt32) -> Optional[Self.T]:
         """Clear id's value; returns the value it held, or None."""

@@ -1,4 +1,4 @@
-site_name: Squirrel
+site_name: RW Squirrel
 site_description: A small DSL, embedded in Mojo, that compiles @@-marked .rel files into a relational entity-storage runtime.
 repo_url: https://github.com/kt-734/rw-squirrel-mojo
 repo_name: kt-734/rw-squirrel-mojo

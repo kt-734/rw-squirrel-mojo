@@ -171,3 +171,63 @@ def _is_ordered_field_query(
     return False
 
 
+def _is_multi_field_query(
+    entity: String, target_field: String, multi_fields: Dict[String, List[String]]
+) raises -> Bool:
+    """True if `target_field` (a `distinct_<field>` call's name, `distinct_`
+    prefix already stripped) is an exact match for one of `entity`'s
+    `multi` fields -- needed because `relation_schema` alone can't tell a
+    `multi` relation field apart from a wrapped-but-not-`multi` one
+    (`@@members: List[@@Employee]`): both get the same `Wrapper[Target]`
+    encoding there, but only the `multi` one has `distinct_<field>`
+    returning `Set[ElementType]` (matching `relation_schema`'s own
+    encoding for it as-is) -- the wrapped-but-not-`multi` case instead
+    returns `Set[List[EntityHandle[...]]]` (a set of whole lists), not a
+    container of single entities, and isn't tracked at all (see
+    `rewrite_markers`'s own `distinct_` branch)."""
+    if entity not in multi_fields:
+        return False
+    for mf in multi_fields[entity]:
+        if target_field == mf:
+            return True
+    return False
+
+
+def _resolve_relation_field_target(
+    entity: String,
+    target_field: String,
+    relation_schema: Dict[String, Dict[String, String]],
+    multi_fields: Dict[String, List[String]],
+) raises -> Optional[String]:
+    """The bare target struct type for `target_field` on `entity`, shared by
+    every `rewrite_markers` branch that tracks a *field-keyed* container
+    (`distinct_<field>`, `group_by_<field>`, `count_by_<field>` --
+    `codegen.table`) -- each just wraps this same resolved type in
+    whatever container shape its own generated method actually returns
+    (`Set`/`List` for `distinct_<field>`, `Dict` for the other two).
+
+    `None` if `target_field` isn't a relation field at all (a plain-valued
+    container isn't `@@`-trackable -- there's no entity type to bind), or
+    if it's a wrapped-but-not-`multi` collection relation field
+    (`@@members: List[@@Employee]`, no modifier): that shape's own
+    container-of-containers return (e.g. `distinct_<field>`'s `Set[List[
+    EntityHandle[...]]]`) isn't a shape `entity_to_type`'s single-argument
+    encoding can represent either.
+
+    A `multi` relation field's own `relation_schema` entry is already
+    `Wrapper[Target]`-encoded (see `build_relation_schema`'s own doc
+    comment, matching `get_<field>`'s real `Set[EntityHandle[...]]`
+    return) -- stripped back to the bare `Target` here via
+    `container_element_of`, so every caller gets the same bare type
+    regardless of whether the field is `multi` or an ordinary relation
+    field, and wraps it themselves."""
+    if entity not in relation_schema or target_field not in relation_schema[entity]:
+        return None
+    var raw = relation_schema[entity][target_field]
+    if _is_multi_field_query(entity, target_field, multi_fields):
+        return container_element_of(raw)
+    if is_container_type(raw):
+        return None
+    return raw
+
+

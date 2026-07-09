@@ -174,6 +174,7 @@ def build_create_call(
     relation_targets: Dict[String, List[String]],
     mut entity_to_type: Dict[String, String],
     mut world_declared: Bool,
+    multi_fields: Dict[String, List[String]] = Dict[String, List[String]](),
 ) raises -> String:
     """Builds `sqrrl__world.TypeName.create(name = value, ...)`, validating
     each field's `@@` marking against `relation_schema[type_name]` -- must
@@ -240,6 +241,7 @@ def build_create_call(
             relation_targets,
             entity_to_type,
             world_declared,
+            multi_fields,
         )
         if not first:
             args += ", "
