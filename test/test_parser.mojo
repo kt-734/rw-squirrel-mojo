@@ -61,6 +61,37 @@ def test_parse_struct_without_keepalive_defaults_false() raises:
     assert_false(parsed.is_keepalive)
 
 
+def test_parse_struct_recognizes_equatable() raises:
+    var sc = Scanner("@@struct equatable @@Foo:\n    x: u32\n")
+    assert_true(sc.find_next_struct_decl())
+    var parsed = sc.parse_struct()
+    assert_equal(parsed.name, String("Foo"))
+    assert_true(parsed.is_equatable)
+
+
+def test_parse_struct_without_equatable_defaults_false() raises:
+    var sc = Scanner("@@struct @@Foo:\n    x: u32\n")
+    assert_true(sc.find_next_struct_decl())
+    var parsed = sc.parse_struct()
+    assert_false(parsed.is_equatable)
+
+
+def test_parse_struct_keepalive_and_equatable_either_order() raises:
+    """`keepalive`/`equatable` are independent flags, not mutually
+    exclusive modifiers -- both may appear together, in either order."""
+    var sc1 = Scanner("@@struct keepalive equatable @@Foo:\n    x: u32\n")
+    assert_true(sc1.find_next_struct_decl())
+    var parsed1 = sc1.parse_struct()
+    assert_true(parsed1.is_keepalive)
+    assert_true(parsed1.is_equatable)
+
+    var sc2 = Scanner("@@struct equatable keepalive @@Bar:\n    x: u32\n")
+    assert_true(sc2.find_next_struct_decl())
+    var parsed2 = sc2.parse_struct()
+    assert_true(parsed2.is_keepalive)
+    assert_true(parsed2.is_equatable)
+
+
 def test_parse_struct_tolerates_comment_in_body() raises:
     """A `//`/`#` comment line inside the indented body, at the same
     indentation as the fields around it, is skipped rather than mistaken

@@ -265,6 +265,26 @@ field declared on just `Course` already answers both directions —
 
 ## Field modifiers
 
+!!! note "A recurring design principle: trust the user, let Mojo's compiler catch a bad choice"
+    This compiler has no real type-checker of its own — it's a textual
+    macro/codegen tool operating on raw type-name text, not something
+    that understands Mojo's actual trait system. Wherever a `.rel`
+    author opts into a capability that requires their field's type to
+    support something specific — `unique` needs `Hashable`, `ordered`
+    needs `Comparable`, `math` needs `+`/`<`/`>`, `equatable` needs `!=`
+    (for `value_eq`) — this compiler never verifies that requirement
+    itself. It just generates the code trusting the choice, and Mojo's
+    own real compiler is what rejects it, with its own accurate error,
+    if the type doesn't actually support what's needed.
+
+    This is exactly *why* each of these is an explicit, opt-in keyword
+    rather than something inferred or applied automatically: the
+    failure mode (a compile error inside generated code, not the `.rel`
+    source itself) stays scoped to only the schemas that actually asked
+    for the capability. `value_eq` didn't originally follow this — see
+    [`equatable`](#equatable) for what happened when a capability was
+    generated unconditionally instead of opt-in.
+
 One keyword before a field name:
 
 | keyword       | meaning                                                              |
@@ -532,6 +552,37 @@ set, so it survives with no relation or local variable holding it:
 _ = @@Project.create(name = "Website Revamp")    # handle discarded, entity lives on
 print("all projects:", len(@@Project.all()))
 ```
+
+## `equatable`
+
+`equatable` on a `@@struct` (combinable with `keepalive`, in either order:
+`@@struct keepalive equatable @@Name:`) generates `value_eq(a, b)` —
+field-by-field comparison, deliberately different from `@@alice == @@bob`
+(id-based: same row is always equal regardless of field values, different
+rows are never equal no matter how identical their fields are):
+
+```
+@@struct equatable @@Department:
+    name: String
+```
+
+```
+print(@@Department.value_eq(@@eng, @@eng))      # True -- same row
+print(@@Department.value_eq(@@eng, @@sales))     # False -- different fields
+```
+
+Every field's own type needs to support `!=` for `value_eq` to compile —
+never checked ahead of time, same trust-the-user principle as
+`unique`/`ordered`/`math` (see [Field modifiers](#field-modifiers) above).
+`value_eq` is the cautionary tale behind that principle: it used to be
+generated unconditionally for every struct, so any struct with a single
+non-`Equatable` field (most commonly an embedded plain struct, like
+`Address`, which doesn't derive `Equatable` by default) carried a compile
+failure regardless of whether anyone wanted `value_eq` at all — and,
+since Mojo only fully type-checks a generated method's body once
+something actually calls it, that failure stayed silent until the day
+something finally did. Tagging `equatable` explicitly is what confines
+that risk to only the structs that ask for it.
 
 ## JSON serialization
 

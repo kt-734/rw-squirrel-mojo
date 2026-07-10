@@ -44,13 +44,6 @@ struct sqrrl__PersonTable(Movable):
     def count(self) -> Int:
         return self.table.count()
 
-    def value_eq(self, a: EntityHandle[sqrrl__PersonTableState], b: EntityHandle[sqrrl__PersonTableState]) -> Bool:
-        if self.get_name(a) != self.get_name(b):
-            return False
-        if self.get_age(a) != self.get_age(b):
-            return False
-        return True
-
     def get_name(self, e: EntityHandle[sqrrl__PersonTableState]) -> String:
         var got = self.table.state[].state.name.get_fwd(e.id())
         return got.take()

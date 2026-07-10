@@ -16,7 +16,7 @@ name; `FieldType`/`ElementType` are that field's own declared type (or, for
 | `create` | `(field1: T1, field2: T2, ...) -> EntityHandle[...]` | one parameter per field, in declared order; `raises` if *any* field is `unique` |
 | `all` | `() -> Set[EntityHandle[...]]` | every currently-live entity in the table |
 | `count` | `() -> Int` | `len(all())` without building a handle for every entity first — O(1) |
-| `value_eq` | `(a, b) -> Bool` | field-by-field comparison — see [below](#value_eq) |
+| `value_eq` | `(a, b) -> Bool` | field-by-field comparison — `equatable`-tagged structs only — see [below](#value_eq) |
 | `dont_keepalive` | `(e) -> Bool` | `keepalive`-tagged structs only — see [`keepalive`](dsl-guide.md#keepalive) |
 
 ## Every field
@@ -224,8 +224,20 @@ identical their fields are. `value_eq` is the other axis — same field
 values, not necessarily the same row. A relation field is compared by its
 own `==` here too (i.e. "points at the same row"), not recursed into the
 target's own fields, matching how a foreign key column's equality works in
-an ordinary relational database. Every field's own type needs to support
-`!=` for this to compile.
+an ordinary relational database.
+
+Opt-in via `equatable` on the struct declaration (`@@struct equatable
+@@Name:`, combinable with `keepalive` in either order). Every field's own
+type needs to support `!=` for it to compile — not checked ahead of time,
+the same trust-the-compiler reasoning as `unique`'s `Hashable`/`ordered`'s
+`Comparable`/`math`'s `+` — but unlike those three, `value_eq` used to be
+generated unconditionally for every struct, so any struct with a single
+non-`Equatable` field (most commonly an embedded plain struct, which
+doesn't derive `Equatable` by default) carried that compile risk whether
+or not anyone wanted `value_eq` at all — and since Mojo only fully
+type-checks a generated method once something actually calls it, the
+failure could stay silent indefinitely. The `equatable` tag confines that
+risk to structs that actually ask for it.
 
 ## Example
 

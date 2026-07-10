@@ -1,3 +1,10 @@
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color: #000000;
+  --md-default-bg-color--light: #000000;
+  --md-default-bg-color--lighter: #000000;
+  --md-default-bg-color--lightest: #000000;
+}
+
 .hero {
   padding: 2rem 0 1rem;
   text-align: center;

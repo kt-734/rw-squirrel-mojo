@@ -45,11 +45,6 @@ struct sqrrl__VendorTable(Movable):
     def count(self) -> Int:
         return self.table.count()
 
-    def value_eq(self, a: EntityHandle[sqrrl__VendorTableState], b: EntityHandle[sqrrl__VendorTableState]) -> Bool:
-        if self.get_name(a) != self.get_name(b):
-            return False
-        return True
-
     def get_name(self, e: EntityHandle[sqrrl__VendorTableState]) -> String:
         var got = self.table.state[].state.name.get_fwd(e.id())
         return got.take()

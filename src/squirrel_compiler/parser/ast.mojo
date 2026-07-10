@@ -122,9 +122,13 @@ struct TypeParam(Copyable, Movable):
 
 
 struct ParsedStruct(Copyable, Movable):
-    """One `@@struct [keepalive] @@Name: <indented fields>` declaration (or
-    a plain `struct Name { field: Type, ... }` / a hand-written `struct
-    Name(Traits...):`, neither of which ever sets `is_keepalive`).
+    """One `@@struct [keepalive] [equatable] @@Name: <indented fields>`
+    declaration (or a plain `struct Name { field: Type, ... }` / a
+    hand-written `struct Name(Traits...):`, neither of which ever sets
+    `is_keepalive`/`is_equatable`). `keepalive`/`equatable` may appear in
+    either order -- independent flags, not mutually exclusive modifiers
+    the way a field's own `unique`/`forwardonly`/`multi`/`ordered` are.
+
     Every generated table gets a `keepalive: Set[EntityHandle[...]]` field
     and a `dont_keepalive(e)` method to release an entry from it, whether
     or not `is_keepalive` is set (`sqrrl__world_from_json` relies on a
@@ -136,6 +140,20 @@ struct ParsedStruct(Copyable, Movable):
     `all()` (unconditional, regardless of `is_keepalive`) returns every
     currently-live entity via the table's own id allocator, not this set.
 
+    `is_equatable` gates whether `value_eq` (field-by-field comparison,
+    see `codegen.table`) is generated at all -- unlike `keepalive`'s own
+    field, which every table gets unconditionally, `value_eq` is opt-in:
+    every field's own type needs to support `!=` for it to compile, which
+    this parser has no way to check ahead of time (same trust-the-compiler
+    reasoning as `unique`'s `Hashable`/`ordered`'s `Comparable`/`math`'s
+    `+`), and unlike those four, `value_eq` was previously generated
+    unconditionally for every struct -- meaning any struct with a
+    non-`Equatable` field (most commonly an embedded plain struct, which
+    doesn't derive `Equatable` by default) carried a latent compile
+    failure regardless of whether its own author ever wanted `value_eq`
+    at all. Gating it behind an explicit keyword confines that risk to
+    only the structs that actually ask for it.
+
     `type_params` (only ever non-empty for a plain struct -- an `@@struct`
     is never generic) is its own `[T: Bound, ...]` list, if any -- see
     `TypeParam`'s own doc comment."""
@@ -143,6 +161,7 @@ struct ParsedStruct(Copyable, Movable):
     var name: String
     var fields: List[Field]
     var is_keepalive: Bool
+    var is_equatable: Bool
     var type_params: List[TypeParam]
 
     def __init__(
@@ -150,11 +169,13 @@ struct ParsedStruct(Copyable, Movable):
         var name: String,
         var fields: List[Field],
         is_keepalive: Bool = False,
+        is_equatable: Bool = False,
         var type_params: List[TypeParam] = List[TypeParam](),
     ):
         self.name = name^
         self.fields = fields^
         self.is_keepalive = is_keepalive
+        self.is_equatable = is_equatable
         self.type_params = type_params^
 
 

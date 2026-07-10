@@ -205,18 +205,29 @@ def emit_table(parsed: ParsedStruct, plain_struct_fields: Dict[String, List[Fiel
     # fails with Mojo's own compile error at the `!=` below, same as
     # relying on Mojo's own definite-initialization checking elsewhere in
     # this codebase rather than duplicating a check it already does.
-    out += "\n"
-    out += String(
-        t"    def value_eq(self, a: EntityHandle[{state_name}],"
-        t" b: EntityHandle[{state_name}]) -> Bool:\n"
-    )
-    if len(parsed.fields) == 0:
-        out += "        return True\n"
-    else:
-        for f in parsed.fields:
-            out += String(t"        if self.get_{f.name}(a) != self.get_{f.name}(b):\n")
-            out += "            return False\n"
-        out += "        return True\n"
+    #
+    # Only generated for an `equatable`-tagged struct (`ParsedStruct`'s own
+    # doc comment) -- unlike every other method in this file, `value_eq`
+    # used to be unconditional, meaning *any* struct with a non-`Equatable`
+    # field (most commonly an embedded plain struct, which doesn't derive
+    # `Equatable` by default) carried this same compile failure regardless
+    # of whether its own author ever wanted `value_eq` at all. Gating it
+    # behind an explicit keyword confines that risk to only the structs
+    # that actually ask for it, the same way `unique`/`ordered`/`math`
+    # already confine their own type-support risk to an opt-in field.
+    if parsed.is_equatable:
+        out += "\n"
+        out += String(
+            t"    def value_eq(self, a: EntityHandle[{state_name}],"
+            t" b: EntityHandle[{state_name}]) -> Bool:\n"
+        )
+        if len(parsed.fields) == 0:
+            out += "        return True\n"
+        else:
+            for f in parsed.fields:
+                out += String(t"        if self.get_{f.name}(a) != self.get_{f.name}(b):\n")
+                out += "            return False\n"
+            out += "        return True\n"
 
     for f in parsed.fields:
         var field_type = emit_field_type(f)

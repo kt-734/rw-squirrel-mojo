@@ -113,12 +113,15 @@ def main() raises:
         # `value_eq` -- field-by-field, deliberately different from `==`
         # (id-based): the same handle is `value_eq` with itself, but never
         # with a genuinely different row, however similar its fields are.
-        # `Department`, not `Employee`, is what exercises this here --
-        # `value_eq` needs every field's own type to support `!=` to
-        # compile at all (never checked ahead of time; Mojo's own compiler
-        # is the one that catches it), and `Employee.profile: Profile`
-        # isn't `Equatable`, so calling `value_eq` on `Employee` specifically
-        # would never compile.
+        # Opt-in via `equatable` on the struct declaration (`@@struct
+        # equatable @@Department:`) -- every field's own type needs to
+        # support `!=` to compile, never checked ahead of time (Mojo's own
+        # compiler is the one that catches it, same trust-the-compiler
+        # reasoning as `unique`/`ordered`/`math`), so this is confined to
+        # structs that actually ask for it. `Employee` doesn't (its
+        # `profile: Profile` field isn't `Equatable`, so tagging it
+        # `equatable` would never compile) -- `Department` does, since none
+        # of its own fields have that problem.
         print("value_eq(eng, eng):", @@Department.value_eq(@@eng, @@eng))
         print("value_eq(eng, sales):", @@Department.value_eq(@@eng, @@sales))
 

@@ -73,21 +73,6 @@ struct sqrrl__EmployeeTable(Movable):
     def count(self) -> Int:
         return self.table.count()
 
-    def value_eq(self, a: EntityHandle[sqrrl__EmployeeTableState], b: EntityHandle[sqrrl__EmployeeTableState]) -> Bool:
-        if self.get_email(a) != self.get_email(b):
-            return False
-        if self.get_title(a) != self.get_title(b):
-            return False
-        if self.get_years_employed(a) != self.get_years_employed(b):
-            return False
-        if self.get_salary(a) != self.get_salary(b):
-            return False
-        if self.get_dept(a) != self.get_dept(b):
-            return False
-        if self.get_profile(a) != self.get_profile(b):
-            return False
-        return True
-
     def get_email(self, e: EntityHandle[sqrrl__EmployeeTableState]) -> String:
         var got = self.table.state[].state.email.get_fwd(e.id())
         return got.take()

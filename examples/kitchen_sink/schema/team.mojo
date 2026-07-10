@@ -65,17 +65,6 @@ struct sqrrl__TeamTable(Movable):
     def count(self) -> Int:
         return self.table.count()
 
-    def value_eq(self, a: EntityHandle[sqrrl__TeamTableState], b: EntityHandle[sqrrl__TeamTableState]) -> Bool:
-        if self.get_name(a) != self.get_name(b):
-            return False
-        if self.get_lead(a) != self.get_lead(b):
-            return False
-        if self.get_members(a) != self.get_members(b):
-            return False
-        if self.get_advisor(a) != self.get_advisor(b):
-            return False
-        return True
-
     def get_name(self, e: EntityHandle[sqrrl__TeamTableState]) -> String:
         var got = self.table.state[].state.name.get_fwd(e.id())
         return got.take()

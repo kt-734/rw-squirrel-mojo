@@ -42,11 +42,6 @@ struct sqrrl__DepartmentTable(Movable):
     def count(self) -> Int:
         return self.table.count()
 
-    def value_eq(self, a: EntityHandle[sqrrl__DepartmentTableState], b: EntityHandle[sqrrl__DepartmentTableState]) -> Bool:
-        if self.get_name(a) != self.get_name(b):
-            return False
-        return True
-
     def get_name(self, e: EntityHandle[sqrrl__DepartmentTableState]) -> String:
         var got = self.table.state[].state.name.get_fwd(e.id())
         return got.take()
@@ -184,13 +179,6 @@ struct sqrrl__EmployeeTable(Movable):
 
     def count(self) -> Int:
         return self.table.count()
-
-    def value_eq(self, a: EntityHandle[sqrrl__EmployeeTableState], b: EntityHandle[sqrrl__EmployeeTableState]) -> Bool:
-        if self.get_title(a) != self.get_title(b):
-            return False
-        if self.get_dept(a) != self.get_dept(b):
-            return False
-        return True
 
     def get_title(self, e: EntityHandle[sqrrl__EmployeeTableState]) -> String:
         var got = self.table.state[].state.title.get_fwd(e.id())

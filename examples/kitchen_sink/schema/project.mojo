@@ -63,17 +63,6 @@ struct sqrrl__ProjectTable(Movable):
     def count(self) -> Int:
         return self.table.count()
 
-    def value_eq(self, a: EntityHandle[sqrrl__ProjectTableState], b: EntityHandle[sqrrl__ProjectTableState]) -> Bool:
-        if self.get_name(a) != self.get_name(b):
-            return False
-        if self.get_priority(a) != self.get_priority(b):
-            return False
-        if self.get_vendor(a) != self.get_vendor(b):
-            return False
-        if self.get_budget(a) != self.get_budget(b):
-            return False
-        return True
-
     def get_name(self, e: EntityHandle[sqrrl__ProjectTableState]) -> String:
         var got = self.table.state[].state.name.get_fwd(e.id())
         return got.take()

@@ -62,6 +62,31 @@ construction, relation fields, and world threading. See
 [`examples/kitchen_sink`](examples/kitchen_sink) for all of this combined in
 one project; each piece individually:
 
+> **A recurring design principle: trust the user, let Mojo's compiler
+> catch a bad choice.** This compiler has no real type-checker of its
+> own — it's a textual macro/codegen tool operating on raw type-name
+> text, not something that understands Mojo's actual trait system.
+> Wherever a `.rel` author opts into a capability that requires their
+> field's type to support something specific — `unique` needs
+> `Hashable`, `ordered` needs `Comparable`, `math` needs `+`/`<`/`>`,
+> `equatable` needs `!=` (for `value_eq`) — this compiler never verifies
+> that requirement itself. It just generates the code trusting the
+> choice, and Mojo's own real compiler is what rejects it, with its own
+> accurate error, if the type doesn't actually support what's needed.
+>
+> This is exactly *why* each of these is an explicit, opt-in keyword
+> rather than something inferred or applied automatically: the failure
+> mode (a compile error inside generated code, not the `.rel` source
+> itself) stays scoped to only the schemas that actually asked for the
+> capability, never risked project-wide for schemas that didn't.
+> `value_eq` didn't originally follow this — it was generated for every
+> struct unconditionally, so *any* struct with a single non-`Equatable`
+> field carried that risk whether or not anyone wanted `value_eq` at
+> all, and (since Mojo only fully type-checks a generated method once
+> something actually calls it) the failure could stay completely silent
+> until the day something finally did. Gating it behind `equatable` (see
+> below) is what fixed that.
+
 **Declaring an entity struct** — `@@struct` gets a generated table, an id
 allocator, and `create`/`get_<field>`/`set_<field>`/`for_<field>` methods
 per field:
@@ -415,11 +440,9 @@ An `ordered` field earns `min_<field>`/`max_<field>` for free, with no
 `math` needed — `ordered` already requires `Comparable` for its own range
 queries, and `min`/`max` need nothing more. `math` is what additionally
 earns `sum_<field>`/`avg_<field>` (needing `+` too), and is required for
-`min_<field>`/`max_<field>` on a field that isn't otherwise `ordered`. As
-with `unique`'s `Hashable`/`ordered`'s `Comparable`, this parser can't
-verify a field's declared type actually supports `+`/`<`/`>` — `math` is
-trusted the same way, rejected by Mojo's own compiler with a clear message
-if it's wrong. `avg_<field>` always returns `Float64`, regardless of the
+`min_<field>`/`max_<field>` on a field that isn't otherwise `ordered`
+(same trust-the-user principle as `unique`/`ordered` themselves — see
+above). `avg_<field>` always returns `Float64`, regardless of the
 field's own declared type (`Int`, `UInt32`, ...) — an integer average
 silently truncating (`total // count`) would lose information a `Float64`
 promotion doesn't; `sum_`/`min_`/`max_` stay in the field's own type,
@@ -626,7 +649,7 @@ Every `@@struct` produces two Mojo structs:
 | `remove_from_<field>` | `(e, value: ElementType) -> Bool` | `multi` fields only — `True` if it was actually removed |
 | `all` | `() -> Set[EntityHandle[...]]` | every currently-live entity in the table — generated for every struct, `keepalive` or not |
 | `count` | `() -> Int` | `len(all())` without building a handle for every entity just to throw it away right after — O(1), generated for every struct |
-| `value_eq` | `(a, b) -> Bool` | field-by-field comparison — see below |
+| `value_eq` | `(a, b) -> Bool` | field-by-field comparison — `equatable`-tagged structs only — see below |
 | `dont_keepalive` | `(e) -> Bool` | `keepalive`-tagged structs only — see below |
 
 `for_<field>`'s signature and behavior depend on that field's own modifier:
@@ -782,7 +805,23 @@ own `==` here too (i.e. "points at the same row"), not recursed into the
 target's own fields — matching how a foreign key column's equality works
 in an ordinary relational database, and avoiding walking back through the
 same relation graph `check_no_relation_cycles` already keeps acyclic.
-Every field's own type needs to support `!=` for this to compile.
+
+`value_eq` is opt-in — a struct only gets it when tagged `equatable`
+(`@@struct equatable @@Name:`, combinable with `keepalive` in either
+order: `@@struct keepalive equatable @@Name:`), same trust-the-user
+principle as `unique`/`ordered`/`math` (see the top of this section) —
+every field's own type needs to support `!=` for it to compile, never
+checked ahead of time here either. `value_eq` is also the cautionary tale
+behind that principle: it used to be generated unconditionally for every
+struct project-wide (not opt-in on a per-field/per-struct basis the way
+the other three always were), so any struct with a single non-`Equatable`
+field (most commonly an embedded plain struct, which doesn't derive
+`Equatable` by default) carried a compile failure regardless of whether
+anyone actually wanted `value_eq` — and, since Mojo only fully
+type-checks a generated method's body once something in the reachable
+call graph actually calls it, that failure stayed completely silent
+until the day something finally did. Tagging `equatable` explicitly is
+what confines that risk to only the structs that ask for it.
 
 For example, an `Employee` struct with a `unique email`, a `title`, and a
 `@@dept: @@Department` field generates:

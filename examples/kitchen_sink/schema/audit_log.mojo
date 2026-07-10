@@ -59,11 +59,6 @@ struct sqrrl__AuditLogTable(Movable):
     def sqrrl__clear_keepalive(mut self):
         self.keepalive = Set[EntityHandle[sqrrl__AuditLogTableState]]()
 
-    def value_eq(self, a: EntityHandle[sqrrl__AuditLogTableState], b: EntityHandle[sqrrl__AuditLogTableState]) -> Bool:
-        if self.get_message(a) != self.get_message(b):
-            return False
-        return True
-
     def get_message(self, e: EntityHandle[sqrrl__AuditLogTableState]) -> String:
         var got = self.table.state[].state.message.get_fwd(e.id())
         return got.take()

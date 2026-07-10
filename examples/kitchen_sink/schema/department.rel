@@ -1,4 +1,4 @@
-@@struct @@Department:
+@@struct equatable @@Department:
     name: String
     forwardonly tags: List[String]
     multi @@projects: @@Project

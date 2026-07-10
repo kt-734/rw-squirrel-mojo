@@ -596,8 +596,9 @@ struct Scanner(Movable):
     def parse_struct(mut self) raises -> ParsedStruct:
         """Requires `self.pos` at the `@@struct` token, e.g. right after
         `find_next_struct_decl` returns True. Grammar: `@@struct [keepalive]
-        @@Name:` followed by an indented block of newline-separated fields
-        (no commas) -- real Mojo's own struct-header shape, unlike the plain
+        [equatable] @@Name:` (either keyword, either order, both optional)
+        followed by an indented block of newline-separated fields (no
+        commas) -- real Mojo's own struct-header shape, unlike the plain
         shorthand struct's brace-delimited body (see `parse_plain_struct`).
         The name is `@@`-marked (`@@struct @@Department:`, not `@@struct
         Department:`) for the same reason a relation field's own name is --
@@ -608,10 +609,19 @@ struct Scanner(Movable):
             raise self.err("InvalidSquirrelSyntax: expected '@@struct'")
         self.skip_trivia()
         var is_keepalive = False
-        if self.starts_with("keepalive") and not is_ident_char(self.peek_at(9)):
-            self.pos += 9
-            self.skip_trivia()
-            is_keepalive = True
+        var is_equatable = False
+        while True:
+            if self.starts_with("keepalive") and not is_ident_char(self.peek_at(9)):
+                self.pos += 9
+                self.skip_trivia()
+                is_keepalive = True
+                continue
+            if self.starts_with("equatable") and not is_ident_char(self.peek_at(9)):
+                self.pos += 9
+                self.skip_trivia()
+                is_equatable = True
+                continue
+            break
         if not self.try_consume("@@"):
             raise self.err("InvalidSquirrelSyntax: expected '@@' before struct name ('@@struct @@Name:')")
         var name = self.scan_ident()
@@ -622,7 +632,7 @@ struct Scanner(Movable):
             raise self.err("InvalidSquirrelSyntax: expected ':' after struct name")
         var body = self.scan_indented_block(header_indent)
         var fields = parse_fields(body)
-        return ParsedStruct(name=name, fields=fields^, is_keepalive=is_keepalive)
+        return ParsedStruct(name=name, fields=fields^, is_keepalive=is_keepalive, is_equatable=is_equatable)
 
     def parse_plain_struct(mut self) raises -> ParsedStruct:
         """Requires `self.pos` at the bare `struct` token, e.g. right after

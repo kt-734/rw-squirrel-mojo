@@ -97,8 +97,10 @@ def test_emits_value_eq_comparing_every_field() raises:
     a relation field is compared by its own `EntityHandle.__eq__` (still
     id-based) rather than recursed into the target's own fields, matching
     how a foreign key column's equality works in an ordinary relational
-    database."""
-    var sc = Scanner("@@struct @@Person:\n    name: String\n    @@dept: @@Department\n")
+    database. `equatable`-tagged -- `value_eq` is opt-in (see
+    `ParsedStruct`'s own doc comment), not generated unless a struct asks
+    for it."""
+    var sc = Scanner("@@struct equatable @@Person:\n    name: String\n    @@dept: @@Department\n")
     assert_true(sc.find_next_struct_decl())
     var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
 
@@ -113,7 +115,7 @@ def test_emits_value_eq_comparing_every_field() raises:
 
 
 def test_emits_value_eq_for_struct_with_no_fields() raises:
-    var sc = Scanner("@@struct @@Marker:\n")
+    var sc = Scanner("@@struct equatable @@Marker:\n")
     assert_true(sc.find_next_struct_decl())
     var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
 
@@ -121,6 +123,19 @@ def test_emits_value_eq_for_struct_with_no_fields() raises:
         "def value_eq(self, a: EntityHandle[sqrrl__MarkerTableState], b:"
         " EntityHandle[sqrrl__MarkerTableState]) -> Bool:\n        return True\n" in out
     )
+
+
+def test_no_value_eq_without_equatable_tag() raises:
+    """A struct that never asks for `equatable` gets no `value_eq` at
+    all -- opt-in, not unconditional, unlike every other generated method
+    in this file. This is what confines the "every field needs to support
+    `!=`" risk to only the structs that actually want `value_eq`, instead
+    of every struct project-wide."""
+    var sc = Scanner("@@struct @@Person:\n    name: String\n    @@dept: @@Department\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true("def value_eq" not in out)
 
 
 def test_emits_to_json_calling_sqrrl_to_json_per_field() raises:
