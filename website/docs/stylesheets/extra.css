@@ -1,8 +1,17 @@
+:root,
+[data-md-color-scheme="default"],
 [data-md-color-scheme="slate"] {
   --md-default-bg-color: #000000;
   --md-default-bg-color--light: #000000;
   --md-default-bg-color--lighter: #000000;
   --md-default-bg-color--lightest: #000000;
+  --md-default-fg-color: #ffffff;
+  --md-default-fg-color--light: #ffffffcc;
+  --md-default-fg-color--lighter: #ffffff8a;
+  --md-default-fg-color--lightest: #ffffff1f;
+  --md-typeset-color: #ffffff;
+  --md-code-bg-color: #101010;
+  --md-code-fg-color: #ffffff;
 }
 
 .hero {
