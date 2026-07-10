@@ -148,6 +148,7 @@ def discover_hand_written_plain_structs(rel_files: List[String], target_root: St
                             name=field.name,
                             type_str=recover_relation_type_str(field.type_str),
                             modifier=field.modifier,
+                            is_math=field.is_math,
                         )
                     )
                 out.append(

@@ -9,6 +9,8 @@ from squirrel_compiler.parser import (
     NameRef,
     EntityParam,
     is_unmarked_container_declaration,
+    preceding_unmarked_ident,
+    PrecedingIdent,
 )
 from squirrel_compiler.codegen.helpers import (
     sqrrl_prefixed,
@@ -439,6 +441,23 @@ def rewrite_markers(
             pending_decl = None
             pending_for_loop_decl = None
 
+        elif kind == MarkerKind.PLAIN_VAR_DECL:
+            # `var name: TypeName` -- unmarked on both sides, the plain-
+            # struct-typed counterpart to `ENTITY_PARAM`'s own `@@name:
+            # @@Type`. Only actually registers anything if `TypeName` is a
+            # known plain struct; an ordinary `var x: Int = ...` (or any
+            # other non-plain-struct type) matches this marker's syntax
+            # too, but is left alone -- `entity_to_type` stays untouched,
+            # and the text is emitted back byte-for-byte either way, since
+            # neither side ever needs rewriting (no `@@` to strip, no
+            # `EntityHandle[...]` to wrap in).
+            var pv = sc.parse_plain_var_decl()
+            if pv.type_name in plain_struct_fields:
+                entity_to_type[pv.name] = pv.type_name
+            out += String(t"var {pv.name}: {pv.type_name}")
+            pending_decl = None
+            pending_for_loop_decl = None
+
         elif kind == MarkerKind.RETURN_TYPE:
             # A container return type's own `List[`/`]` are never consumed
             # by this marker (they sit outside it, already copied through
@@ -509,6 +528,91 @@ def rewrite_markers(
 
         elif kind == MarkerKind.FIELD_ACCESS:
             var fa = sc.parse_field_access()
+            # `note.@@author` -- `find_next_marker` only ever recognizes a
+            # marker starting at literal `@@` text, so the parse above
+            # already ran as if `@@author` were the whole reference,
+            # `note.` having been copied through as ordinary text (part of
+            # `between`) before this branch ever runs. If `note` turns out
+            # to be a tracked variable (an `@@`-marked one, or a plain
+            # struct one from `PLAIN_VAR_DECL`) and `author` *isn't*
+            # already tracked on its own, reinterpret: `note` becomes the
+            # real entity, `author` becomes its first hop -- trimming the
+            # already-appended "note." back out of `out` (using the exact
+            # source span `preceding_unmarked_ident` found, not a guessed
+            # length, so surrounding whitespace round-trips correctly).
+            # Falls through to the ordinary, unchanged path otherwise --
+            # `@@alice.@@job.title` never reaches here at all (the first
+            # `@@alice` marker's own hop-loop already consumes the whole
+            # chain in one `parse_field_access` call), and an untracked
+            # prefix (or one that's ALSO independently tracked already)
+            # just means nothing to reinterpret.
+            if fa.field != "" and not fa.is_call and fa.entity not in entity_to_type:
+                var implicit_prefix = preceding_unmarked_ident(source, marker_start)
+                if implicit_prefix and implicit_prefix.value().name in entity_to_type:
+                    var prefix = implicit_prefix.value().copy()
+                    var trim_count = marker_start - prefix.start
+                    out = String(out[byte = 0 : out.byte_length() - trim_count])
+                    if fa.index_expr and len(fa.hops) == 0:
+                        # `team.@@members[1].name` -- the original parse
+                        # (starting at `@@members`, since `team.` was
+                        # unmarked prefix text) read `index_expr` as
+                        # indexing `members` itself (its own entity),
+                        # exactly like a tracked container variable would
+                        # (`@@matches[0].name`). After reshaping, `members`
+                        # becomes the *field* being read off `team`, not a
+                        # hop -- so the index moves to `post_index_expr`
+                        # and the original terminal `field` becomes
+                        # `post_field`, the same one-level-deep shape a
+                        # direct `@@dept.@@employees[0].name` already
+                        # produces on its own. Only supported for a read
+                        # (matching `post_index_expr`'s own read-only
+                        # scope) -- a write through this shape raises
+                        # rather than silently mishandling it.
+                        if fa.write_value:
+                            raise sc.err(
+                                "InvalidSquirrelSyntax: writing through an"
+                                " indexed, implicitly-prefixed field isn't"
+                                " supported ('"
+                                + prefix.name
+                                + ".@@"
+                                + fa.entity
+                                + "[...]."
+                                + fa.field
+                                + " = ...')"
+                            )
+                        fa = FieldAccess(
+                            entity=prefix.name,
+                            hops=List[String](),
+                            field=fa.entity,
+                            field_marked=True,
+                            write_value=None,
+                            is_call=False,
+                            index_expr=None,
+                            entity_unmarked=True,
+                            post_index_expr=fa.index_expr,
+                            post_field=Optional[String](fa.field),
+                            post_field_marked=fa.field_marked,
+                        )
+                        pending_decl = None
+                        pending_for_loop_decl = None
+                    else:
+                        var new_hops = List[String]()
+                        new_hops.append(fa.entity)
+                        for h in fa.hops:
+                            new_hops.append(h)
+                        fa = FieldAccess(
+                            entity=prefix.name,
+                            hops=new_hops^,
+                            field=fa.field,
+                            field_marked=fa.field_marked,
+                            write_value=fa.write_value,
+                            is_call=fa.is_call,
+                            index_expr=fa.index_expr,
+                            entity_unmarked=True,
+                            post_index_expr=fa.post_index_expr,
+                        post_field=fa.post_field,
+                        post_field_marked=fa.post_field_marked,
+                    )
             if fa.field == "" and fa.index_expr:
                 # A bare indexed reference, `@@matches[0]`, used as a value
                 # in its own right (an argument, a plain `var x = ...` RHS,
@@ -702,6 +806,37 @@ def rewrite_markers(
                     if target:
                         is_list_returning = True
                         registered_type = encode_container_type("Dict", target.value())
+                elif (
+                    fa.field.startswith("sum_")
+                    or fa.field.startswith("avg_")
+                    or fa.field.startswith("min_")
+                    or fa.field.startswith("max_")
+                ) and fa.entity in relation_schema:
+                    # `sum_<y>_by_<x>`/`avg_`/`min_`/`max_` (`codegen.
+                    # aggregates`) return `Dict[Target, ResultType]`, `x`
+                    # (the *grouping* field) supplying `Target` the same way
+                    # `group_by_<field>`/`count_by_<field>` do -- `y` (the
+                    # aggregated field) never enters this at all, since it's
+                    # never the container's key type. Split on the *last*
+                    # `_by_` rather than the first, in case `y`'s own name
+                    # happens to contain that substring -- `x`'s name is
+                    # whatever follows it either way. The singular
+                    # `_for_<x>(value)` sibling and the whole-table `sum_<y>
+                    # ()` form both return a scalar, not a container, so
+                    # neither has anything to track here; `_by_` not
+                    # appearing in either name is what naturally excludes
+                    # them, with no separate check needed.
+                    var by_pos = fa.field.rfind("_by_")
+                    if by_pos >= 0:
+                        var target_field = String(
+                            fa.field[byte = by_pos + 4 : fa.field.byte_length()]
+                        )
+                        var target = _resolve_relation_field_target(
+                            fa.entity, target_field, relation_schema, multi_fields
+                        )
+                        if target:
+                            is_list_returning = True
+                            registered_type = encode_container_type("Dict", target.value())
                 if is_entity_returning or is_list_returning:
                     enforce_entity_binding(
                         source,
@@ -791,7 +926,8 @@ def rewrite_markers(
                             entity_to_type,
                             world_declared,
                         )
-                        expr = String(t"{sqrrl_prefixed(fa.entity)}[{rewritten_index}]")
+                        var entity_expr = fa.entity if fa.entity_unmarked else sqrrl_prefixed(fa.entity)
+                        expr = String(t"{entity_expr}[{rewritten_index}]")
                     else:
                         if fa.index_expr:
                             raise sc.err(
@@ -800,7 +936,7 @@ def rewrite_markers(
                                 + "' isn't a container -- can't index into it"
                             )
                         current_type = declared_type
-                        expr = sqrrl_prefixed(fa.entity)
+                        expr = fa.entity if fa.entity_unmarked else sqrrl_prefixed(fa.entity)
                     for hop in fa.hops:
                         if current_type not in relation_schema or hop not in relation_schema[current_type]:
                             raise sc.err(
@@ -810,32 +946,57 @@ def rewrite_markers(
                                 + hop
                                 + "'"
                             )
-                        expr = String(t"sqrrl__world.{current_type}.get_{hop}({expr})")
+                        if current_type in plain_struct_fields:
+                            # A plain struct's own relation field is a real
+                            # Mojo field, not a generated `get_<field>`
+                            # method -- there's no `sqrrl__world.<Name>`
+                            # table for a plain struct at all, unlike an
+                            # entity. Direct field access, same as reading
+                            # any other field on it.
+                            expr = String(t"{expr}.{hop}")
+                        else:
+                            expr = String(t"sqrrl__world.{current_type}.get_{hop}({expr})")
                         current_type = relation_schema[current_type][hop]
                     if fa.write_value:
-                        out += String(
-                            t"sqrrl__world.{current_type}.set_{fa.field}({expr}, {fa.write_value.value()});"
-                        )
+                        if current_type in plain_struct_fields:
+                            # A plain struct's own field is written
+                            # directly -- no `set_<field>` method exists
+                            # for it (that's an entity-table concept), just
+                            # an ordinary Mojo field assignment.
+                            out += String(t"{expr}.{fa.field} = {fa.write_value.value()};")
+                        else:
+                            out += String(
+                                t"sqrrl__world.{current_type}.set_{fa.field}({expr}, {fa.write_value.value()});"
+                            )
                     elif fa.is_call:
-                        # An instance method call on the field itself
-                        # (`@@eng.add_to_projects(@@website)`), not a plain
-                        # field read -- the generated method (`add_to_
-                        # <field>`/`remove_from_<field>`, ...) takes the
-                        # entity as its own first argument, so `get_` isn't
-                        # spliced in and `expr` is injected as that first
-                        # argument. `parse_field_access` left the call's own
-                        # `(args)` unconsumed, so the opening `(` is consumed
-                        # here to inject a comma before whatever follows, if
-                        # anything did -- same technique `MarkerKind.
-                        # WORLD_FUNC` uses to inject `sqrrl__world` as a
-                        # call's own first argument.
                         if not sc.try_consume("("):
                             raise sc.err("InvalidSquirrelSyntax: expected '(' after '" + fa.field + "'")
-                        sc.skip_whitespace()
-                        var has_more_args = sc.peek() != UInt8(ord(")"))
-                        out += String(t"sqrrl__world.{current_type}.{fa.field}({expr}")
-                        if has_more_args:
-                            out += ", "
+                        if current_type in plain_struct_fields:
+                            # An ordinary Mojo method call on the plain
+                            # struct's own value (`expr` is the real
+                            # receiver via dot-call syntax) -- unlike the
+                            # entity case just below, there's no injected
+                            # first argument, so whatever args follow pass
+                            # through completely unchanged.
+                            out += String(t"{expr}.{fa.field}(")
+                        else:
+                            # An instance method call on the field itself
+                            # (`@@eng.add_to_projects(@@website)`), not a
+                            # plain field read -- the generated method
+                            # (`add_to_<field>`/`remove_from_<field>`, ...)
+                            # takes the entity as its own first argument, so
+                            # `get_` isn't spliced in and `expr` is injected
+                            # as that first argument. The opening `(` was
+                            # consumed just above to inject a comma before
+                            # whatever follows, if anything did -- same
+                            # technique `MarkerKind.WORLD_FUNC` uses to
+                            # inject `sqrrl__world` as a call's own first
+                            # argument.
+                            sc.skip_whitespace()
+                            var has_more_args = sc.peek() != UInt8(ord(")"))
+                            out += String(t"sqrrl__world.{current_type}.{fa.field}({expr}")
+                            if has_more_args:
+                                out += ", "
                     else:
                         var is_relation_field = current_type in relation_schema and fa.field in relation_schema[current_type]
                         if is_relation_field and not fa.field_marked:
@@ -872,29 +1033,193 @@ def rewrite_markers(
                                 + fa.field
                                 + "' (no '@@') for a plain field"
                             )
-                        if fa.field_marked:
-                            # `@@alice.@@dept` reads a relation field the
-                            # same way a table-level `@@Employee.get_dept
-                            # (...)` call does, so it's tracked the same
-                            # way that call's own `enforce_entity_binding`
-                            # above tracks its result: bind it to an
-                            # '@@'-marked variable to keep using it with
-                            # '@@name.field' sugar, same as
-                            # `create`/`for_<field>`.
-                            enforce_entity_binding(
-                                source,
-                                marker_start,
-                                pending_decl,
+                        var field_expr: String
+                        if current_type in plain_struct_fields:
+                            field_expr = String(t"{expr}.{fa.field}")
+                        else:
+                            field_expr = String(t"sqrrl__world.{current_type}.get_{fa.field}({expr})")
+
+                        if fa.post_index_expr:
+                            # `@@dept.@@employees[0].name` -- `fa.field`
+                            # read above is the whole container; index into
+                            # it, then (if `fa.post_field` is set) read one
+                            # more field off the indexed element -- see
+                            # `FieldAccess`'s own doc comment.
+                            if not is_relation_field:
+                                raise sc.err(
+                                    "InvalidSquirrelSyntax: '"
+                                    + current_type
+                                    + "."
+                                    + fa.field
+                                    + "' isn't a relation field -- can't"
+                                    " resolve a field on its indexed element"
+                                )
+                            var raw_target = relation_schema[current_type][fa.field]
+                            if not is_container_type(raw_target):
+                                raise sc.err(
+                                    "InvalidSquirrelSyntax: '"
+                                    + current_type
+                                    + "."
+                                    + fa.field
+                                    + "' isn't a container -- can't index"
+                                    " into it"
+                                )
+                            var element_type = container_element_of(raw_target)
+                            var rewritten_post_index = rewrite_markers(
+                                fa.post_index_expr.value(),
+                                relation_schema,
+                                function_returns,
+                                unique_fields,
+                                ordered_fields,
+                                plain_struct_fields,
+                                relation_targets,
                                 entity_to_type,
-                                relation_schema[current_type][fa.field],
-                                fa.entity + "." + fa.field,
+                                world_declared,
                             )
-                        out += String(t"sqrrl__world.{current_type}.get_{fa.field}({expr})")
+                            var indexed_expr = String(t"{field_expr}[{rewritten_post_index}]")
+                            if fa.post_field:
+                                var pf = fa.post_field.value()
+                                var post_is_relation = (
+                                    element_type in relation_schema and pf in relation_schema[element_type]
+                                )
+                                if post_is_relation and not fa.post_field_marked:
+                                    raise sc.err(
+                                        "InvalidSquirrelSyntax: '"
+                                        + element_type
+                                        + "."
+                                        + pf
+                                        + "' is a relation field -- read it"
+                                        " as '.@@"
+                                        + pf
+                                        + "', not '."
+                                        + pf
+                                        + "'"
+                                    )
+                                if fa.post_field_marked and not post_is_relation:
+                                    raise sc.err(
+                                        "InvalidSquirrelSyntax: '"
+                                        + element_type
+                                        + "' has no relation field '"
+                                        + pf
+                                        + "' -- '@@"
+                                        + pf
+                                        + "' marks a relation; use '."
+                                        + pf
+                                        + "' (no '@@') for a plain field"
+                                    )
+                                if fa.post_field_marked:
+                                    enforce_entity_binding(
+                                        source,
+                                        marker_start,
+                                        pending_decl,
+                                        entity_to_type,
+                                        relation_schema[element_type][pf],
+                                        fa.entity + "." + fa.field + "[...]." + pf,
+                                    )
+                                if element_type in plain_struct_fields:
+                                    out += String(t"{indexed_expr}.{pf}")
+                                else:
+                                    out += String(t"sqrrl__world.{element_type}.get_{pf}({indexed_expr})")
+                            else:
+                                # A bare indexed value, `@@dept.@@employees
+                                # [0]` -- tracked the same way a plain
+                                # `@@matches[0]` would be, if bound to a
+                                # marked variable.
+                                if pending_decl:
+                                    entity_to_type[pending_decl.value()] = element_type
+                                out += indexed_expr
+                        else:
+                            if fa.field_marked:
+                                # `@@alice.@@dept` reads a relation field
+                                # the same way a table-level `@@Employee.
+                                # get_dept(...)` call does, so it's tracked
+                                # the same way that call's own
+                                # `enforce_entity_binding` above tracks its
+                                # result: bind it to an '@@'-marked
+                                # variable to keep using it with
+                                # '@@name.field' sugar, same as
+                                # `create`/`for_<field>`.
+                                enforce_entity_binding(
+                                    source,
+                                    marker_start,
+                                    pending_decl,
+                                    entity_to_type,
+                                    relation_schema[current_type][fa.field],
+                                    fa.entity + "." + fa.field,
+                                )
+                                if pending_for_loop_decl:
+                                    # `for @@e in @@dept.@@employees:` binds
+                                    # `@@e` to the container's own *element*
+                                    # type, the same way iterating a
+                                    # table-level call's result already
+                                    # does -- an instance field read never
+                                    # consulted this before, so this case
+                                    # (as opposed to `@@Employee.for_dept
+                                    # (...)`'s own call-based container
+                                    # reads) silently left `@@e` untracked.
+                                    var raw_target = relation_schema[current_type][fa.field]
+                                    if is_container_type(raw_target):
+                                        entity_to_type[pending_for_loop_decl.value()] = container_element_of(
+                                            raw_target
+                                        )
+                            out += field_expr
                     pending_decl = None
                     pending_for_loop_decl = None
 
         else:  # MarkerKind.NAME_REF
             var nr = sc.parse_name_ref()
+            var reshaped_current_type: Optional[String] = None
+            if nr.name not in entity_to_type:
+                var implicit_prefix = preceding_unmarked_ident(source, marker_start)
+                if implicit_prefix and implicit_prefix.value().name in entity_to_type:
+                    # `for @@m in team.@@members:` -- `@@members` here has
+                    # nothing after it but the loop's own `:`, so it parses
+                    # as a bare `NAME_REF`, not `FIELD_ACCESS` (which needs
+                    # a `.`/`[` to follow) -- same recovery as
+                    # `FIELD_ACCESS`'s own implicit-prefix handling, just
+                    # for this shape instead.
+                    var prefix = implicit_prefix.value().copy()
+                    var peek_pos = marker_start + 2 + nr.name.byte_length()
+                    var peek_save = sc.pos
+                    sc.pos = peek_pos
+                    sc.skip_trivia()
+                    var is_write_attempt = sc.peek() == UInt8(ord("=")) and sc.peek_at(1) != UInt8(ord("="))
+                    sc.pos = peek_save
+                    if is_write_attempt:
+                        raise sc.err(
+                            "InvalidSquirrelSyntax: writing through an"
+                            " implicitly-prefixed field isn't supported"
+                            " ('"
+                            + prefix.name
+                            + ".@@"
+                            + nr.name
+                            + " = ...')"
+                        )
+                    var trim_count = marker_start - prefix.start
+                    out = String(out[byte = 0 : out.byte_length() - trim_count])
+                    var current_type = entity_to_type[prefix.name]
+                    if current_type not in relation_schema or nr.name not in relation_schema[current_type]:
+                        raise sc.err(
+                            "InvalidSquirrelSyntax: '"
+                            + current_type
+                            + "' has no relation field '"
+                            + nr.name
+                            + "'"
+                        )
+                    reshaped_current_type = current_type
+                    if current_type in plain_struct_fields:
+                        out += String(t"{prefix.name}.{nr.name}")
+                    else:
+                        out += String(t"sqrrl__world.{current_type}.get_{nr.name}({prefix.name})")
+            if reshaped_current_type:
+                if pending_for_loop_decl:
+                    var raw_target = relation_schema[reshaped_current_type.value()][nr.name]
+                    if is_container_type(raw_target):
+                        entity_to_type[pending_for_loop_decl.value()] = container_element_of(raw_target)
+                pending_decl = None
+                pending_for_loop_decl = None
+                pos = sc.pos
+                continue
             out += sqrrl_prefixed(nr.name)
             var save = sc.pos
             sc.skip_trivia()

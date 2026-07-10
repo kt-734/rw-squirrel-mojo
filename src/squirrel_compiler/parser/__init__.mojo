@@ -6,6 +6,8 @@ from squirrel_compiler.parser.text_utils import (
     is_after_for_keyword,
     is_after_container_bracket,
     is_unmarked_container_declaration,
+    preceding_unmarked_ident,
+    PrecedingIdent,
 )
 from squirrel_compiler.parser.ast import (
     FieldModifier,
@@ -17,6 +19,7 @@ from squirrel_compiler.parser.ast import (
     FieldAccess,
     NameRef,
     EntityParam,
+    PlainVarDecl,
     MarkerKind,
 )
 from squirrel_compiler.parser.scanner import Scanner, parse_construct_fields

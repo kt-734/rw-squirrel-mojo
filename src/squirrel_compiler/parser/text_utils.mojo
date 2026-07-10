@@ -193,3 +193,62 @@ def is_unmarked_container_declaration(source: String, marker_start: Int) -> Bool
     return i != name_end
 
 
+@fieldwise_init
+struct PrecedingIdent(Copyable, Movable):
+    """An identifier `preceding_unmarked_ident` recovered, and where it
+    starts in the source -- `start` is what lets a caller trim it (and
+    whatever `.`/whitespace sits between it and the marker it precedes)
+    out of already-sliced text, rather than guessing its length back from
+    `name` alone (which wouldn't account for whitespace around the `.`)."""
+
+    var name: String
+    var start: Int
+
+
+def preceding_unmarked_ident(source: String, marker_start: Int) -> Optional[PrecedingIdent]:
+    """The identifier immediately before `.` immediately before
+    `marker_start` (mod whitespace), if any -- `note` in `note.@@author`.
+    `find_next_marker`'s own `@@`-triggered scan has no way to notice this
+    on its own: it only ever recognizes a marker starting at literal `@@`
+    text, so `@@author` alone is what it finds, with `note.` already
+    treated as ordinary text sitting before it. This is `rewrite_markers`'
+    own way of recovering that prefix once it has a marker in hand,
+    letting a `.@@relation` read resolve against whatever *precedes* the
+    dot -- a tracked plain variable (`entity_to_type`), not just another
+    `@@`-marked entity -- the same way `@@alice.@@job` already lets `job`
+    continue from `alice`.
+
+    Returns `None` if `marker_start` isn't immediately preceded by `.` at
+    all (an ordinary top-level `@@author...` reference, no prefix to
+    recover), or if nothing identifier-shaped precedes that `.` (`).@@foo`,
+    `].@@foo`, ... -- not a plain name, out of scope here). Doesn't check
+    *what* the identifier is or whether it's tracked -- purely a text-level
+    recovery; the caller decides whether it means anything by checking
+    `entity_to_type` itself."""
+    var bytes = source.as_bytes()
+    var i = marker_start
+    while i > 0 and (bytes[i - 1] == UInt8(ord(" ")) or bytes[i - 1] == UInt8(ord("\t"))):
+        i -= 1
+    if i == 0 or bytes[i - 1] != UInt8(ord(".")):
+        return None
+    var dot_pos = i - 1
+    i = dot_pos
+    while i > 0 and (bytes[i - 1] == UInt8(ord(" ")) or bytes[i - 1] == UInt8(ord("\t"))):
+        i -= 1
+    var ident_end = i
+    while i > 0 and is_ident_char(bytes[i - 1]):
+        i -= 1
+    if i == ident_end:
+        return None
+    # If the identifier is itself directly preceded by `.` or `@@`, this
+    # is a deeper chain (`a.b.@@c`) or an already-marked entity
+    # (`@@note.@@author` -- which `find_next_marker`'s own forward scan
+    # would already have claimed starting at `@@note` anyway, so this
+    # branch is unreachable for that case in practice, but checked
+    # explicitly rather than assumed). Only the single, immediate
+    # identifier is recovered -- deeper chains are out of scope.
+    if i >= 2 and bytes[i - 1] == UInt8(ord("@")) and bytes[i - 2] == UInt8(ord("@")):
+        return None
+    return PrecedingIdent(name=String(source[byte = i : ident_end]), start=i)
+
+

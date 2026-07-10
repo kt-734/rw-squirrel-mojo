@@ -2,5 +2,6 @@
     unique email: String
     title: String
     ordered years_employed: UInt32
+    math salary: Float64
     @@dept: @@Department
-
+    forwardonly profile: Profile

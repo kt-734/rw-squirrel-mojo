@@ -1,19 +1,63 @@
+from schema.money import Money
+from schema.address import Address
+from schema.contact_info import ContactInfo
+from schema.box import Box
+from schema.pair import Pair
+from schema.profile import Profile
+from schema.assignment import Assignment
+
+
+def @@make_vendor(name: String) -> @@Vendor:
+    var @@v = @@Vendor { .name = name }
+    return @@v
+
+def @@make_project(name: String, priority: UInt32, @@vendor: @@Vendor, budget_cents: Int64) -> @@Project:
+    var @@p = @@Project { .name = name, .priority = priority, .@@vendor = @@vendor, .budget = Money(budget_cents) }
+    return @@p
+
 def @@make_department(name: String) -> @@Department:
-    var @@dept = @@Department { .name = name, .tags = List[String](), .@@projects = Set[@@Project]() }
-    return @@dept
+    var @@d = @@Department {
+        .name = name,
+        .tags = List[String](),
+        .@@projects = Set[@@Project](),
+        .@@vendors = Set[@@Vendor](),
+        .skills = Set[String](),
+    }
+    return @@d
 
-def @@hire(name: String, email: String, title: String, years_employed: UInt32, @@dept: @@Department) raises -> @@Employee:
-    var @@emp = @@Employee { .email = email, .title = title, .years_employed = years_employed, .@@dept = @@dept }
-    return @@emp
+def @@hire(name: String, email: String, title: String, years_employed: UInt32, salary: Float64, @@dept: @@Department) raises -> @@Employee:
+    var profile = Profile(
+        contact=ContactInfo(home=Address("1 Main St", "Springfield"), emails=List[String]()),
+        nicknames=None,
+        scores=Dict[String, Int](),
+        rating=Box[UInt32](0),
+        coordinates=Pair[Int, Int](0, 0),
+        past_addresses=List[Address](),
+        boxed_ratings=List[Box[UInt32]](),
+    )
+    var @@e = @@Employee { .email = email, .title = title, .years_employed = years_employed, .salary = salary, .@@dept = @@dept, .profile = profile }
+    return @@e
 
-def @@hire_team(names: List[String], email_suffix: String, starting_years: UInt32, @@dept: @@Department) raises -> List[@@Employee]:
+def @@hire_team(names: List[String], email_suffix: String, starting_years: UInt32, starting_salary: Float64, @@dept: @@Department) raises -> List[@@Employee]:
     var @@team = List[@@Employee]()
     var years = starting_years
+    var salary = starting_salary
     for name in names:
-        var @@emp = @@hire(name, name + email_suffix, "Engineer", years, @@dept)
+        var @@emp = @@hire(name, name + email_suffix, "Engineer", years, salary, @@dept)
         @@team.append(@@emp)
         years += 1
+        salary += 5000.0
     return @@team^
+
+def @@make_team(name: String, @@lead_person: @@Person, role: String) -> @@Team:
+    var assignment = Assignment(person=@@lead_person, role=role)
+    var @@t = @@Team {
+        .name = name,
+        .lead = assignment,
+        .@@members = List[@@Person](),
+        .@@advisor = None,
+    }
+    return @@t
 
 def @@log(message: String) raises:
     # AuditLog is `keepalive` -- discarding the result here is deliberate,

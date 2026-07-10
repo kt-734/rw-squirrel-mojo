@@ -56,12 +56,13 @@ def main() raises:
 
 **[`kitchen_sink`](https://github.com/kt-734/rw-squirrel-mojo/tree/main/examples/kitchen_sink)**
 — every field modifier (`unique`, `forwardonly`, `multi`, `ordered`,
-`keepalive`) in one schema, plus plain structs and relation-hopping, in a
-single project. Start here once `greeter` feels too small.
-
-**[`kitchen_sink_plus`](https://github.com/kt-734/rw-squirrel-mojo/tree/main/examples/kitchen_sink_plus)**
-— deep relation chains and diamonds, generic and hand-written plain
-structs, deeply nested containers, and the whole-world JSON dump/reload
-(`@@start_init_from_json`/`@@finalize_init_from_json`) in one script. The
-one to read once you need to know how a specific combination of features
-actually interacts.
+`math`, `keepalive`), `count`/`count_<field>`/`group_by_<field>`/
+`count_by_<field>`/`distinct_<field>`/`value_eq`/the `sum_`/`avg_`/`min_`/
+`max_` aggregate family, deep relation chains and diamonds, generic and
+hand-written plain structs, deeply nested containers, reading a wrapped
+relation field/indexing/reading a further field in one expression, a plain
+struct's own relation field read through a fully unmarked local variable,
+and the whole-world JSON dump/reload (`@@start_init_from_json`/
+`@@finalize_init_from_json`) — all in one project. The one to read once
+you need to know how a specific combination of features actually
+interacts.

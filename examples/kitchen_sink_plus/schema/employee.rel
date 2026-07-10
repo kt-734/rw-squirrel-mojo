@@ -1,6 +1,0 @@
-@@struct @@Employee:
-    unique email: String
-    title: String
-    ordered years_employed: UInt32
-    @@dept: @@Department
-    forwardonly profile: Profile

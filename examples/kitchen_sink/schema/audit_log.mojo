@@ -4,7 +4,13 @@ from std.collections import Set
 from std.os import abort
 from sqrrl__json import sqrrl__to_json, sqrrl__from_json
 from squirrel_runtime.json import sqrrl__JsonScanner
+from sqrrl__json import sqrrl__Box_from_json
 from sqrrl__json import sqrrl__Address_from_json
+from sqrrl__json import sqrrl__Pair_from_json
+from sqrrl__json import sqrrl__ContactInfo_from_json
+from sqrrl__json import sqrrl__Assignment_from_json
+from sqrrl__json import sqrrl__Profile_from_json
+from sqrrl__json import sqrrl__Money_from_json
 
 
 struct sqrrl__AuditLogTableState(TableStateLike, Movable, ImplicitlyDeletable):

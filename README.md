@@ -216,6 +216,17 @@ plain `@@alice.dept` spelling for a relation field, only `@@alice.@@dept`;
 everywhere else. `@@Employee.get_dept(@@alice)` is the equivalent
 table-level call, identical either way.
 
+A wrapped relation field (`@@members: List[@@Employee]`) can be read,
+indexed, and have one further field read off the indexed element, all in
+a single expression — no intermediate `var @@x = @@dept.@@members;`
+binding needed first:
+
+```
+print(@@dept.@@members[0].name)   # read, index, and read one more field
+for @@e in @@dept.@@members:      # iterating the field's own read result
+    print(@@e.name)               # also binds @@e, same as any other container
+```
+
 **Indexing** — a tracked container (`for_<field>`'s result, or a
 container-typed entity parameter) indexes with `@@name[i]`, and a further
 `.field` after that reads/writes right through the indexed element:
@@ -272,6 +283,23 @@ yields its keys, so `Type` (the key type) is what a `for @@name in
 <dict-returning-call>():` loop actually binds to at runtime; `V` (the value
 type) never enters `@@`-tracking at all.
 
+None of this is hardcoded to `List`/`Set`/`Dict` specifically — the whole
+chain (`parse_type_expr`'s recursive-descent parser, `is_container_type`/
+`container_wrapper_of`/`container_element_of`/`encode_container_type`, and
+`build_function_returns`' own return-type scanner) works purely off shape,
+`Wrapper[Arg1, ...]`, and never branches on what `Wrapper` is actually
+called. A field typed `Optional[@@Department]` gets exactly the same
+treatment as `List[@@Employee]` — `create`/`get_<field>`/`set_<field>`
+take/return a real `Optional[EntityHandle[...]]`, and `@@dept_var[]`
+(empty brackets, Mojo's own no-argument `Optional.__getitem__`) unwraps it
+through the same `@@name[i].field` machinery `List`/`Set` indexing uses,
+just with an empty index expression instead of a real one — raising if the
+value is `None`, same as `Optional[T]`'s own `[]` does normally. This isn't
+special-cased for `Optional` either: any single-type-parameter wrapper
+around a relation, including one this project has never heard of, is
+tracked and indexed the same way, as long as its first type parameter is
+(or resolves to) a relation.
+
 Whenever a shape genuinely isn't tracked (an untracked `V`, an unmarked
 variable, a case this inference doesn't cover), you're never actually
 stuck — every generated accessor is an ordinary Mojo function that takes
@@ -279,6 +307,15 @@ the entity as a plain argument, so `@@Employee.get_name(raw)` works on any
 `EntityHandle[sqrrl__EmployeeTableState]` you have lying around, tracked or
 not. `@@name.field` sugar is a convenience on top of that, not the only way
 in.
+
+Field-target resolution (`relation_schema`, struct name → relation field
+name → target struct name) doesn't distinguish `@@struct`s from plain
+structs either — a plain struct's own relation field resolves exactly the
+same way an entity's does, project-wide, whether the variable holding it
+is a marked entity, a marked container, or a fully unmarked plain-struct
+local declared with an explicit `var name: TypeName` annotation (the
+one case this parser has no other way to learn a type for, since nothing
+`@@`-marked appears in that declaration at all).
 
 **Field modifiers** — one keyword before a field name:
 
@@ -288,6 +325,7 @@ in.
 | `forwardonly` | no reverse index at all — for fields whose type isn't hashable (e.g. `List[Int]`), or where the reverse lookup is simply never needed |
 | `multi`       | a genuine many-to-many relation: `Set[T]`-backed, with `add_to_<field>`/`remove_from_<field>` mutating one member at a time and `for_<field>` as the reverse query. Only ever needs declaring on *one* side of the relationship — see below |
 | `ordered`     | a sorted index alongside the field's value, giving range queries (`for_<field>_greater_than`/`_less_than`/`_at_least`/`_at_most`/`_between`) in addition to the usual exact-match `for_<field>` — see below |
+| `math`        | earns `sum_<field>`/`avg_<field>`/`min_<field>`/`max_<field>` (whole-table, per-group, and per-value siblings) against every other field in the struct — see below |
 
 ```
 @@struct @@Person:
@@ -336,6 +374,59 @@ The five range-shaped siblings (`_greater_than`/`_less_than`/`_at_least`/
 `_at_most`/`_between`) stay `List`-returning, like any other field's
 `for_<field>` — their whole point is the sorted order `ordered` maintains
 internally, which a `Set` would throw away.
+
+**`math`** — unlike `unique`/`forwardonly`/`multi`/`ordered`, this isn't a
+storage choice for the field it's written on; it's independent of
+`modifier` entirely, so it combines freely with any of the other four
+(`ordered math price: Float64`, either order). It marks a field as
+eligible to be *aggregated*, earning `sum_<field>`/`avg_<field>`/
+`min_<field>`/`max_<field>`, each paired against every *other* groupable
+field in the same struct (any modifier but `forwardonly`, which has no
+reverse index to group by):
+
+```
+@@struct @@Employee:
+    name: String
+    @@dept: @@Department
+    math salary: Float64
+```
+
+```
+print(@@Employee.sum_salary())                 # whole table, no grouping
+print(@@Employee.avg_salary_for_dept(@@eng))    # one department
+for @@d in @@Employee.sum_salary_by_dept():     # every department at once
+    print(@@d.name)
+```
+
+Three shapes per aggregate kind: the whole-table form (`sum_salary()`,
+no grouping field at all — the same `id_count()`/`is_live` walk `all()`
+itself uses, building no `EntityHandle`), `_by_<field>()` (every group at
+once, `Dict[GroupFieldType, ResultType]`, walking the grouping field's own
+`all_bwd()` the same way `group_by_<field>`/`count_by_<field>` already
+do), and `_for_<field>(value)` (one group, mirroring `for_<field>`/
+`count_<field>` sitting alongside their own `_by_` siblings — cheaper when
+only one group matters, since it only pays for that one bucket via
+`get_bwd(value)`). `_for_`/whole-table both `raise` on an empty
+group/table — there's no sensible non-raising default for an empty
+average, minimum, or maximum, and raising uniformly (rather than only for
+those three) keeps all four aggregate kinds behaving the same way.
+
+An `ordered` field earns `min_<field>`/`max_<field>` for free, with no
+`math` needed — `ordered` already requires `Comparable` for its own range
+queries, and `min`/`max` need nothing more. `math` is what additionally
+earns `sum_<field>`/`avg_<field>` (needing `+` too), and is required for
+`min_<field>`/`max_<field>` on a field that isn't otherwise `ordered`. As
+with `unique`'s `Hashable`/`ordered`'s `Comparable`, this parser can't
+verify a field's declared type actually supports `+`/`<`/`>` — `math` is
+trusted the same way, rejected by Mojo's own compiler with a clear message
+if it's wrong. `avg_<field>` always returns `Float64`, regardless of the
+field's own declared type (`Int`, `UInt32`, ...) — an integer average
+silently truncating (`total // count`) would lose information a `Float64`
+promotion doesn't; `sum_`/`min_`/`max_` stay in the field's own type,
+since those are exact either way. Aggregating a field grouped by itself
+is skipped (`sum_salary_by_salary` doesn't exist) — every entity in one of
+its own value-groups already holds that exact value, so there's nothing
+to aggregate.
 
 **Compound queries** — every `for_<field>` is a single-field lookup; there's
 no DSL syntax for combining two conditions ("Engineering employees with
@@ -386,6 +477,28 @@ struct Note {
 `var author: EntityHandle[sqrrl__EmployeeTableState]` field — plain structs
 aren't just embeddable *inside* an `@@struct`, they can embed a relation
 of their own right back into one.
+
+Reading a plain struct's own relation field works the same way as an
+`@@struct`'s, through whatever variable holds the plain struct value —
+including a completely unmarked one, since a plain struct is never itself
+an entity needing `@@`-tracking to know its type. `var name: TypeName`
+(both sides unmarked, `TypeName` a known plain struct) is enough to opt
+in — no explicit annotation is needed for a marked entity/container
+variable (its type is already known from its own construct/call), but a
+plain, unmarked local otherwise has no way to tell this parser what it
+holds:
+
+```
+var note: Note = Note(author = @@alice, text = "hi")
+print(note.@@author.name)      # "note" itself is never @@-marked
+```
+
+`note.@@author` resolves against `Note`'s own relation field the same way
+`@@alice.@@dept` resolves against `Employee`'s — direct Mojo field access
+under the hood (`note.author`), not a `get_<field>` call, since a plain
+struct has no generated table to route one through. Writing through an
+unmarked prefix this way isn't supported (`note.@@author = @@bob;`
+raises) — only reading is.
 
 **Hopping through relations** — a chain of `.@@relation` reads or writes
 follow each hop automatically. The chain doesn't need to end in a plain
@@ -508,6 +621,7 @@ Every `@@struct` produces two Mojo structs:
 | `group_by_<field>` | shape depends on the field's own modifier — see below | every value at once, mapped to its own matching entities |
 | `count_by_<field>` | shape depends on the field's own modifier — see below | every value at once, mapped to its own count — see below |
 | `distinct_<field>` | `() -> Set[FieldType]` (`List` for `ordered`, `Set[ElementType]` for `multi`) | every distinct value currently in use, no entities built at all — see below |
+| `sum_<field>`/`avg_<field>`/`min_<field>`/`max_<field>` | `() raises -> ResultType` (whole table); `_by_<other>() -> Dict[OtherFieldType, ResultType]`; `_for_<other>(value) raises -> ResultType` | `math`/`ordered` fields only, paired against every other groupable field — see below |
 | `add_to_<field>` | `(e, value: ElementType) -> Bool` | `multi` fields only — `True` if newly added, `False` if already a member |
 | `remove_from_<field>` | `(e, value: ElementType) -> Bool` | `multi` fields only — `True` if it was actually removed |
 | `all` | `() -> Set[EntityHandle[...]]` | every currently-live entity in the table — generated for every struct, `keepalive` or not |
@@ -630,6 +744,26 @@ The *value* side of a `group_by_<field>`/`count_by_<field>` `Dict`
 `@@`-tracked at all — there's no way to bind both a `Dict`'s key and value
 through the marker system yet, only whichever one iterating the bare
 container already gives you for free.
+
+`sum_<field>`/`avg_<field>`/`min_<field>`/`max_<field>` are generated for
+a `math`- or `ordered`-marked field (see "Field modifiers" above), paired
+against every *other* groupable field in the struct, each in three shapes:
+
+```
+print(@@Employee.sum_salary())                 # whole table, no grouping
+print(@@Employee.avg_salary_for_dept(@@eng))    # one department
+for @@d in @@Employee.sum_salary_by_dept():     # every department at once
+    print(@@d.name)
+```
+
+`_by_<other>()` returns `Dict[OtherFieldType, ResultType]`, tracked the
+same way `group_by_<field>`/`count_by_<field>` are when `OtherFieldType`
+is itself a relation — `for @@d in @@Employee.sum_salary_by_dept():` binds
+`@@d` to `Department`, same mechanism, same "only the key side" caveat.
+`_for_<other>(value)` returns a bare `ResultType` (a scalar, not a
+container), so there's nothing to `@@`-track there, same as
+`count_<field>(value)`'s own plain `Int` isn't. The whole-table form
+(no `_by_`/`_for_` at all) is likewise a bare scalar.
 
 **How you get the count of a whole table** (not grouped by any field):
 `sqrrl__world.Name.count()` — generated unconditionally, same as `all()`.
@@ -789,12 +923,12 @@ tools/                    generate_embedded_runtime.mojo -- regenerates
                           src/squirrel_compiler/driver/embedded_runtime.mojo;
                           package_release.sh -- builds and bundles squirrelc
                           (pixi run package)
-examples/                see kitchen_sink for a tour of every feature;
-                          kitchen_sink_plus goes further still -- deep
-                          relation chains, diamonds, generic plain
-                          structs, deeply nested containers, and the
-                          whole-world JSON dump/reload; the rest are
-                          smaller, single-feature examples
+examples/                see kitchen_sink for a tour of every feature --
+                          every field modifier, deep relation chains,
+                          generic and hand-written plain structs, deeply
+                          nested containers, and the whole-world JSON
+                          dump/reload; the rest are smaller,
+                          single-feature examples
 test/                    one test file per compiler/runtime module
 ```
 

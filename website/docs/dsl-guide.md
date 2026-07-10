@@ -142,6 +142,45 @@ plain `@@alice.dept` spelling for a relation field, only `@@alice.@@dept`;
 everywhere else. `@@Employee.get_dept(@@alice)` is the equivalent
 table-level call, identical either way.
 
+A wrapped relation field can be read, indexed, and have one further field
+read off the indexed element, all in a single expression — no
+intermediate `var @@x = @@dept.@@members;` binding needed first:
+
+```
+print(@@dept.@@members[0].name)   # read, index, and read one more field
+for @@e in @@dept.@@members:      # iterating the field's own read result
+    print(@@e.name)               # also binds @@e, same as any other container
+```
+
+**A relation field can be wrapped in any single-type-parameter generic**,
+not just `List`/`Set`/`multi`'s own `Set[...]` — `Optional[@@Department]`
+works the same way, using the field's declared type generically rather
+than special-casing any particular wrapper name:
+
+```
+@@struct @@Employee:
+    name: String
+    @@dept: Optional[@@Department]
+```
+
+```
+var @@alice = @@Employee { .name = "Alice", .@@dept = Optional(@@eng) }
+var @@bob = @@Employee { .name = "Bob", .@@dept = None }
+
+var @@alice_dept = @@alice.@@dept   # tracked as Optional[Department]
+print(@@alice_dept[].name)          # unwrap with [] -- raises if None
+```
+
+`create`/`get_dept`/`set_dept` take/return a real `Optional[EntityHandle[
+...]]`, and `@@alice_dept[]` (empty brackets — Mojo's own no-argument
+`Optional.__getitem__`) unwraps it through the same `@@name[i].field`
+indexing machinery `List`/`Set` results use below, just with an empty
+index expression instead of a real one, raising if the value is `None`.
+This isn't special-cased for `Optional` either: the whole container-typing
+chain works purely off shape (`Wrapper[Arg1, ...]`, first type parameter
+tracked) and never branches on what `Wrapper` is actually called, so any
+generic wrapper around a relation gets the same treatment for free.
+
 ## Indexing and iterating
 
 A tracked container (`for_<field>`'s result, or a container-typed entity
@@ -234,6 +273,7 @@ One keyword before a field name:
 | `forwardonly` | no reverse index at all — for fields whose type isn't hashable, or where the reverse lookup is simply never needed |
 | `multi`       | a genuine many-to-many relation: `Set[T]`-backed, with `add_to_<field>`/`remove_from_<field>` mutating one member at a time and `for_<field>` as the reverse query. Only ever needs declaring on *one* side |
 | `ordered`     | a sorted index alongside the field's value, giving range queries (`for_<field>_greater_than`/`_less_than`/`_at_least`/`_at_most`/`_between`) in addition to the usual exact-match `for_<field>` |
+| `math`        | earns `sum_<field>`/`avg_<field>`/`min_<field>`/`max_<field>` against every other field in the struct — independent of the other four, combines freely with any of them |
 
 ```
 @@struct @@Person:
@@ -269,6 +309,35 @@ for @@e in @@Employee.for_years_employed_greater_than(4):
 for @@e in @@Employee.for_years_employed_between(2, 5):
     print(@@e.name)
 ```
+
+**`math`** marks a field as aggregatable, earning `sum_<field>`/
+`avg_<field>`/`min_<field>`/`max_<field>`, each paired against every
+*other* groupable field (any modifier but `forwardonly`) in three shapes:
+whole-table (no grouping at all), `_by_<other>()` (every group at once, a
+`Dict`), and `_for_<other>(value)` (one group, cheaper when only one
+matters):
+
+```
+@@struct @@Employee:
+    name: String
+    @@dept: @@Department
+    math salary: Float64
+```
+
+```
+print(@@Employee.sum_salary())                 # whole table
+print(@@Employee.avg_salary_for_dept(@@eng))    # one department
+for @@d in @@Employee.sum_salary_by_dept():     # every department at once
+    print(@@d.name)
+```
+
+An `ordered` field earns `min_<field>`/`max_<field>` for free (it already
+requires `Comparable`) with no `math` needed; `math` is what additionally
+earns `sum_<field>`/`avg_<field>`. `avg_<field>` always returns `Float64`
+regardless of the field's own declared type, so an integer average
+doesn't silently truncate. `_for_<other>`/the whole-table form both raise
+on an empty group/table — there's no sensible non-raising default for an
+empty average, minimum, or maximum.
 
 **Compound queries** — every `for_<field>` is a single-field lookup; there's
 no DSL syntax for combining two conditions. No sugar is needed for it
@@ -347,6 +416,18 @@ The value side (`List[EntityHandle[...]]`/`EntityHandle[...]`/`Int` per
 key) isn't `@@`-tracked — there's no way to bind both a `Dict`'s key and
 value through the marker system yet.
 
+`sum_<field>_by_<other>`/`avg_`/`min_`/`max_` get the exact same
+first-parameter tracking when `<other>` is itself a relation field:
+
+```
+for @@d in @@Employee.sum_salary_by_dept():
+    print("department:", @@d.name)
+```
+
+`_for_<other>(value)` and the whole-table form (no `_by_`/`_for_` suffix
+at all) both return a bare scalar, not a container, so neither has
+anything to `@@`-track.
+
 See the [Method reference](reference.md) for the full signature table.
 
 ## `@@`-marked functions
@@ -392,6 +473,14 @@ for @@dept in @@departments_by_name("Eng"):
     print(@@dept.name)
 ```
 
+`Container` isn't limited to `List`/`Set`/`Dict` — this tracking works off
+shape (a wrapper name followed by `[`, first type parameter checked for a
+relation), not a fixed list of recognized names, the same genericity a
+relation field's own declared type gets (see [Relation
+fields](#relation-fields)'s `Optional[@@Department]` example above). A
+function declared `-> Optional[@@Department]:` is tracked exactly the same
+way.
+
 ## Plain structs
 
 A bare `struct` (no `@@`) is an ordinary embedded value, not its own table.
@@ -408,6 +497,25 @@ struct Note {
     name: String
     forwardonly home: Address
 ```
+
+Reading a plain struct's own relation field works through whatever
+variable holds the plain struct value — including one that's never
+`@@`-marked at all, since a plain struct isn't an entity that needs
+`@@`-tracking to know its type. `var name: TypeName` (both sides unmarked,
+`TypeName` a known plain struct) is the one declaration shape that opts an
+otherwise-invisible local into this — there's no construct/call for this
+parser to infer a type from otherwise:
+
+```
+var note: Note = Note(author = @@alice, text = "hi")
+print(note.@@author.name)      # "note" itself is never @@-marked
+```
+
+`note.@@author` resolves the same way `@@alice.@@dept` does — direct Mojo
+field access under the hood (`note.author`), not a `get_<field>` call,
+since a plain struct has no generated table to route one through. Only a
+read works this way — writing through an unmarked prefix
+(`note.@@author = @@bob;`) raises instead of being silently mishandled.
 
 ## `keepalive`
 

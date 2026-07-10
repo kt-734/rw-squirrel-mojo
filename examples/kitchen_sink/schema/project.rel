@@ -1,3 +1,5 @@
 @@struct @@Project:
     name: String
-
+    ordered priority: UInt32
+    @@vendor: @@Vendor
+    forwardonly budget: Money

@@ -4,25 +4,39 @@ from std.collections import Set
 from std.os import abort
 from sqrrl__json import sqrrl__to_json, sqrrl__from_json
 from squirrel_runtime.json import sqrrl__JsonScanner
+from sqrrl__json import sqrrl__Box_from_json
 from sqrrl__json import sqrrl__Address_from_json
+from sqrrl__json import sqrrl__Pair_from_json
+from sqrrl__json import sqrrl__ContactInfo_from_json
+from sqrrl__json import sqrrl__Assignment_from_json
+from sqrrl__json import sqrrl__Profile_from_json
+from sqrrl__json import sqrrl__Money_from_json
 from schema.project import sqrrl__ProjectTableState
 from schema.project import sqrrl__ProjectTable
+from schema.vendor import sqrrl__VendorTableState
+from schema.vendor import sqrrl__VendorTable
 
 
 struct sqrrl__DepartmentTableState(TableStateLike, Movable, ImplicitlyDeletable):
     var name: Rel[String]
     var tags: ForwardOnlyRel[List[String]]
     var projects: MultiRel[EntityHandle[sqrrl__ProjectTableState]]
+    var vendors: Rel[Set[EntityHandle[sqrrl__VendorTableState]]]
+    var skills: MultiRel[String]
 
     def __init__(out self):
         self.name = Rel[String]()
         self.tags = ForwardOnlyRel[List[String]]()
         self.projects = MultiRel[EntityHandle[sqrrl__ProjectTableState]]()
+        self.vendors = Rel[Set[EntityHandle[sqrrl__VendorTableState]]]()
+        self.skills = MultiRel[String]()
 
     def sqrrl__cleanup_relations(mut self, id: UInt32):
         _ = self.name.fetch_remove_fwd(id)
         _ = self.tags.fetch_remove_fwd(id)
         _ = self.projects.fetch_remove_fwd(id)
+        _ = self.vendors.fetch_remove_fwd(id)
+        _ = self.skills.fetch_remove_fwd(id)
 
 
 struct sqrrl__DepartmentTable(Movable):
@@ -31,18 +45,22 @@ struct sqrrl__DepartmentTable(Movable):
     def __init__(out self):
         self.table = Table[sqrrl__DepartmentTableState](sqrrl__DepartmentTableState())
 
-    def create(mut self, name: String, tags: List[String], projects: Set[EntityHandle[sqrrl__ProjectTableState]]) -> EntityHandle[sqrrl__DepartmentTableState]:
+    def create(mut self, name: String, tags: List[String], projects: Set[EntityHandle[sqrrl__ProjectTableState]], vendors: Set[EntityHandle[sqrrl__VendorTableState]], skills: Set[String]) -> EntityHandle[sqrrl__DepartmentTableState]:
         var e = self.table.create()
         self.table.state[].state.name.put(e.id(), name)
         self.table.state[].state.tags.put(e.id(), tags)
         self.table.state[].state.projects.put(e.id(), projects)
+        self.table.state[].state.vendors.put(e.id(), vendors)
+        self.table.state[].state.skills.put(e.id(), skills)
         return e
 
-    def sqrrl__create_with_id(mut self, sqrrl__id: UInt32, name: String, tags: List[String], projects: Set[EntityHandle[sqrrl__ProjectTableState]]) raises -> EntityHandle[sqrrl__DepartmentTableState]:
+    def sqrrl__create_with_id(mut self, sqrrl__id: UInt32, name: String, tags: List[String], projects: Set[EntityHandle[sqrrl__ProjectTableState]], vendors: Set[EntityHandle[sqrrl__VendorTableState]], skills: Set[String]) raises -> EntityHandle[sqrrl__DepartmentTableState]:
         var e = self.table.create_with_id(sqrrl__id)
         self.table.state[].state.name.put(e.id(), name)
         self.table.state[].state.tags.put(e.id(), tags)
         self.table.state[].state.projects.put(e.id(), projects)
+        self.table.state[].state.vendors.put(e.id(), vendors)
+        self.table.state[].state.skills.put(e.id(), skills)
         return e
 
     def all(self) -> Set[EntityHandle[sqrrl__DepartmentTableState]]:
@@ -57,6 +75,10 @@ struct sqrrl__DepartmentTable(Movable):
         if self.get_tags(a) != self.get_tags(b):
             return False
         if self.get_projects(a) != self.get_projects(b):
+            return False
+        if self.get_vendors(a) != self.get_vendors(b):
+            return False
+        if self.get_skills(a) != self.get_skills(b):
             return False
         return True
 
@@ -154,6 +176,92 @@ struct sqrrl__DepartmentTable(Movable):
             out.add(key)
         return out^
 
+    def get_vendors(self, e: EntityHandle[sqrrl__DepartmentTableState]) -> Set[EntityHandle[sqrrl__VendorTableState]]:
+        var got = self.table.state[].state.vendors.get_fwd(e.id())
+        return got.take()
+
+    def set_vendors(mut self, e: EntityHandle[sqrrl__DepartmentTableState], v: Set[EntityHandle[sqrrl__VendorTableState]]):
+        self.table.state[].state.vendors.update(e.id(), v)
+
+    def for_vendors(self, value: Set[EntityHandle[sqrrl__VendorTableState]]) -> List[EntityHandle[sqrrl__DepartmentTableState]]:
+        var ids = self.table.state[].state.vendors.get_bwd(value)
+        var out = List[EntityHandle[sqrrl__DepartmentTableState]]()
+        for id in ids:
+            out.append(self.table.handle_for(id))
+        return out^
+
+    def count_vendors(self, value: Set[EntityHandle[sqrrl__VendorTableState]]) -> Int:
+        return len(self.table.state[].state.vendors.get_bwd(value))
+
+    def group_by_vendors(self) -> Dict[Set[EntityHandle[sqrrl__VendorTableState]], List[EntityHandle[sqrrl__DepartmentTableState]]]:
+        ref buckets = self.table.state[].state.vendors.all_bwd()
+        var out = Dict[Set[EntityHandle[sqrrl__VendorTableState]], List[EntityHandle[sqrrl__DepartmentTableState]]]()
+        for entry in buckets.items():
+            var handles = List[EntityHandle[sqrrl__DepartmentTableState]]()
+            for id in entry.value:
+                handles.append(self.table.handle_for(id))
+            out[entry.key] = handles^
+        return out^
+
+    def count_by_vendors(self) -> Dict[Set[EntityHandle[sqrrl__VendorTableState]], Int]:
+        ref buckets = self.table.state[].state.vendors.all_bwd()
+        var out = Dict[Set[EntityHandle[sqrrl__VendorTableState]], Int]()
+        for entry in buckets.items():
+            out[entry.key] = len(entry.value)
+        return out^
+
+    def distinct_vendors(self) -> Set[Set[EntityHandle[sqrrl__VendorTableState]]]:
+        var out = Set[Set[EntityHandle[sqrrl__VendorTableState]]]()
+        for key in self.table.state[].state.vendors.all_bwd().keys():
+            out.add(key)
+        return out^
+
+    def get_skills(self, e: EntityHandle[sqrrl__DepartmentTableState]) -> Set[String]:
+        var got = self.table.state[].state.skills.get_fwd(e.id())
+        return got.take()
+
+    def set_skills(mut self, e: EntityHandle[sqrrl__DepartmentTableState], v: Set[String]):
+        self.table.state[].state.skills.update(e.id(), v)
+
+    def add_to_skills(mut self, e: EntityHandle[sqrrl__DepartmentTableState], value: String) -> Bool:
+        return self.table.state[].state.skills.add(e.id(), value)
+
+    def remove_from_skills(mut self, e: EntityHandle[sqrrl__DepartmentTableState], value: String) -> Bool:
+        return self.table.state[].state.skills.remove(e.id(), value)
+
+    def for_skills(self, value: String) -> List[EntityHandle[sqrrl__DepartmentTableState]]:
+        var ids = self.table.state[].state.skills.get_bwd(value)
+        var out = List[EntityHandle[sqrrl__DepartmentTableState]]()
+        for id in ids:
+            out.append(self.table.handle_for(id))
+        return out^
+
+    def count_skills(self, value: String) -> Int:
+        return len(self.table.state[].state.skills.get_bwd(value))
+
+    def group_by_skills(self) -> Dict[String, List[EntityHandle[sqrrl__DepartmentTableState]]]:
+        ref buckets = self.table.state[].state.skills.all_bwd()
+        var out = Dict[String, List[EntityHandle[sqrrl__DepartmentTableState]]]()
+        for entry in buckets.items():
+            var handles = List[EntityHandle[sqrrl__DepartmentTableState]]()
+            for id in entry.value:
+                handles.append(self.table.handle_for(id))
+            out[entry.key] = handles^
+        return out^
+
+    def count_by_skills(self) -> Dict[String, Int]:
+        ref buckets = self.table.state[].state.skills.all_bwd()
+        var out = Dict[String, Int]()
+        for entry in buckets.items():
+            out[entry.key] = len(entry.value)
+        return out^
+
+    def distinct_skills(self) -> Set[String]:
+        var out = Set[String]()
+        for key in self.table.state[].state.skills.all_bwd().keys():
+            out.add(key)
+        return out^
+
     def sqrrl__to_json(self, e: EntityHandle[sqrrl__DepartmentTableState]) -> String:
         var out = String("{")
         out += "\"name\":" + sqrrl__to_json(self.get_name(e))
@@ -161,13 +269,19 @@ struct sqrrl__DepartmentTable(Movable):
         out += "\"tags\":" + sqrrl__to_json(self.get_tags(e))
         out += ","
         out += "\"projects\":" + sqrrl__to_json(self.get_projects(e))
+        out += ","
+        out += "\"vendors\":" + sqrrl__to_json(self.get_vendors(e))
+        out += ","
+        out += "\"skills\":" + sqrrl__to_json(self.get_skills(e))
         out += "}"
         return out^
 
-    def sqrrl__from_json(mut self, mut sqrrl__tbl_Project: sqrrl__ProjectTable, mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__DepartmentTableState]:
+    def sqrrl__from_json(mut self, mut sqrrl__tbl_Project: sqrrl__ProjectTable, mut sqrrl__tbl_Vendor: sqrrl__VendorTable, mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__DepartmentTableState]:
         var sqrrl__parsed_name: Optional[String] = None
         var sqrrl__parsed_tags: Optional[List[String]] = None
         var sqrrl__parsed_projects: Optional[Set[EntityHandle[sqrrl__ProjectTableState]]] = None
+        var sqrrl__parsed_vendors: Optional[Set[EntityHandle[sqrrl__VendorTableState]]] = None
+        var sqrrl__parsed_skills: Optional[Set[String]] = None
         sc.expect_byte(UInt8(ord("{")))
         if not sc.try_consume_byte(UInt8(ord("}"))):
             while True:
@@ -188,16 +302,31 @@ struct sqrrl__DepartmentTable(Movable):
                             sc.expect_byte(UInt8(ord("]")))
                             break
                     sqrrl__parsed_projects = sqrrl__parsed_projects_tmp^
+                elif sqrrl__key == "vendors":
+                    var sqrrl__parsed_vendors_tmp = Set[EntityHandle[sqrrl__VendorTableState]]()
+                    sc.expect_byte(UInt8(ord("[")))
+                    if not sc.try_consume_byte(UInt8(ord("]"))):
+                        while True:
+                            sqrrl__parsed_vendors_tmp.add(sqrrl__tbl_Vendor.table.handle_for(UInt32(sc.parse_json_int())))
+                            if sc.try_consume_byte(UInt8(ord(","))):
+                                continue
+                            sc.expect_byte(UInt8(ord("]")))
+                            break
+                    sqrrl__parsed_vendors = sqrrl__parsed_vendors_tmp^
+                elif sqrrl__key == "skills":
+                    sqrrl__parsed_skills = sqrrl__from_json[Set[String]](sc)
                 if sc.try_consume_byte(UInt8(ord(","))):
                     continue
                 sc.expect_byte(UInt8(ord("}")))
                 break
-        return self.create(sqrrl__parsed_name.take(), sqrrl__parsed_tags.take(), sqrrl__parsed_projects.take())
+        return self.create(sqrrl__parsed_name.take(), sqrrl__parsed_tags.take(), sqrrl__parsed_projects.take(), sqrrl__parsed_vendors.take(), sqrrl__parsed_skills.take())
 
-    def sqrrl__from_json_with_id(mut self, mut sqrrl__tbl_Project: sqrrl__ProjectTable, sqrrl__id: UInt32, mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__DepartmentTableState]:
+    def sqrrl__from_json_with_id(mut self, mut sqrrl__tbl_Project: sqrrl__ProjectTable, mut sqrrl__tbl_Vendor: sqrrl__VendorTable, sqrrl__id: UInt32, mut sc: sqrrl__JsonScanner) raises -> EntityHandle[sqrrl__DepartmentTableState]:
         var sqrrl__parsed_name: Optional[String] = None
         var sqrrl__parsed_tags: Optional[List[String]] = None
         var sqrrl__parsed_projects: Optional[Set[EntityHandle[sqrrl__ProjectTableState]]] = None
+        var sqrrl__parsed_vendors: Optional[Set[EntityHandle[sqrrl__VendorTableState]]] = None
+        var sqrrl__parsed_skills: Optional[Set[String]] = None
         sc.expect_byte(UInt8(ord("{")))
         if not sc.try_consume_byte(UInt8(ord("}"))):
             while True:
@@ -218,11 +347,24 @@ struct sqrrl__DepartmentTable(Movable):
                             sc.expect_byte(UInt8(ord("]")))
                             break
                     sqrrl__parsed_projects = sqrrl__parsed_projects_tmp^
+                elif sqrrl__key == "vendors":
+                    var sqrrl__parsed_vendors_tmp = Set[EntityHandle[sqrrl__VendorTableState]]()
+                    sc.expect_byte(UInt8(ord("[")))
+                    if not sc.try_consume_byte(UInt8(ord("]"))):
+                        while True:
+                            sqrrl__parsed_vendors_tmp.add(sqrrl__tbl_Vendor.table.handle_for(UInt32(sc.parse_json_int())))
+                            if sc.try_consume_byte(UInt8(ord(","))):
+                                continue
+                            sc.expect_byte(UInt8(ord("]")))
+                            break
+                    sqrrl__parsed_vendors = sqrrl__parsed_vendors_tmp^
+                elif sqrrl__key == "skills":
+                    sqrrl__parsed_skills = sqrrl__from_json[Set[String]](sc)
                 if sc.try_consume_byte(UInt8(ord(","))):
                     continue
                 sc.expect_byte(UInt8(ord("}")))
                 break
-        return self.sqrrl__create_with_id(sqrrl__id, sqrrl__parsed_name.take(), sqrrl__parsed_tags.take(), sqrrl__parsed_projects.take())
+        return self.sqrrl__create_with_id(sqrrl__id, sqrrl__parsed_name.take(), sqrrl__parsed_tags.take(), sqrrl__parsed_projects.take(), sqrrl__parsed_vendors.take(), sqrrl__parsed_skills.take())
 
     def sqrrl__all_to_json(self) -> String:
         var out = String("[")
@@ -235,14 +377,14 @@ struct sqrrl__DepartmentTable(Movable):
         out += "]"
         return out^
 
-    def sqrrl__all_from_json(mut self, mut sqrrl__tbl_Project: sqrrl__ProjectTable, mut sqrrl__temp: List[EntityHandle[sqrrl__DepartmentTableState]], mut sc: sqrrl__JsonScanner) raises:
+    def sqrrl__all_from_json(mut self, mut sqrrl__tbl_Project: sqrrl__ProjectTable, mut sqrrl__tbl_Vendor: sqrrl__VendorTable, mut sqrrl__temp: List[EntityHandle[sqrrl__DepartmentTableState]], mut sc: sqrrl__JsonScanner) raises:
         sc.expect_byte(UInt8(ord("[")))
         if not sc.try_consume_byte(UInt8(ord("]"))):
             while True:
                 sc.expect_byte(UInt8(ord("[")))
                 var sqrrl__id = UInt32(sc.parse_json_int())
                 sc.expect_byte(UInt8(ord(",")))
-                var sqrrl__e = self.sqrrl__from_json_with_id(sqrrl__tbl_Project, sqrrl__id, sc)
+                var sqrrl__e = self.sqrrl__from_json_with_id(sqrrl__tbl_Project, sqrrl__tbl_Vendor, sqrrl__id, sc)
                 sqrrl__temp.append(sqrrl__e^)
                 sc.expect_byte(UInt8(ord("]")))
                 if sc.try_consume_byte(UInt8(ord(","))):

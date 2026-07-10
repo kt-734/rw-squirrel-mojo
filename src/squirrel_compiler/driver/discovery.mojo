@@ -65,29 +65,22 @@ def discover_structs(rel_files: List[String], target_root: String) raises -> Dis
     return DiscoveryResult(discovered^, module_of^)
 
 
-def build_relation_schema(discovery: DiscoveryResult) -> Dict[String, Dict[String, String]]:
-    """Struct name -> relation field name -> target struct name, for every
-    `@@struct` declared project-wide. `transform_source` needs this to
-    resolve a chained field access (`@@alice.@@employee.title`): an
-    intermediate hop's target struct can be declared in a different file
-    than the script using the chain (same reasoning `emit_file`'s cross-file
-    import resolution already relies on), so this can't be derived from a
-    single file's own source text. A collection-typed relation field
-    (`@@members: List[@@Employee]`) registers its *element* type the same
-    way a bare one does, but `encode_container_type`-encoded (`"List
-    [Employee]"`, not bare `"Employee"`) -- `get_<field>` on one of these
-    returns a `List[EntityHandle[...]]`, not a single entity, so callers
-    that key off this schema (`transform_source`'s `get_<field>` return-type
+def _relation_fields_of(fields: List[Field]) -> Dict[String, String]:
+    """Field name -> target struct name, for every relation field in
+    `fields` -- shared by `build_relation_schema` across both `@@struct`s
+    (`ds.parsed.fields`) and plain structs (`plain_struct_fields`'s own
+    values), since a relation field means the same thing wherever it's
+    declared: a plain struct can embed one back into an entity just as
+    well as an `@@struct` can (see `codegen.emit_plain_struct`). A
+    collection-typed relation field (`@@members: List[@@Employee]`)
+    registers its *element* type the same way a bare one does, but
+    `encode_container_type`-encoded (`"List[Employee]"`, not bare
+    `"Employee"`) -- `get_<field>` on one of these returns a
+    `List[EntityHandle[...]]`, not a single entity, so callers that key
+    off this schema (`transform_source`'s `get_<field>` return-type
     inference) need to tell the two apart the same way `entity_to_type`
     already distinguishes a container-tracked variable from a plain one.
-    A collection field can't be hopped through as a chain intermediate
-    (there's no single entity to continue from), so the hop-chain walk
-    below is the one reader of this schema that only ever encounters the
-    bare form in practice -- but it still gets the encoded string for a
-    wrapped field rather than silently mismatching it, since a `.field`
-    chain accidentally stepping through a collection field is exactly the
-    kind of mistake that should surface as an error, not be hidden. A
-    `multi` relation field (`multi @@members: @@Employee`) is registered
+    A `multi` relation field (`multi @@members: @@Employee`) is registered
     the same encoded way as a wrapped one, even though its own `type_str`
     is the bare element type, not `Set[@@Employee]` -- `get_members`
     still actually returns `Set[EntityHandle[...]]` (`multi` is what
@@ -95,24 +88,46 @@ def build_relation_schema(discovery: DiscoveryResult) -> Dict[String, Dict[Strin
     `codegen.emit_field_type`), so this schema needs to reflect that
     actual shape, not the syntax `multi`'s own field happened to be
     written with."""
+    var out = Dict[String, String]()
+    for field in fields:
+        if field.modifier == FieldModifier.MULTI and field.type_str.startswith("@@"):
+            out[field.name] = encode_container_type("Set", relation_target_of(field.type_str))
+        elif field.type_str.startswith("@@"):
+            out[field.name] = relation_target_of(field.type_str)
+        elif is_wrapped_relation_type(field.type_str):
+            out[field.name] = encode_container_type(
+                relation_wrapper_of(field.type_str), relation_target_of(field.type_str)
+            )
+    return out^
+
+
+def build_relation_schema(
+    discovery: DiscoveryResult,
+    plain_struct_fields: Dict[String, List[Field]] = Dict[String, List[Field]](),
+) raises -> Dict[String, Dict[String, String]]:
+    """Struct name -> relation field name -> target struct name, for every
+    `@@struct` *and* plain struct declared project-wide -- one shared
+    schema, not two, so a chained field access (`@@alice.@@employee.title`,
+    or a hop through a plain struct's own embedded relation field) resolves
+    the exact same way regardless of which kind of struct sits at each hop.
+    `transform_source` needs this project-wide (not derivable from a single
+    file's own source text) since an intermediate hop's target struct can
+    be declared in a different file than the script using the chain (same
+    reasoning `emit_file`'s cross-file import resolution already relies
+    on). A collection field can't be hopped through as a chain
+    intermediate (there's no single entity to continue from), so the
+    hop-chain walk is the one reader of this schema that only ever
+    encounters the bare form in practice -- but it still gets the encoded
+    string for a wrapped field rather than silently mismatching it, since a
+    `.field` chain accidentally stepping through a collection field is
+    exactly the kind of mistake that should surface as an error, not be
+    hidden. See `_relation_fields_of` for the per-field-list logic shared
+    between the two struct kinds."""
     var schema = Dict[String, Dict[String, String]]()
     for ds in discovery.structs:
-        var fields = Dict[String, String]()
-        for field in ds.parsed.fields:
-            if field.modifier == FieldModifier.MULTI and field.type_str.startswith("@@"):
-                # A plain (non-relation) `multi` field, e.g. `multi tags:
-                # String`, has nothing to register here at all -- it isn't
-                # a relation to another `@@struct`, just a collection of
-                # plain values, so it's no different from any other plain
-                # field as far as this schema is concerned.
-                fields[field.name] = encode_container_type("Set", relation_target_of(field.type_str))
-            elif field.type_str.startswith("@@"):
-                fields[field.name] = relation_target_of(field.type_str)
-            elif is_wrapped_relation_type(field.type_str):
-                fields[field.name] = encode_container_type(
-                    relation_wrapper_of(field.type_str), relation_target_of(field.type_str)
-                )
-        schema[ds.parsed.name] = fields^
+        schema[ds.parsed.name] = _relation_fields_of(ds.parsed.fields)
+    for name in plain_struct_fields.keys():
+        schema[name] = _relation_fields_of(plain_struct_fields[name])
     return schema^
 
 
@@ -235,6 +250,7 @@ def build_plain_struct_fields(
                             name=field.name,
                             type_str=recover_relation_type_str(field.type_str),
                             modifier=field.modifier,
+                            is_math=field.is_math,
                         )
                     )
                 out[parsed.name] = fields^

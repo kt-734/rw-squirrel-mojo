@@ -6,6 +6,7 @@ from squirrel_compiler.codegen.helpers import (
     emit_rel_type,
 )
 from squirrel_compiler.codegen.table_json import emit_table_json_methods
+from squirrel_compiler.codegen.aggregates import emit_aggregate_methods
 
 
 def emit_table(parsed: ParsedStruct, plain_struct_fields: Dict[String, List[Field]]) raises -> String:
@@ -515,6 +516,8 @@ def emit_table(parsed: ParsedStruct, plain_struct_fields: Dict[String, List[Fiel
             out += String(t"        for key in self.table.state[].state.{f.name}.all_bwd().keys():\n")
             out += "            out.add(key)\n"
             out += "        return out^\n"
+
+    out += emit_aggregate_methods(parsed)
 
     out += "\n"
     out += emit_table_json_methods(parsed, state_name, plain_struct_fields)

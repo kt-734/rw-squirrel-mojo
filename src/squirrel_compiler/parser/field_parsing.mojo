@@ -36,9 +36,14 @@ def parse_fields(body: String) raises -> List[Field]:
     range-queryable field -- see `FieldModifier`. Every keyword is checked
     with a word-boundary on both sides so a field literally named
     `unique`/`forwardonlyId`/`multiplier`/`orderedBy` isn't mistaken for
-    one of them; a *second* keyword on the same field is rejected
-    immediately (there's only one `FieldModifier` slot to put it in), not
-    collected and checked pairwise afterward."""
+    one of them; a *second* `FieldModifier` keyword on the same field is
+    rejected immediately (there's only one `FieldModifier` slot to put it
+    in), not collected and checked pairwise afterward. `math` (`math
+    price: Float64`) is checked separately, in the same loop but outside
+    that exclusivity check -- see `Field.is_math`, an independent flag,
+    not a fifth `FieldModifier` case, so it can combine freely with any of
+    the other four (`ordered math price: Float64` is fine, in either
+    order)."""
     var bs = Scanner(body)
     var fields = List[Field]()
     while True:
@@ -48,7 +53,13 @@ def parse_fields(body: String) raises -> List[Field]:
 
         var modifier = FieldModifier.NONE
         var modifier_keyword = String()
+        var is_math = False
         while True:
+            if bs.starts_with("math") and not is_ident_char(bs.peek_at(4)):
+                is_math = True
+                bs.pos += 4
+                bs.skip_trivia()
+                continue
             var next_keyword: String
             var next_modifier: FieldModifier
             if bs.starts_with("unique") and not is_ident_char(bs.peek_at(6)):
@@ -108,6 +119,7 @@ def parse_fields(body: String) raises -> List[Field]:
                 name=name,
                 type_str=type_str,
                 modifier=modifier,
+                is_math=is_math,
             )
         )
         _ = bs.try_consume(",")
@@ -214,7 +226,7 @@ def parse_hand_written_struct_fields(body: String) -> List[Field]:
         var type_str = bs.scan_type()
         if type_str.byte_length() == 0:
             break
-        fields.append(Field(name=name, type_str=type_str, modifier=FieldModifier.NONE))
+        fields.append(Field(name=name, type_str=type_str, modifier=FieldModifier.NONE, is_math=False))
         bs.skip_trivia()
         _ = bs.try_consume(",")
 

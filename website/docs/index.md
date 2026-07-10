@@ -132,8 +132,8 @@ Compile a whole project with one command, run it like any other Mojo
 program:
 
 ```sh
-pixi run run examples/kitchen_sink_plus
-pixi run mojo run -I examples/kitchen_sink_plus examples/kitchen_sink_plus/main.mojo
+pixi run run examples/kitchen_sink
+pixi run mojo run -I examples/kitchen_sink examples/kitchen_sink/main.mojo
 ```
 
 [Get started](getting-started.md){ .md-button .md-button--primary }

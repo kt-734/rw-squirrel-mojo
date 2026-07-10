@@ -8,6 +8,7 @@ from squirrel_compiler.parser.ast import (
     FieldAccess,
     NameRef,
     EntityParam,
+    PlainVarDecl,
     MarkerKind,
 )
 from squirrel_compiler.parser.text_utils import (
@@ -420,6 +421,75 @@ struct Scanner(Movable):
                 continue
             self.pos += 1
 
+    def at_bare_var_keyword(self) -> Bool:
+        """True if `self.pos` sits at a `var` keyword occurrence with a
+        word boundary on both sides (not preceded or followed by an
+        identifier char) -- so `variable`/`myvar` aren't mistaken for it.
+        What `find_next_marker` uses to look for `var name: TypeName`
+        (`MarkerKind.PLAIN_VAR_DECL`, both sides unmarked -- see
+        `PlainVarDecl`'s own doc comment), the unmarked counterpart to
+        `@@name: @@Type` (`ENTITY_PARAM`)."""
+        if not self.starts_with("var"):
+            return False
+        var before_is_ident = self.pos > 0 and is_ident_char(self.byte_at(self.pos - 1))
+        var after = self.pos + String("var").byte_length()
+        var after_is_ident = after < self.source.byte_length() and is_ident_char(self.byte_at(after))
+        return not before_is_ident and not after_is_ident
+
+    def at_plain_var_decl(mut self) -> Bool:
+        """True if, from `self.pos` sitting at a bare `var` keyword
+        (`at_bare_var_keyword` already confirmed), the text matches `var
+        name: TypeName` with *neither* `name` nor `TypeName` `@@`-marked --
+        `var @@name: ...` is `ENTITY_PARAM`'s own shape instead (already
+        handled wherever `find_next_marker` checks for it), and `var name:
+        @@Type`/`var @@name: Type` mixes marking inconsistently, left
+        alone here the same way a plain (non-relation) field elsewhere
+        must not be marked. Pure lookahead -- always restores `self.pos`
+        before returning, regardless of the result."""
+        var save = self.pos
+        self.pos += String("var").byte_length()
+        self.skip_trivia()
+        if self.starts_with("@@"):
+            self.pos = save
+            return False
+        var name = self.scan_ident()
+        if name.byte_length() == 0:
+            self.pos = save
+            return False
+        self.skip_trivia()
+        if not self.try_consume(":"):
+            self.pos = save
+            return False
+        self.skip_trivia()
+        if self.starts_with("@@"):
+            self.pos = save
+            return False
+        var type_name = self.scan_ident()
+        self.pos = save
+        return type_name.byte_length() > 0
+
+    def parse_plain_var_decl(mut self) raises -> PlainVarDecl:
+        """Requires `self.pos` at the `var` of `var name: TypeName`
+        (`at_plain_var_decl` already confirmed the shape), e.g. right
+        after `find_next_marker` returns `MarkerKind.PLAIN_VAR_DECL`.
+        Consumes exactly through `TypeName` -- whatever follows (` = ...`,
+        or nothing at all for a bare declaration) passes through the
+        normal copy loop unchanged, same as `parse_entity_param`."""
+        if not self.try_consume("var"):
+            raise self.err("InvalidSquirrelSyntax: expected 'var'")
+        self.skip_trivia()
+        var name = self.scan_ident()
+        if name.byte_length() == 0:
+            raise self.err("InvalidSquirrelSyntax: expected variable name")
+        self.skip_trivia()
+        if not self.try_consume(":"):
+            raise self.err("InvalidSquirrelSyntax: expected ':' after variable name")
+        self.skip_trivia()
+        var type_name = self.scan_ident()
+        if type_name.byte_length() == 0:
+            raise self.err("InvalidSquirrelSyntax: expected type name after ':'")
+        return PlainVarDecl(name=name, type_name=type_name)
+
     def at_bare_struct_keyword(self) -> Bool:
         """True if `self.pos` sits at a bare `struct` keyword occurrence
         (not `@@struct`) with a word boundary on both sides -- not preceded
@@ -594,6 +664,7 @@ struct Scanner(Movable):
                     name=field.name,
                     type_str=unqualify_self_type_params(field.type_str, type_params),
                     modifier=field.modifier,
+                    is_math=field.is_math,
                 )
             )
         return ParsedStruct(name=name, fields=fields^, type_params=type_params^)
@@ -705,6 +776,7 @@ struct Scanner(Movable):
                     name=field.name,
                     type_str=unqualify_self_type_params(field.type_str, type_params),
                     modifier=field.modifier,
+                    is_math=field.is_math,
                 )
             )
         return ParsedStruct(name=name, fields=fields^, type_params=type_params^)
@@ -817,6 +889,8 @@ struct Scanner(Movable):
                     return MarkerKind.PLAIN_STRUCT
                 self.pos = after_struct
                 continue
+            if self.at_bare_var_keyword() and self.at_plain_var_decl():
+                return MarkerKind.PLAIN_VAR_DECL
             if self.starts_with("@@{"):
                 return MarkerKind.DECLARE
             if self.starts_with("@@}"):
@@ -1048,6 +1122,10 @@ struct Scanner(Movable):
                     write_value=None,
                     is_call=False,
                     index_expr=index_expr,
+                    entity_unmarked=False,
+                    post_index_expr=None,
+                    post_field=None,
+                    post_field_marked=False,
                 )
 
         var hops = List[String]()
@@ -1105,10 +1183,64 @@ struct Scanner(Movable):
                 write_value=None,
                 is_call=True,
                 index_expr=index_expr,
+                entity_unmarked=False,
+                post_index_expr=None,
+                post_field=None,
+                post_field_marked=False,
             )
 
         var is_write = self.peek() == UInt8(ord("=")) and self.peek_at(1) != UInt8(ord("="))
         if not is_write:
+            # A trailing `[index]` right after the terminal field --
+            # `@@dept.@@employees[0].name` -- reads the field, indexes into
+            # it, and (if a further `.subfield`/`.@@subfield` follows the
+            # `]`) reads one more field off the indexed element, all in one
+            # marker. Only checked for the plain-read case (never alongside
+            # a call's `(` or a write's `=`, both already returned above/
+            # below) -- see `FieldAccess`'s own doc comment for why this
+            # goes only one level deep.
+            if self.peek() == UInt8(ord("[")):
+                var post_index_expr = self.scan_bracketed_span()
+                var post_field: Optional[String] = None
+                var post_field_marked = False
+                var save2 = self.pos
+                self.skip_trivia()
+                if self.try_consume("."):
+                    self.skip_trivia()
+                    var marked = self.starts_with("@@")
+                    if marked:
+                        self.pos += 2
+                    var pf = self.scan_ident()
+                    var after_pf = self.pos
+                    self.skip_trivia()
+                    if pf.byte_length() > 0 and self.peek() != UInt8(ord("(")):
+                        # Only a plain field read is supported here -- a
+                        # call (`.method(...)`) backs off entirely, leaving
+                        # `.method(...)` as unconsumed trailing text for the
+                        # ordinary copy loop, same as an unindexed call
+                        # already does today (see `FieldAccess`'s own doc
+                        # comment on why this stays one level deep, reads
+                        # only).
+                        post_field = pf
+                        post_field_marked = marked
+                        self.pos = after_pf
+                    else:
+                        self.pos = save2
+                else:
+                    self.pos = save2
+                return FieldAccess(
+                    entity=entity,
+                    hops=hops^,
+                    field=field,
+                    field_marked=field_marked,
+                    write_value=None,
+                    is_call=False,
+                    index_expr=index_expr,
+                    entity_unmarked=False,
+                    post_index_expr=post_index_expr,
+                    post_field=post_field,
+                    post_field_marked=post_field_marked,
+                )
             self.pos = after_field
             return FieldAccess(
                 entity=entity,
@@ -1118,6 +1250,10 @@ struct Scanner(Movable):
                 write_value=None,
                 is_call=False,
                 index_expr=index_expr,
+                entity_unmarked=False,
+                post_index_expr=None,
+                post_field=None,
+                post_field_marked=False,
             )
 
         self.pos += 1  # consume '='
@@ -1162,6 +1298,10 @@ struct Scanner(Movable):
             write_value=String(value.strip()),
             is_call=False,
             index_expr=index_expr,
+            entity_unmarked=False,
+            post_index_expr=None,
+            post_field=None,
+            post_field_marked=False,
         )
 
     def parse_declare(mut self) raises:

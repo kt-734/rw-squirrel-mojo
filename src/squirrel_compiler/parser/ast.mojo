@@ -71,11 +71,28 @@ struct Field(Copyable, Movable):
     exclusive case rather than a fifth independent `Bool` -- comparing a
     whole `Set[...]` (`multi`) or skipping the reverse index entirely
     (`forwardonly`) doesn't have a sensible ordering to offer in the
-    first place."""
+    first place.
+
+    `is_math` is set by a leading `math` keyword (`math price: Float64`),
+    independent of `modifier` rather than a sixth `FieldModifier` case --
+    unlike `unique`/`forwardonly`/`multi`/`ordered` (which each pick this
+    field's own storage/index shape, structurally one-at-a-time), `math`
+    says nothing about how *this* field is stored; it only marks the field
+    as eligible to be the aggregated value in a `sum_<this>_by_<other>`/
+    `avg_`/`min_`/`max_` method generated against some *other* field in
+    the same struct (`codegen.table`). A field can be `ordered` and `math`
+    at once (`ordered` alone already earns `min_`/`max_` for free, since it
+    already requires `Comparable`; `math` is what additionally earns
+    `sum_`/`avg_`, needing `+` too) -- structurally independent of
+    `modifier`, so no exclusivity check applies between them. This parser
+    can't verify a field's type actually supports `+`/`<`/`>` any more than
+    `unique` can verify `Hashable` -- `math` is trusted the same way,
+    rejected by Mojo's own compiler with a clear message if it's wrong."""
 
     var name: String
     var type_str: String
     var modifier: FieldModifier
+    var is_math: Bool
 
 
 @fieldwise_init
@@ -206,7 +223,29 @@ struct FieldAccess(Copyable, Movable):
     non-indexed case. Left as raw text (not parsed further here) since it
     may itself embed further `@@`-marked sub-expressions -- codegen
     recursively rewrites it through `rewrite_markers`, same treatment as a
-    construct field's value."""
+    construct field's value.
+
+    `entity_unmarked` is always `False` out of this parser -- `entity`
+    always comes from consuming a literal `@@` here, so it's always
+    something to `sqrrl_prefixed`-rename on the way out. `codegen.rewrite`
+    is the one place that ever sets it `True`, reshaping this struct after
+    the fact (`note.@@author` -- `preceding_unmarked_ident` recovers `note`
+    as the real entity, never itself written `@@name` in the source) so
+    that one case's `entity` gets emitted bare instead.
+
+    `post_index_expr`/`post_field`/`post_field_marked` are the *terminal*
+    field's own indexed-then-field-accessed continuation --
+    `@@dept.@@employees[0].name`, reading a wrapped relation field and
+    immediately indexing/field-accessing the result in one expression,
+    rather than needing an intermediate `var @@x = @@dept.@@employees;
+    @@x[0].name` first. Only ever populated for a *read* (never alongside
+    `write_value`/`is_call` -- a write or call through a trailing index
+    isn't supported here, out of scope for now), and only one level deep,
+    the same way `EntityParam.wrapper`'s own `@@name[i].field` never
+    chains further either -- `post_field` (marked or not, same meaning as
+    `field_marked` itself) is the one field read off whatever
+    `post_index_expr` indexes into; `None` if nothing follows the `]` at
+    all (`@@dept.@@employees[0]` alone, a bare indexed value)."""
 
     var entity: String
     var hops: List[String]
@@ -215,6 +254,10 @@ struct FieldAccess(Copyable, Movable):
     var write_value: Optional[String]
     var is_call: Bool
     var index_expr: Optional[String]
+    var entity_unmarked: Bool
+    var post_index_expr: Optional[String]
+    var post_field: Optional[String]
+    var post_field_marked: Bool
 
 
 @fieldwise_init
@@ -266,6 +309,29 @@ struct EntityParam(Copyable, Movable):
 
 
 @fieldwise_init
+struct PlainVarDecl(Copyable, Movable):
+    """`var name: TypeName` -- unmarked on *both* sides, unlike
+    `EntityParam`'s `@@name: @@Type`, so this can never be an entity
+    variable itself; it's the analogous opt-in for a *plain*-struct-typed
+    local (`var note: Note = Note(...)`), giving `Note`-typed `note` a spot
+    in `entity_to_type` (a bare, unmarked key -- there's no `@@` to strip)
+    so a later `note.@@author` read can resolve which struct's own
+    `relation_schema` entry to look `author` up in, the same way a
+    `@@`-marked variable's own type already lets `@@name.field` resolve.
+    `type_name` is only ever meaningful if it happens to name a known
+    plain struct -- codegen checks that and leaves an ordinary `var name:
+    Int = ...` (or any other non-plain-struct type) alone entirely,
+    emitting the declaration text unchanged either way. Requires an
+    explicit annotation (not inferred from the constructor call on the
+    right of `=`) -- same reasoning `EntityParam` itself gives for
+    needing one: there's no construct/reference here for `entity_to_type`
+    to infer a type from without it."""
+
+    var name: String
+    var type_name: String
+
+
+@fieldwise_init
 struct MarkerKind(ImplicitlyCopyable, Movable, Equatable):
     """What `Scanner.find_next_marker` found. Mojo has no `enum` keyword --
     this is the standard idiom: a struct wrapping a discriminant, with
@@ -290,6 +356,7 @@ struct MarkerKind(ImplicitlyCopyable, Movable, Equatable):
     comptime DECLARE = Self(13)
     comptime INIT_FROM_JSON = Self(14)
     comptime UNDECLARE = Self(15)
+    comptime PLAIN_VAR_DECL = Self(16)
 
     def __eq__(self, other: Self) -> Bool:
         return self.value == other.value

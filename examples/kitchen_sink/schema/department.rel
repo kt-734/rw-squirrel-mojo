@@ -2,4 +2,5 @@
     name: String
     forwardonly tags: List[String]
     multi @@projects: @@Project
-
+    @@vendors: Set[@@Vendor]
+    multi skills: String

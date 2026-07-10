@@ -1,6 +1,6 @@
 from std.testing import assert_true, assert_equal, assert_raises, TestSuite
 
-from squirrel_compiler.parser import Scanner, Field
+from squirrel_compiler.parser import Scanner, Field, FieldModifier
 from squirrel_compiler.codegen import (
     emit_table,
     emit_plain_struct,
@@ -2664,6 +2664,365 @@ def test_transform_source_leaves_plain_field_group_by_call_untracked() raises:
     )
     with assert_raises():
         _ = transform_source(source, _employee_dept_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
+
+
+def test_emits_sum_avg_min_max_for_math_field() raises:
+    """A `math`-marked field earns all four aggregate kinds, paired with
+    every other groupable field (`name`, plain here): `_by_` (every group
+    at once, `Dict`), `_for_` (one group, raises), and a whole-table
+    sibling with no grouping field at all. `avg_` always returns
+    `Float64` regardless of the aggregated field's own declared type
+    (`Int` here) -- `sum_`/`min_`/`max_` stay in that type."""
+    var sc = Scanner("@@struct @@Employee:\n    name: String\n    math score: Int\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true("def sum_score(self) raises -> Int:" in out)
+    assert_true("def avg_score(self) raises -> Float64:" in out)
+    assert_true("def min_score(self) raises -> Int:" in out)
+    assert_true("def max_score(self) raises -> Int:" in out)
+
+    assert_true("def sum_score_by_name(self) -> Dict[String, Int]:" in out)
+    assert_true("def sum_score_for_name(self, value: String) raises -> Int:" in out)
+    assert_true("def avg_score_by_name(self) -> Dict[String, Float64]:" in out)
+    assert_true("def avg_score_for_name(self, value: String) raises -> Float64:" in out)
+    assert_true("def min_score_by_name(self) -> Dict[String, Int]:" in out)
+    assert_true("def max_score_for_name(self, value: String) raises -> Int:" in out)
+
+    # `name` isn't aggregatable (no `math`, not `ordered`) -- no siblings
+    # generated with it as the aggregated field.
+    assert_true("def sum_name" not in out)
+    assert_true("def avg_name" not in out)
+    assert_true("def min_name" not in out)
+    assert_true("def max_name" not in out)
+
+
+def test_ordered_only_field_gets_min_max_but_not_sum_avg() raises:
+    """An `ordered` (not `math`) field already proves `Comparable` for
+    its own range queries, earning `min_`/`max_` for free -- but not
+    `sum_`/`avg_`, which need `+` too, something `ordered` alone never
+    established."""
+    var sc = Scanner("@@struct @@Employee:\n    name: String\n    ordered years: UInt32\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true("def min_years_by_name(self) -> Dict[String, UInt32]:" in out)
+    assert_true("def max_years_by_name(self) -> Dict[String, UInt32]:" in out)
+    assert_true("def min_years(self) raises -> UInt32:" in out)
+    assert_true("def max_years(self) raises -> UInt32:" in out)
+    assert_true("def sum_years" not in out)
+    assert_true("def avg_years" not in out)
+
+
+def test_aggregate_skips_pairing_field_with_itself() raises:
+    """Aggregating a field grouped by itself is degenerate -- every entity
+    in one of its own value-groups already holds that exact value -- so
+    `x == y` is skipped for the `_by_`/`_for_` siblings; the whole-table
+    sibling (no grouping field at all) is unaffected."""
+    var sc = Scanner("@@struct @@Employee:\n    math salary: Float64\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true("def sum_salary(self)" in out)
+    assert_true("def sum_salary_by_salary" not in out)
+    assert_true("def sum_salary_for_salary" not in out)
+
+
+def test_aggregate_by_over_unique_grouping_field_is_trivial() raises:
+    """`_by_` grouped by a `unique` field is trivial -- `UniqueRel.all_bwd()`
+    already maps each value to its own single id, so there's no bucket to
+    materialize into a `List` first, unlike every other modifier."""
+    var sc = Scanner("@@struct @@Employee:\n    unique email: String\n    math salary: Float64\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true("def sum_salary_by_email(self) -> Dict[String, Float64]:" in out)
+    assert_true("ref sqrrl__ids = self.table.state[].state.email.all_bwd()" in out)
+    assert_true("for entry in sqrrl__ids.items():" in out)
+
+
+def test_aggregate_by_over_multi_grouping_field_keys_by_element_type() raises:
+    """`_by_` grouped by a `multi` field is keyed by the *element* type,
+    same as `group_by_<field>`/`count_by_<field>` already are for `multi`."""
+    var sc = Scanner(
+        "@@struct @@Department:\n    multi @@members: @@Employee\n    math budget: Float64\n"
+    )
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true(
+        "def sum_budget_by_members(self) -> Dict[EntityHandle[sqrrl__EmployeeTableState], Float64]:"
+        in out
+    )
+    assert_true("ref sqrrl__buckets = self.table.state[].state.members.all_bwd()" in out)
+
+
+def test_aggregate_for_variant_raises_on_empty_group() raises:
+    """`_for_` pays for only the one group asked about via `get_bwd(value)`,
+    unlike `_by_` which never needs to raise (`all_bwd()`'s own buckets
+    are never empty by construction) -- an arbitrary caller-supplied
+    `value` can genuinely match nothing, and there's no sensible
+    non-raising default for avg/min/max of nothing."""
+    var sc = Scanner("@@struct @@Employee:\n    name: String\n    math salary: Float64\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true("def sum_salary_for_name(self, value: String) raises -> Float64:" in out)
+    assert_true("if len(sqrrl__ids) == 0:" in out)
+    assert_true('raise Error("sum_salary_for_name: no entities found for this value")' in out)
+
+
+def test_aggregate_whole_table_variant_raises_on_empty_table() raises:
+    """The whole-table sibling walks `id_count()`/`is_live` directly (no
+    `EntityHandle` built at all, not even a discarded one) -- the same
+    primitives `Table.all()` itself uses -- and raises if the table has no
+    live entities, same reasoning as `_for_`'s empty-bucket case."""
+    var sc = Scanner("@@struct @@Employee:\n    math salary: Float64\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true("def sum_salary(self) raises -> Float64:" in out)
+    assert_true("for sqrrl__i in range(self.table.state[].id_count()):" in out)
+    assert_true("if self.table.state[].is_live(sqrrl__id):" in out)
+    assert_true('raise Error("sum_salary: table has no entities")' in out)
+
+
+def test_forwardonly_field_excluded_as_aggregate_grouping_field() raises:
+    """A `forwardonly` field has no reverse index at all, so it can't be
+    an aggregate's grouping field any more than it can `group_by_<field>`/
+    `count_by_<field>` itself."""
+    var sc = Scanner(
+        "@@struct @@Employee:\n    forwardonly tags: List[String]\n    math salary: Float64\n"
+    )
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true("def sum_salary_by_tags" not in out)
+    assert_true("def sum_salary_for_tags" not in out)
+
+
+def test_transform_source_rewrites_for_loop_over_sum_by_call() raises:
+    """`sum_<y>_by_<x>()` returns `Dict[Target, ResultType]` when `x` is a
+    relation field, tracked the same way `group_by_<field>`/
+    `count_by_<field>` are -- `for @@d in @@Employee.sum_salary_by_dept():`
+    binds `@@d` to a `Department`."""
+    var source = String(
+        "@@struct @@Department:\n    name: String\n\n"
+        "\n"
+        "@@struct @@Employee:\n    name: String\n    @@dept: @@Department\n"
+        "    math salary: Float64\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        for @@d in @@Employee.sum_salary_by_dept():\n"
+        "            print(@@d.name);\n"
+        "    @@}\n"
+    )
+    var out = transform_source(
+        source,
+        _employee_dept_schema(),
+        empty_function_returns(),
+        empty_unique_fields(),
+        empty_ordered_fields(),
+        empty_plain_struct_fields(),
+        empty_relation_targets(),
+    )
+    assert_true("for sqrrl__d in  sqrrl__world.Employee.sum_salary_by_dept():" in out)
+    assert_true("print(sqrrl__world.Department.get_name(sqrrl__d));" in out)
+
+
+def test_transform_source_leaves_plain_field_sum_by_call_untracked() raises:
+    """`sum_<y>_by_<x>()` for a *plain* (non-relation) `x` returns a `Dict`
+    keyed by ordinary values, not entities -- `@@`-marking a loop over one
+    is rejected the same as `group_by_<field>`/`distinct_<field>` are for
+    a plain field."""
+    var source = String(
+        "@@struct @@Employee:\n    name: String\n    @@dept: @@Department\n"
+        "    math salary: Float64\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        for @@n in @@Employee.sum_salary_by_name():\n"
+        "            print(@@n);\n"
+        "    @@}\n"
+    )
+    with assert_raises():
+        _ = transform_source(
+            source,
+            _employee_dept_schema(),
+            empty_function_returns(),
+            empty_unique_fields(),
+            empty_ordered_fields(),
+            empty_plain_struct_fields(),
+            empty_relation_targets(),
+        )
+
+
+def test_transform_source_rewrites_indexed_field_access_with_post_field() raises:
+    """`@@dept.@@members[0].name` -- reads a wrapped relation field,
+    indexes into it, and reads a further field off the indexed element,
+    all in one expression -- no intermediate `var @@x = @@dept.@@members;`
+    binding needed first."""
+    var source = String(
+        "@@struct @@Employee:\n    name: String\n\n"
+        "\n"
+        "@@struct @@Department:\n    name: String\n    @@members: List[@@Employee]\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@dept = @@Department { .name = "Eng" };\n'
+        "        print(@@dept.@@members[0].name);\n"
+        "    @@}\n"
+    )
+    var out = transform_source(
+        source,
+        _department_members_schema(),
+        empty_function_returns(),
+        empty_unique_fields(),
+        empty_ordered_fields(),
+        empty_plain_struct_fields(),
+        empty_relation_targets(),
+    )
+    assert_true(
+        "print(sqrrl__world.Employee.get_name(sqrrl__world.Department.get_members(sqrrl__dept)[0]));" in out
+    )
+
+
+def test_transform_source_rewrites_for_loop_over_relation_field_read() raises:
+    """`for @@e in @@dept.@@members:` -- iterating a wrapped relation
+    field's own read result (not a table-level `for_<field>`/`all()`
+    call) binds `@@e` to the field's element type, the same way iterating
+    a call's result already does."""
+    var source = String(
+        "@@struct @@Employee:\n    name: String\n\n"
+        "\n"
+        "@@struct @@Department:\n    name: String\n    @@members: List[@@Employee]\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@{\n"
+        "        @@init();\n"
+        '        var @@dept = @@Department { .name = "Eng" };\n'
+        "        for @@e in @@dept.@@members:\n"
+        "            print(@@e.name);\n"
+        "    @@}\n"
+    )
+    var out = transform_source(
+        source,
+        _department_members_schema(),
+        empty_function_returns(),
+        empty_unique_fields(),
+        empty_ordered_fields(),
+        empty_plain_struct_fields(),
+        empty_relation_targets(),
+    )
+    assert_true("for sqrrl__e in  sqrrl__world.Department.get_members(sqrrl__dept):" in out)
+    assert_true("print(sqrrl__world.Employee.get_name(sqrrl__e));" in out)
+
+
+def _note_plain_struct_fields() -> Dict[String, List[Field]]:
+    """`Note` -- a plain struct with its own `@@author: @@Employee` field,
+    the shape `note.@@author` (`note` a plain, unmarked variable) needs to
+    tell "direct Mojo field access" (`Note` has no generated table) apart
+    from "route through `get_<field>`" (an entity does)."""
+    var fields = List[Field]()
+    fields.append(Field(name="author", type_str="@@Employee", modifier=FieldModifier.NONE, is_math=False))
+    var out = Dict[String, List[Field]]()
+    out["Note"] = fields^
+    return out^
+
+
+def _note_relation_schema() -> Dict[String, Dict[String, String]]:
+    var schema = Dict[String, Dict[String, String]]()
+    var note_fields = Dict[String, String]()
+    note_fields["author"] = "Employee"
+    schema["Note"] = note_fields^
+    return schema^
+
+
+def test_transform_source_resolves_relation_field_on_unmarked_plain_struct_var() raises:
+    """`var note: Note = ...` (unmarked, `PLAIN_VAR_DECL`) followed by
+    `note.@@author.name` -- `note` was never itself `@@`-marked, but its
+    declared type (`Note`, a known plain struct) is enough to resolve
+    `.@@author` against `Note`'s own relation field, emitted as direct
+    Mojo field access (`note.author`), not a `sqrrl__world.Note.get_author
+    (...)` call -- `Note` has no generated table at all."""
+    var source = String(
+        "@@struct @@Employee:\n    name: String\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var note: Note = Note();\n"
+        "        print(note.@@author.name);\n"
+        "    @@}\n"
+    )
+    var out = transform_source(
+        source,
+        _note_relation_schema(),
+        empty_function_returns(),
+        empty_unique_fields(),
+        empty_ordered_fields(),
+        _note_plain_struct_fields(),
+        empty_relation_targets(),
+    )
+    assert_true("var note: Note = Note();" in out)
+    assert_true("print(sqrrl__world.Employee.get_name(note.author));" in out)
+
+
+def test_transform_source_rejects_write_through_implicit_prefix() raises:
+    """`note.@@author = @@bob;` -- writing through an implicit,
+    unmarked-variable prefix isn't supported (only a read is) -- rejected
+    with a clear error rather than silently misinterpreted as declaring a
+    fresh `author` variable."""
+    var source = String(
+        "@@struct @@Employee:\n    name: String\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        var @@bob = @@Employee { .name = \"Bob\" };\n"
+        "        var note: Note = Note();\n"
+        "        note.@@author = @@bob;\n"
+        "    @@}\n"
+    )
+    with assert_raises():
+        _ = transform_source(
+            source,
+            _note_relation_schema(),
+            empty_function_returns(),
+            empty_unique_fields(),
+            empty_ordered_fields(),
+            _note_plain_struct_fields(),
+            empty_relation_targets(),
+        )
+
+
+def test_transform_source_leaves_untracked_prefix_erroring_as_before() raises:
+    """An unrelated, never-declared `untracked.@@author` still raises the
+    original "never constructed" error -- no implicit-prefix reinterpretation
+    fires for a name that was never actually tracked."""
+    var source = String(
+        "@@struct @@Employee:\n    name: String\n\n"
+        "\n"
+        "def main() raises:\n"
+        "    @@{\n"
+        "        @@init();\n"
+        "        print(untracked.@@author.name);\n"
+        "    @@}\n"
+    )
+    with assert_raises():
+        _ = transform_source(
+            source,
+            _note_relation_schema(),
+            empty_function_returns(),
+            empty_unique_fields(),
+            empty_ordered_fields(),
+            _note_plain_struct_fields(),
+            empty_relation_targets(),
+        )
 
 
 def main() raises:

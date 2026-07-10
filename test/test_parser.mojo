@@ -12,6 +12,8 @@ from squirrel_compiler.parser import (
     relation_wrapper_of,
     TypeExpr,
     parse_type_expr,
+    preceding_unmarked_ident,
+    PrecedingIdent,
 )
 
 
@@ -273,6 +275,54 @@ def test_parse_struct_rejects_ordered_and_unique_together() raises:
         _ = sc.parse_struct()
 
 
+def test_parse_struct_math_field() raises:
+    var sc = Scanner("@@struct @@Employee:\n    math salary: Float64\n")
+    assert_true(sc.find_next_struct_decl())
+    var parsed = sc.parse_struct()
+    assert_equal(len(parsed.fields), 1)
+    assert_equal(parsed.fields[0].name, String("salary"))
+    assert_true(parsed.fields[0].is_math)
+    assert_true(parsed.fields[0].modifier == FieldModifier.NONE)
+
+
+def test_parse_struct_math_field_name_not_mistaken() raises:
+    var sc = Scanner("@@struct @@Foo:\n    mathematics: String\n")
+    assert_true(sc.find_next_struct_decl())
+    var parsed = sc.parse_struct()
+    assert_equal(len(parsed.fields), 1)
+    assert_equal(parsed.fields[0].name, String("mathematics"))
+    assert_false(parsed.fields[0].is_math)
+
+
+def test_parse_struct_field_without_math_keyword_defaults_false() raises:
+    var sc = Scanner("@@struct @@Foo:\n    name: String\n")
+    assert_true(sc.find_next_struct_decl())
+    var parsed = sc.parse_struct()
+    assert_false(parsed.fields[0].is_math)
+
+
+def test_parse_struct_math_combines_with_ordered_either_order() raises:
+    var sc1 = Scanner("@@struct @@Foo:\n    math ordered price: Float64\n")
+    assert_true(sc1.find_next_struct_decl())
+    var parsed1 = sc1.parse_struct()
+    assert_true(parsed1.fields[0].is_math)
+    assert_true(parsed1.fields[0].modifier == FieldModifier.ORDERED)
+
+    var sc2 = Scanner("@@struct @@Foo:\n    ordered math weight: Float64\n")
+    assert_true(sc2.find_next_struct_decl())
+    var parsed2 = sc2.parse_struct()
+    assert_true(parsed2.fields[0].is_math)
+    assert_true(parsed2.fields[0].modifier == FieldModifier.ORDERED)
+
+
+def test_parse_struct_math_combines_with_unique() raises:
+    var sc = Scanner("@@struct @@Foo:\n    unique math price: Float64\n")
+    assert_true(sc.find_next_struct_decl())
+    var parsed = sc.parse_struct()
+    assert_true(parsed.fields[0].is_math)
+    assert_true(parsed.fields[0].modifier == FieldModifier.UNIQUE)
+
+
 def test_find_next_marker_finds_construct() raises:
     var sc = Scanner('@@Person { .name = "alice", .age = 30 }')
     assert_true(sc.find_next_marker() == MarkerKind.CONSTRUCT)
@@ -360,6 +410,110 @@ def test_field_access_multi_hop_chain_ending_on_a_relation() raises:
     assert_equal(len(fa.hops), 1)
     assert_equal(fa.hops[0], String("job"))
     assert_equal(fa.field, String("dept"))
+
+
+def test_field_access_post_index_and_marked_field() raises:
+    """`@@dept.@@employees[0].@@manager` -- indexes the wrapped relation
+    field, then reads one further *marked* field off the indexed element,
+    all in one `FieldAccess`."""
+    var sc = Scanner("@@dept.@@employees[0].@@manager")
+    assert_true(sc.find_next_marker() == MarkerKind.FIELD_ACCESS)
+    var fa = sc.parse_field_access()
+    assert_equal(fa.entity, String("dept"))
+    assert_equal(fa.field, String("employees"))
+    assert_true(fa.field_marked)
+    assert_equal(fa.post_index_expr.value(), String("0"))
+    assert_equal(fa.post_field.value(), String("manager"))
+    assert_true(fa.post_field_marked)
+
+
+def test_field_access_post_index_and_unmarked_field() raises:
+    """`@@dept.@@employees[0].name` -- same shape, but the trailing field
+    is a plain (unmarked) one."""
+    var sc = Scanner("@@dept.@@employees[0].name")
+    assert_true(sc.find_next_marker() == MarkerKind.FIELD_ACCESS)
+    var fa = sc.parse_field_access()
+    assert_equal(fa.post_index_expr.value(), String("0"))
+    assert_equal(fa.post_field.value(), String("name"))
+    assert_false(fa.post_field_marked)
+
+
+def test_field_access_post_index_without_further_field() raises:
+    """`@@dept.@@employees[0]` alone -- indexed, but nothing after `]`, so
+    `post_field` stays unset (a bare indexed value, like `@@matches[0]`
+    used as its own expression)."""
+    var sc = Scanner("@@dept.@@employees[0]")
+    assert_true(sc.find_next_marker() == MarkerKind.FIELD_ACCESS)
+    var fa = sc.parse_field_access()
+    assert_equal(fa.post_index_expr.value(), String("0"))
+    assert_false(Bool(fa.post_field))
+
+
+def test_field_access_post_index_backs_off_for_method_call() raises:
+    """`@@dept.@@employees[0].some_method()` -- a call, not a field read;
+    only a plain read is supported after a post-index (see `FieldAccess`'s
+    own doc comment), so this backs off entirely rather than misparsing
+    `some_method` as a field name."""
+    var sc = Scanner("@@dept.@@employees[0].some_method()")
+    assert_true(sc.find_next_marker() == MarkerKind.FIELD_ACCESS)
+    var fa = sc.parse_field_access()
+    assert_equal(fa.post_index_expr.value(), String("0"))
+    assert_false(Bool(fa.post_field))
+
+
+def test_at_plain_var_decl_recognizes_unmarked_var_with_type() raises:
+    """`var note: Note` -- unmarked on both sides -- is recognized as
+    `PLAIN_VAR_DECL`, the plain-struct-typed counterpart to `ENTITY_PARAM`."""
+    var sc = Scanner("var note: Note = Note()")
+    assert_true(sc.find_next_marker() == MarkerKind.PLAIN_VAR_DECL)
+    var pv = sc.parse_plain_var_decl()
+    assert_equal(pv.name, String("note"))
+    assert_equal(pv.type_name, String("Note"))
+
+
+def test_at_plain_var_decl_rejects_marked_name() raises:
+    """`var @@note: Note` -- the name is marked, so this isn't
+    `PLAIN_VAR_DECL` (it falls through to ordinary marker handling
+    instead, whatever that resolves to for a `@@name: PlainType` shape)."""
+    var sc = Scanner("var @@note: Note = Note()")
+    assert_false(sc.find_next_marker() == MarkerKind.PLAIN_VAR_DECL)
+
+
+def test_at_plain_var_decl_rejects_marked_type() raises:
+    """`var note: @@Employee` -- the type is marked, so this isn't
+    `PLAIN_VAR_DECL` either -- an inconsistent marking `PLAIN_VAR_DECL`
+    deliberately doesn't try to handle."""
+    var sc = Scanner("var note: @@Employee = something")
+    assert_false(sc.find_next_marker() == MarkerKind.PLAIN_VAR_DECL)
+
+
+def test_preceding_unmarked_ident_finds_prefix() raises:
+    """`note` immediately before `.@@author` is recovered, with its own
+    start position."""
+    var source = "note.@@author"
+    var marker_start = source.find("@@")
+    var result = preceding_unmarked_ident(source, marker_start)
+    assert_true(Bool(result))
+    assert_equal(result.value().name, String("note"))
+    assert_equal(result.value().start, 0)
+
+
+def test_preceding_unmarked_ident_none_without_dot() raises:
+    """A top-level `@@author` (no `.` before it at all) has no prefix to
+    recover."""
+    var source = "print(@@author)"
+    var marker_start = source.find("@@")
+    var result = preceding_unmarked_ident(source, marker_start)
+    assert_false(Bool(result))
+
+
+def test_preceding_unmarked_ident_none_after_bracket() raises:
+    """`].@@foo` -- nothing identifier-shaped precedes the `.`, so there's
+    no prefix to recover either."""
+    var source = "list[0].@@foo"
+    var marker_start = source.find("@@")
+    var result = preceding_unmarked_ident(source, marker_start)
+    assert_false(Bool(result))
 
 
 def test_find_next_marker_finds_bare_name_ref() raises:

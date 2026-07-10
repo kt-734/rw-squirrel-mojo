@@ -48,7 +48,14 @@ name; `FieldType`/`ElementType` are that field's own declared type (or, for
 
 A relation field (`@@dept: @@Department`) isn't a special case anywhere in
 this table — it's an ordinary field whose `FieldType` happens to be
-`EntityHandle[...]`.
+`EntityHandle[...]`. That also holds when the declared type wraps the
+relation in something other than `List`/`Set`/`multi`'s own `Set[...]` —
+`Optional[@@Department]` gives `FieldType = Optional[EntityHandle[...]]`
+throughout (`create`/`get_dept`/`set_dept`/`count_dept`/`group_by_dept`/
+...), since none of this table's generation branches on the wrapper's
+name, only on the field's own modifier (`unique`/`multi`/`ordered`/
+`forwardonly`/plain). See the [DSL guide](dsl-guide.md#relation-fields) for
+how `Optional`-wrapped fields unwrap through the `@@`-marker sugar.
 
 ## `count_<field>` — how many, without materializing
 
@@ -147,6 +154,58 @@ The value side of that `Dict` (`List[EntityHandle[...]]`/
 way to bind both a `Dict`'s key and value through the marker system yet,
 only whichever one iterating the bare container already gives for free.
 
+## `sum_<field>`/`avg_<field>`/`min_<field>`/`max_<field>` — aggregating one field by another
+
+Generated for a `math`- or `ordered`-marked field, paired against every
+*other* groupable field in the struct (any modifier but `forwardonly`,
+which has no reverse index to group by at all). `ordered` alone earns
+`min_`/`max_` for free (it already requires `Comparable` for its own
+range queries); `math` earns all four (it requires `+` too, for
+`sum_`/`avg_`). This parser can't verify a field's declared type actually
+supports `+`/`<`/`>` any more than `unique` can verify `Hashable` —
+`math`/`ordered` are trusted the same way, rejected by Mojo's own compiler
+if wrong.
+
+Three shapes per aggregate kind, `<y>` the aggregated field and `<x>` the
+grouping field:
+
+| method | signature | behavior |
+| --- | --- | --- |
+| `{agg}_<y>()` | `() raises -> ResultType` | whole table, no grouping at all — walks `id_count()`/`is_live` directly (same primitives `all()` itself uses), building no `EntityHandle` |
+| `{agg}_<y>_by_<x>()` | `() -> Dict[XFieldType, ResultType]` | every group at once, walking `x`'s own `all_bwd()` the same way `group_by_<field>`/`count_by_<field>` do |
+| `{agg}_<y>_for_<x>(value)` | `(value: XFieldType) raises -> ResultType` | one group, via `x`'s own `get_bwd(value)` — cheaper when only one group matters, mirroring `for_<field>`/`count_<field>` sitting alongside their own `_by_` sibling |
+
+`{agg}` is `sum`/`avg`/`min`/`max`. `ResultType` is `<y>`'s own declared
+type for `sum`/`min`/`max` — exact either way — but always `Float64` for
+`avg`, regardless of `<y>`'s own type (`Int`, `UInt32`, ...): an integer
+average silently truncating (`total // count`) would lose information a
+`Float64` promotion doesn't.
+
+`{agg}_<y>_for_<x>(value)` and the whole-table `{agg}_<y>()` both `raise`
+if the group/table is empty — there's no sensible non-raising default for
+an empty average, minimum, or maximum, and raising uniformly (rather than
+only for those three) keeps all four aggregate kinds behaving the same
+way. `{agg}_<y>_by_<x>()` never raises — every bucket `all_bwd()` hands
+back already has at least one id in it by construction.
+
+`<x> == <y>` is skipped entirely (no `sum_salary_by_salary`) — aggregating
+a field grouped by itself is degenerate, since every entity in one of its
+own value-groups already holds that exact value.
+
+```
+print(@@Employee.sum_salary())                 # whole table
+print(@@Employee.avg_salary_for_dept(@@eng))    # one department
+for @@d in @@Employee.sum_salary_by_dept():     # every department at once
+    print(@@d.name)
+```
+
+`{agg}_<y>_by_<x>()` gets the same `@@`-tracking as `group_by_<field>`/
+`count_by_<field>` when `<x>` is itself a relation field (`@@d` above is a
+real, `@@`-trackable `Department`) — the same first-parameter-only
+tracking, `<x>` supplying the `Dict`'s key type. `{agg}_<y>_for_<x>(value)`
+and the whole-table form both return a bare scalar, not a container, so
+neither has anything to `@@`-track.
+
 ## `multi`-only
 
 | method | signature | notes |
@@ -170,36 +229,55 @@ an ordinary relational database. Every field's own type needs to support
 
 ## Example
 
-An `Employee` struct with a `unique email`, a `title`, and a
-`@@dept: @@Department` field generates:
+An `Employee` struct with a `unique email`, a `title`, a
+`@@dept: @@Department` field, and a `math salary: Float64` field
+generates:
 
 ```
-create(email: String, title: String, dept: EntityHandle[...]) raises -> EntityHandle[...]
+create(email: String, title: String, dept: EntityHandle[...], salary: Float64) raises -> EntityHandle[...]
 
 get_email(e) -> String              set_email(e, v: String) raises
 get_title(e) -> String              set_title(e, v: String)
 get_dept(e) -> EntityHandle[...]    set_dept(e, v: EntityHandle[...])
+get_salary(e) -> Float64            set_salary(e, v: Float64)
 
 for_email(value: String) raises -> EntityHandle[...]            # unique
 for_title(value: String) -> List[EntityHandle[...]]             # plain
 for_dept(value: EntityHandle[...]) -> List[EntityHandle[...]]   # relation field, still just "plain"
+for_salary(value: Float64) -> List[EntityHandle[...]]
 
 count_email(value: String) -> Int                                # 0 or 1, no raising
 count_title(value: String) -> Int
 count_dept(value: EntityHandle[...]) -> Int
+count_salary(value: Float64) -> Int
 
 group_by_email() -> Dict[String, EntityHandle[...]]             # unique
 group_by_title() -> Dict[String, List[EntityHandle[...]]]       # plain
 group_by_dept() -> Dict[EntityHandle[...], List[EntityHandle[...]]]
+group_by_salary() -> Dict[Float64, List[EntityHandle[...]]]
 
 count_by_title() -> Dict[String, Int]                            # not generated for email -- unique
 count_by_dept() -> Dict[EntityHandle[...], Int]
+count_by_salary() -> Dict[Float64, Int]
 
 distinct_email() -> Set[String]                                   # cheap "which values are taken"
 distinct_title() -> Set[String]
 distinct_dept() -> Set[EntityHandle[...]]
+distinct_salary() -> Set[Float64]
 
 count() -> Int                                                   # whole-table, no grouping
+
+# math salary, paired against every other groupable field (email/title/dept):
+sum_salary() raises -> Float64             avg_salary() raises -> Float64
+min_salary() raises -> Float64             max_salary() raises -> Float64
+
+sum_salary_by_dept() -> Dict[EntityHandle[...], Float64]
+sum_salary_for_dept(value: EntityHandle[...]) raises -> Float64
+avg_salary_by_dept() -> Dict[EntityHandle[...], Float64]           # always Float64
+avg_salary_for_dept(value: EntityHandle[...]) raises -> Float64
+min_salary_by_dept() -> Dict[EntityHandle[...], Float64]
+max_salary_for_dept(value: EntityHandle[...]) raises -> Float64
+# ...and the same six shapes again paired with email/title
 ```
 
 For the compiler internals behind this (schema discovery, cycle checking,
