@@ -1550,7 +1550,7 @@ def test_transform_source_rejects_construct_without_world() raises:
 
 
 def test_transform_source_rejects_init_without_declare() raises:
-    """`@@init()` (and, symmetrically, `@@start_init_from_json(...)`) needs
+    """`@@init()` (and, symmetrically, `@@begin_init_from_json(...)`) needs
     `@@{` to have already brought `sqrrl__world` into scope in this
     same function -- without it there's no `var sqrrl__world` for the bare
     assignment `@@init()` desugars to, to assign into."""
@@ -1577,13 +1577,13 @@ def test_transform_source_rejects_double_declare() raises:
 
 def test_transform_source_allows_conditional_init_after_declare() raises:
     """The whole point of `@@{`: it lets a script choose between
-    `@@init()` and `@@start_init_from_json(...)` conditionally, something
+    `@@init()` and `@@begin_init_from_json(...)` conditionally, something
     neither form could do on its own (each used to declare `sqrrl__world`
     itself, so whichever branch ran second would try to redeclare a name
     already out of scope from its sibling branch). `@@{` emits a
     real, live, empty `var sqrrl__world = sqrrl__init()` up front, so
     there's no "uninitialized on some path" state to worry about at all --
-    each branch's `@@init()`/`@@start_init_from_json(...)` is just a bare
+    each branch's `@@init()`/`@@begin_init_from_json(...)` is just a bare
     assignment (preceded by a `sqrrl__check_no_leaks()` call verifying the
     about-to-be-replaced world -- still the declare-time empty one here --
     is safe to discard)."""
@@ -1593,7 +1593,7 @@ def test_transform_source_allows_conditional_init_after_declare() raises:
         "def main(dump: String, restore: Bool) raises:\n"
         "    @@{\n"
         "        if restore:\n"
-        "            @@start_init_from_json(dump);\n"
+        "            @@begin_init_from_json(dump);\n"
         "        else:\n"
         "            @@init();\n"
         '        var @@alice = @@Person { .name = "alice" };\n'
@@ -1639,8 +1639,8 @@ def test_transform_source_rewrites_return_type_whose_body_starts_with_a_marker()
     assert_true("return sqrrl__e;" in out)
 
 
-def test_transform_source_allows_repeated_start_init_from_json_in_one_function() raises:
-    """`@@start_init_from_json(...)` may now appear more than once in the
+def test_transform_source_allows_repeated_begin_init_from_json_in_one_function() raises:
+    """`@@begin_init_from_json(...)` may now appear more than once in the
     same straight-line function (not just once per branch of a
     conditional) -- each occurrence desugars to a call into
     `sqrrl__init_from_json` (`driver.emit_world_module`), a *generated
@@ -1651,8 +1651,8 @@ def test_transform_source_allows_repeated_start_init_from_json_in_one_function()
     var source = String(
         "def main(first: String, second: String) raises:\n"
         "    @@{\n"
-        "        @@start_init_from_json(first);\n"
-        "        @@start_init_from_json(second);\n"
+        "        @@begin_init_from_json(first);\n"
+        "        @@begin_init_from_json(second);\n"
         "    @@}\n"
     )
     var out = transform_source(source, empty_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())

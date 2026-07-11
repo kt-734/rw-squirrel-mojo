@@ -13,3 +13,4 @@ struct ContactInfo(Copyable, Movable, ImplicitlyDeletable):
         self.home = home^
         self.emails = emails^
 
+

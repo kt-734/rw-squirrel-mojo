@@ -1132,3 +1132,4 @@ struct sqrrl__EmployeeTable(Movable):
                     continue
                 sc.expect_byte(UInt8(ord("]")))
                 break
+

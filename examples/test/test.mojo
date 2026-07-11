@@ -140,6 +140,7 @@ struct sqrrl__TestTable(Movable):
                     continue
                 sc.expect_byte(UInt8(ord("]")))
                 break
+
 def sqrrl__testFunc(mut sqrrl__world: sqrrl__World) -> List[EntityHandle[sqrrl__TestTableState]]:
     var ret = List[EntityHandle[sqrrl__TestTableState]]()
     ret.append(sqrrl__world.Test.create(name = "ex1"))

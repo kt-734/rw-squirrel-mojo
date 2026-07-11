@@ -166,7 +166,7 @@ def check_single_declare_call(rel_files: List[String]) raises:
     """Rejects more than one `@@{` call across the whole project.
     `@@{` is the single point that brings `sqrrl__world` into
     scope (`var sqrrl__world: sqrrl__World`, deliberately uninitialized)
-    for a whole script -- any number of `@@init()`/`@@start_init_from_json(
+    for a whole script -- any number of `@@init()`/`@@begin_init_from_json(
     ...)` calls may follow it, in any control-flow shape, each assigning
     into the same `sqrrl__world` (see `rewrite_markers`'s own handling of
     all three), so unlike the old "exactly one construction call" rule
@@ -177,7 +177,7 @@ def check_single_declare_call(rel_files: List[String]) raises:
     else stops that from compiling and running, just with two independent
     sets of tables instead of one shared one). A project with no
     `@@{` at all is fine (a schema-only library file, say) -- an
-    `@@init()`/`@@start_init_from_json(...)` call with no `@@{`
+    `@@init()`/`@@begin_init_from_json(...)` call with no `@@{`
     before it in the same function is instead caught by
     `rewrite_markers` itself, once codegen actually reaches that call
     site, since only `@@{` establishes the `sqrrl__world` name

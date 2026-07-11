@@ -554,6 +554,25 @@ def test_find_next_marker_finds_bare_name_ref() raises:
     assert_equal(parsed_ref.name, String("alice"))
 
 
+def test_find_next_marker_name_ref_before_if_colon_not_confused_with_entity_param() raises:
+    """`@@person` here is a plain reference ending an `if` condition -- the
+    `:` that follows belongs to the `if`, not to a `@@name: @@Type` shape.
+    Regression test: `skip_trivia` used to cross the newline after that `:`
+    and find the *next* line's `@@result` marker, misclassifying this as
+    `ENTITY_PARAM` (`'@@person: @@result'`) instead of `NAME_REF` -- confirmed
+    via a real end-to-end compile failing with exactly that bogus pairing
+    before `skip_same_line_trivia` was introduced to fix it."""
+    var sc = Scanner("if @@p != @@person:\n    @@result.add(@@p)")
+    var first = sc.find_next_marker()
+    assert_true(first == MarkerKind.NAME_REF)
+    var parsed_ref = sc.parse_name_ref()
+    assert_equal(parsed_ref.name, String("p"))
+    var second = sc.find_next_marker()
+    assert_true(second == MarkerKind.NAME_REF)
+    var second_ref = sc.parse_name_ref()
+    assert_equal(second_ref.name, String("person"))
+
+
 def test_find_next_marker_returns_none_when_absent() raises:
     var sc = Scanner("plain code with no markers")
     assert_true(sc.find_next_marker() == MarkerKind.NONE)

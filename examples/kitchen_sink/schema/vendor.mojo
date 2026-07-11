@@ -146,3 +146,4 @@ struct sqrrl__VendorTable(Movable):
                     continue
                 sc.expect_byte(UInt8(ord("]")))
                 break
+

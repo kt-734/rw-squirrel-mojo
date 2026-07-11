@@ -132,7 +132,7 @@ def emit_file(
         # if it hand-threads a whole-world reload directly (`var sc =
         # sqrrl__JsonScanner(dump); var reloaded =
         # sqrrl__world_from_json(sc);`, see ADVANCED_FEATURES.md) rather
-        # than going through `@@start_init_from_json(...)` sugar -- either
+        # than going through `@@begin_init_from_json(...)` sugar -- either
         # substring appearing is reason enough to import both, same as
         # `Rel`/`UniqueRel`/... are always imported together regardless of
         # which ones a specific file actually uses.

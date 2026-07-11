@@ -12,3 +12,4 @@ struct Pair[A: Copyable & ImplicitlyDeletable, B: Copyable & ImplicitlyDeletable
         self.first = first^
         self.second = second^
 
+

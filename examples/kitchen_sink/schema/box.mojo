@@ -10,3 +10,4 @@ struct Box[T: Copyable & ImplicitlyDeletable](Copyable, Movable, ImplicitlyDelet
     def __init__(out self, var value: Self.T):
         self.value = value^
 
+

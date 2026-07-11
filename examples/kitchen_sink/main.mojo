@@ -45,13 +45,13 @@ def main() raises:
     # closed by `@@}`'s own `finally:` (which checks nothing is still alive
     # before the function returns -- a workaround for a Mojo `__del__`
     # ordering bug, see `mojo-del-destructor-ordering-bug.md`/README's
-    # "Known limitation"). `@@init()`/`@@start_init_from_json(...)` may
+    # "Known limitation"). `@@init()`/`@@begin_init_from_json(...)` may
     # still be called any number of times afterward, in any control-flow
-    # shape (`if restoring: @@start_init_from_json(dump); else: @@init();`),
+    # shape (`if restoring: @@begin_init_from_json(dump); else: @@init();`),
     # each one just replacing whatever `sqrrl__world` currently holds.
     var sqrrl__world = sqrrl__init()
     try:
-        # `@@start_init_from_json(json)` is `@@init()`'s reload counterpart --
+        # `@@begin_init_from_json(json)` is `@@init()`'s reload counterpart --
         # obtains the same shared `sqrrl__world` binding, but by reconstructing
         # it from a JSON dump instead of building an empty one. A real app
         # would pass in a previously-saved dump; an empty object bootstraps an
@@ -60,7 +60,7 @@ def main() raises:
         var seed = String("{}")
         sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init_from_json(seed)
         # Nothing temporary to drop yet (`seed` is an empty world), but
-        # `@@finalize_init_from_json()` is valid right away regardless --
+        # `@@end_init_from_json()` is valid right away regardless --
         # a no-op here, exercised for real below on the whole-world reload.
         sqrrl__world.sqrrl__finalize_temp_keep_alives()
 
@@ -280,7 +280,7 @@ def main() raises:
         # empty world -- confirmed empirically (every count read back as 0
         # until this was reordered). Once the dump is taken and "keep alive"
         # has run, nothing is left referencing the current world, so
-        # `@@start_init_from_json(...)` can safely replace it in place (see
+        # `@@begin_init_from_json(...)` can safely replace it in place (see
         # `sqrrl__check_no_leaks`/`@@{`'s own doc comments) -- no need
         # to hand-thread a second, independent `sqrrl__World` the way
         # ADVANCED_FEATURES.md's escape hatch would. `sqrrl__world.to_json()`
@@ -308,9 +308,9 @@ def main() raises:
         print("reloaded audit log count:", len(sqrrl__world.AuditLog.all()))
 
         # `@@reloaded_alice` is a real, independently-held handle now --
-        # everything else `@@start_init_from_json(...)` only retained
+        # everything else `@@begin_init_from_json(...)` only retained
         # *temporarily* (`TempKeepAlives`, see README's "JSON serialization"
-        # section) can be dropped in one shot via `@@finalize_init_from_json()`.
+        # section) can be dropped in one shot via `@@end_init_from_json()`.
         # Department count drops from 2 to 1 -- `sales` (Bob/Carol/Dave's own
         # department, nothing here still references) goes with the drop; `eng`
         # survives, kept alive transitively through `@@reloaded_alice`'s own

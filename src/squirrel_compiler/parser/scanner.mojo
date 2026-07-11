@@ -173,6 +173,28 @@ struct Scanner(Movable):
             if not self.at_end():
                 self.pos += 1  # consume closing quote
 
+    def skip_same_line_whitespace(mut self):
+        """Like `skip_whitespace`, but stops at (without consuming) a
+        newline instead of crossing it."""
+        while not self.at_end():
+            var b = self.peek()
+            if b == UInt8(ord(" ")) or b == UInt8(ord("\t")) or b == UInt8(ord("\r")):
+                self.pos += 1
+            else:
+                break
+
+    def skip_same_line_trivia(mut self):
+        """Like `skip_trivia`, but never crosses a newline -- for lookahead
+        that must confirm something follows on the *same* line rather than
+        incidentally wandering onto a following one (see the `:` branch of
+        `find_next_marker`, the one caller so far)."""
+        while True:
+            var before = self.pos
+            self.skip_same_line_whitespace()
+            self.skip_non_code()
+            if self.pos == before:
+                return
+
     def skip_trivia(mut self):
         """Skips whitespace and comments/strings, interleaved, until real
         code or end of input."""
@@ -402,7 +424,7 @@ struct Scanner(Movable):
         total: `@@{` is the single point that brings `sqrrl__world`
         into scope for a whole script, via `var sqrrl__world:
         sqrrl__World`, left deliberately uninitialized until whichever
-        `@@init()`/`@@start_init_from_json(...)` call(s) follow it assign
+        `@@init()`/`@@begin_init_from_json(...)` call(s) follow it assign
         into it -- see `rewrite_markers`'s `MarkerKind.DECLARE` handling),
         not to parse or consume anything else about the surrounding
         source, so it doesn't need the full marker-dispatch loop
@@ -813,15 +835,15 @@ struct Scanner(Movable):
         having no mutable global/static state (see `Table`'s doc comment in
         `entity.mojo`): `@@{` (`MarkerKind.DECLARE`) brings
         `sqrrl__world` into scope, uninitialized, exactly once per script
-        -- required before any `@@init()`/`@@start_init_from_json(...)`
+        -- required before any `@@init()`/`@@begin_init_from_json(...)`
         call (see those two immediately below), specifically so a script
         can choose between them conditionally (`if restoring_from_disk:
-        @@start_init_from_json(dump); else: @@init();`) with Mojo's own
+        @@begin_init_from_json(dump); else: @@init();`) with Mojo's own
         definite-initialization checking (not a hand-rolled control-flow
         analysis here) catching a branch that forgot to initialize it.
         `@@init()` (`MarkerKind.INIT`) is the explicit call a script makes
-        to obtain `sqrrl__World`'s shared instance. `@@start_init_from_json(json)`
-        (`MarkerKind.START_INIT_FROM_JSON`) is its reload counterpart,
+        to obtain `sqrrl__World`'s shared instance. `@@begin_init_from_json(json)`
+        (`MarkerKind.BEGIN_INIT_FROM_JSON`) is its reload counterpart,
         obtaining that same shared instance by reconstructing it from a
         JSON dump (`sqrrl__world_from_json`) instead of building an empty
         one -- checked *before* the ordinary `@@name(`/`MarkerKind.
@@ -830,10 +852,10 @@ struct Scanner(Movable):
         called any number of times, in any control-flow shape, after
         `@@{` -- each one assigns into the already-declared
         `sqrrl__world`, dropping whatever it held before (see
-        `rewrite_markers`'s `MarkerKind.INIT`/`START_INIT_FROM_JSON`
-        handling). `@@finalize_init_from_json()`
-        (`MarkerKind.FINALIZE_INIT_FROM_JSON`) drops every entity a prior
-        `@@start_init_from_json(...)` retained only temporarily (see
+        `rewrite_markers`'s `MarkerKind.INIT`/`BEGIN_INIT_FROM_JSON`
+        handling). `@@end_init_from_json()`
+        (`MarkerKind.END_INIT_FROM_JSON`) drops every entity a prior
+        `@@begin_init_from_json(...)` retained only temporarily (see
         `TempKeepAlives`, `driver.emit_world_module`) -- optional, and
         valid after either form of `@@init`, not just the reload one (a
         no-op if there's nothing temporary to drop). `@@name(` (`MarkerKind.WORLD_FUNC`, e.g. `def @@make_department(a:
@@ -924,15 +946,15 @@ struct Scanner(Movable):
                 if ident == "init" and self.peek_empty_call_follows():
                     self.pos = marker_start
                     return MarkerKind.INIT
-                if ident == "start_init_from_json":
+                if ident == "begin_init_from_json":
                     self.pos = marker_start
-                    return MarkerKind.START_INIT_FROM_JSON
+                    return MarkerKind.BEGIN_INIT_FROM_JSON
                 if ident == "init_from_json":
                     self.pos = marker_start
                     return MarkerKind.INIT_FROM_JSON
-                if ident == "finalize_init_from_json" and self.peek_empty_call_follows():
+                if ident == "end_init_from_json" and self.peek_empty_call_follows():
                     self.pos = marker_start
-                    return MarkerKind.FINALIZE_INIT_FROM_JSON
+                    return MarkerKind.END_INIT_FROM_JSON
                 self.skip_trivia()
                 var kind: MarkerKind
                 if self.peek() == UInt8(ord("{")):
@@ -944,21 +966,30 @@ struct Scanner(Movable):
                 elif self.peek() == UInt8(ord(":")):
                     var save_colon = self.pos
                     self.pos += 1
-                    self.skip_trivia()
-                    # `is_after_arrow` is checked *before* the "does a `@@`
-                    # follow this colon" test, not after -- `-> @@Type:`
-                    # always ends the `def`/`for` header line, with a
-                    # newline before whatever comes next, so it's never
-                    # itself the start of a genuine same-line `@@name:
-                    # @@Type` shape. Checking `starts_with("@@")` first
-                    # used to misfire when a `@@`-returning function's very
-                    # first body statement happened to start with another
-                    # `@@`-marker (`skip_trivia` crosses the intervening
-                    # newline too, so it would find that *next* marker and
-                    # wrongly conclude *this* one was `@@name: @@Type`
-                    # instead of a return type) -- confirmed via a
-                    # `-> @@Employee:` immediately followed by
-                    # `@@e.title = ...` on the next line.
+                    self.skip_same_line_trivia()
+                    # A genuine `@@name: @@Type`/`@@name: Container[@@Type]`
+                    # shape (entity param or `var` declaration) always has
+                    # its type on the *same* line as the name -- every real
+                    # example in this codebase writes it that way, and nothing
+                    # about the grammar needs otherwise. `skip_same_line_trivia`
+                    # (not `skip_trivia`) enforces that: if a newline comes
+                    # before any further non-trivia content, we're sitting at
+                    # the end of some other colon-terminated construct instead
+                    # (an `if`/`for`/`while` header whose condition happened to
+                    # end in a bare `@@name` reference), and `starts_with("@@")`
+                    # below will correctly come back `False` rather than
+                    # wandering onto the next line and finding an unrelated
+                    # marker there. `is_after_arrow` is checked first regardless
+                    # -- `-> @@Type:` always ends the `def`/`for` header line
+                    # with a newline before whatever comes next, so it's never
+                    # itself the start of a genuine same-line `@@name: @@Type`
+                    # shape either way. (Confirmed via two separate false
+                    # positives this uncovered: a `@@`-returning function's
+                    # first body statement starting with another `@@`-marker,
+                    # fixed by checking `is_after_arrow` first; and a bare
+                    # `@@name` used in an `if`/`for` condition immediately
+                    # followed by another `@@`-marker on the next line, fixed
+                    # by `skip_same_line_trivia` here.)
                     if is_after_arrow(self.source, marker_start):
                         kind = MarkerKind.RETURN_TYPE
                     elif self.starts_with("@@"):
@@ -1354,7 +1385,7 @@ struct Scanner(Movable):
             raise self.err("InvalidSquirrelSyntax: '@@init' takes no arguments")
 
     def _parse_json_call_arg(mut self, call_text: String) raises -> String:
-        """Shared by `parse_start_init_from_json`/`parse_init_from_json`:
+        """Shared by `parse_begin_init_from_json`/`parse_init_from_json`:
         requires `self.pos` right after the call's own opening `(` (each
         caller already consumed its own distinct leading token and that
         `(` before calling this). Scans through the matching `)` at
@@ -1364,7 +1395,7 @@ struct Scanner(Movable):
         expression shape Mojo itself accepts there just works, the same
         way `@@Type { ... }` construct field values are never themselves
         parsed as anything but opaque text. `call_text` (the caller's own
-        name, `"@@start_init_from_json"` or `"@@init_from_json"`) only
+        name, `"@@begin_init_from_json"` or `"@@init_from_json"`) only
         appears in the two error messages, so each reads correctly."""
         var start = self.pos
         var depth = 0
@@ -1389,30 +1420,30 @@ struct Scanner(Movable):
         self.pos += 1  # consume ')'
         return String(raw)
 
-    def parse_start_init_from_json(mut self) raises -> String:
-        """Requires `self.pos` at the `@@` of `@@start_init_from_json(<expr>)`,
+    def parse_begin_init_from_json(mut self) raises -> String:
+        """Requires `self.pos` at the `@@` of `@@begin_init_from_json(<expr>)`,
         e.g. right after `find_next_marker` returns
-        `MarkerKind.START_INIT_FROM_JSON` -- `@@init()`'s reload
+        `MarkerKind.BEGIN_INIT_FROM_JSON` -- `@@init()`'s reload
         counterpart, taking one `String` argument (a JSON dump, however the
         caller obtained it: a literal, a variable, a function call, ...)
         instead of none."""
-        if not self.try_consume("@@start_init_from_json"):
-            raise self.err("InvalidSquirrelSyntax: expected '@@start_init_from_json'")
+        if not self.try_consume("@@begin_init_from_json"):
+            raise self.err("InvalidSquirrelSyntax: expected '@@begin_init_from_json'")
         self.skip_trivia()
         if not self.try_consume("("):
-            raise self.err("InvalidSquirrelSyntax: expected '(' after '@@start_init_from_json'")
+            raise self.err("InvalidSquirrelSyntax: expected '(' after '@@begin_init_from_json'")
         self.skip_trivia()
-        return self._parse_json_call_arg("@@start_init_from_json")
+        return self._parse_json_call_arg("@@begin_init_from_json")
 
     def parse_init_from_json(mut self) raises -> String:
         """Requires `self.pos` at the `@@` of `@@init_from_json(<expr>)`,
         e.g. right after `find_next_marker` returns
-        `MarkerKind.INIT_FROM_JSON` -- `@@start_init_from_json(...)`
-        immediately followed by `@@finalize_init_from_json()`, both in one
+        `MarkerKind.INIT_FROM_JSON` -- `@@begin_init_from_json(...)`
+        immediately followed by `@@end_init_from_json()`, both in one
         call, for the common case where nothing needs grabbing from the
         reload beyond whatever real relation fields/`keepalive` tags
         already keep alive on their own. Same argument shape as
-        `parse_start_init_from_json`."""
+        `parse_begin_init_from_json`."""
         if not self.try_consume("@@init_from_json"):
             raise self.err("InvalidSquirrelSyntax: expected '@@init_from_json'")
         self.skip_trivia()
@@ -1421,23 +1452,23 @@ struct Scanner(Movable):
         self.skip_trivia()
         return self._parse_json_call_arg("@@init_from_json")
 
-    def parse_finalize_init_from_json(mut self) raises:
-        """Requires `self.pos` at the `@@` of `@@finalize_init_from_json()`,
+    def parse_end_init_from_json(mut self) raises:
+        """Requires `self.pos` at the `@@` of `@@end_init_from_json()`,
         e.g. right after `find_next_marker` returns
-        `MarkerKind.FINALIZE_INIT_FROM_JSON`. Takes no arguments -- just
+        `MarkerKind.END_INIT_FROM_JSON`. Takes no arguments -- just
         consumes the token; codegen (`rewrite_markers`) is where dropping
         `sqrrl__world`'s temporary reload retention actually happens."""
-        if not self.try_consume("@@finalize_init_from_json"):
-            raise self.err("InvalidSquirrelSyntax: expected '@@finalize_init_from_json'")
+        if not self.try_consume("@@end_init_from_json"):
+            raise self.err("InvalidSquirrelSyntax: expected '@@end_init_from_json'")
         self.skip_trivia()
         if not self.try_consume("("):
             raise self.err(
-                "InvalidSquirrelSyntax: expected '(' after '@@finalize_init_from_json'"
+                "InvalidSquirrelSyntax: expected '(' after '@@end_init_from_json'"
             )
         self.skip_trivia()
         if not self.try_consume(")"):
             raise self.err(
-                "InvalidSquirrelSyntax: '@@finalize_init_from_json' takes no arguments"
+                "InvalidSquirrelSyntax: '@@end_init_from_json' takes no arguments"
             )
 
     def parse_world_func(mut self) raises -> String:

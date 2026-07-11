@@ -13,3 +13,4 @@ struct Assignment(Copyable, Movable, ImplicitlyDeletable):
         self.person = person^
         self.role = role^
 
+

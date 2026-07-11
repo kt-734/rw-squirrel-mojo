@@ -143,6 +143,7 @@ struct sqrrl__DepartmentTable(Movable):
                     continue
                 sc.expect_byte(UInt8(ord("]")))
                 break
+
 struct sqrrl__EmployeeTableState(TableStateLike, Movable, ImplicitlyDeletable):
     var title: Rel[String]
     var dept: Rel[EntityHandle[sqrrl__DepartmentTableState]]
@@ -329,6 +330,7 @@ struct sqrrl__EmployeeTable(Movable):
                     continue
                 sc.expect_byte(UInt8(ord("]")))
                 break
+
 def hire(mut sqrrl__world: sqrrl__World, title: String, dept: EntityHandle[sqrrl__DepartmentTableState]) -> EntityHandle[sqrrl__EmployeeTableState]:
     # Ordinary, hand-written Mojo -- not a @@-marked construct/call at all
     # -- returning a plain, untracked EntityHandle to show it can still be

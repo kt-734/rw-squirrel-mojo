@@ -1,0 +1,53 @@
+@@struct @@Person:
+    name: String
+
+@@struct keepalive @@Group:
+    multi @@members: @@Person
+
+
+def @@are_friends(@@one: @@Person, @@two: @@Person) -> Bool:
+    if @@one == @@two:
+        return False
+    for @@g in @@Group.for_members(@@one):
+        if @@two in @@g.@@members:
+            return True
+    return False
+
+
+def @@all_friends(@@person: @@Person) -> Set[@@Person]:
+    var @@result = Set[@@Person]()
+    for @@g in @@Group.for_members(@@person):
+        for @@p in @@g.@@members:
+            if @@p != @@person:
+                @@result.add(@@p)
+    return @@result^
+
+
+def main() raises:
+    @@{
+        var @@alice = @@Person { .name = "Alice" }
+        var @@bob = @@Person { .name = "Bob" }
+        var @@carol = @@Person { .name = "Carol" }
+        var @@dave = @@Person { .name = "Dave" }
+
+        # A "friend group" is modeled as its own entity rather than a
+        # field directly on @@Person -- a field on @@Person pointing at
+        # @@Person is a self-relation cycle no matter what wrapper it's
+        # given (List/Set/multi all still count as an edge back to where
+        # it started), so a real many-to-many friendship instead goes
+        # through a join struct that only points *at* @@Person, never
+        # the reverse. `keepalive` matters here too: a @@Group's only
+        # strong reference is otherwise whatever local handle created
+        # it, so without `keepalive` a group can silently stop existing
+        # the moment nothing still holds that handle.
+        _ = @@Group { .@@members = Set(@@alice, @@bob) }
+        _ = @@Group { .@@members = Set(@@alice, @@carol) }
+
+        print("alice and bob:", @@are_friends(@@alice, @@bob))
+        print("alice and dave:", @@are_friends(@@alice, @@dave))
+        print("alice and alice:", @@are_friends(@@alice, @@alice))
+
+        print("alice's friends:")
+        for @@f in @@all_friends(@@alice):
+            print(" -", @@f.name)
+    @@}

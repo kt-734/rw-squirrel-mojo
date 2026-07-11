@@ -117,7 +117,7 @@ Every other function that needs `sqrrl__world` takes `@@` on its own
 parameter list instead of opening a block of its own. `@@init()` inside
 the block re-initializes it to a fresh, empty world (rarely needed right
 after `@@{`, which already starts empty — useful for actually resetting
-mid-function). `@@start_init_from_json(json)` is its reload counterpart,
+mid-function). `@@begin_init_from_json(json)` is its reload counterpart,
 obtaining the same shared world by reconstructing it from a previous
 `sqrrl__world.to_json()` dump (see "JSON serialization" below) instead of
 building an empty one:
@@ -125,7 +125,7 @@ building an empty one:
 ```
 def main(dump: String) raises:
     @@{
-        @@start_init_from_json(dump)
+        @@begin_init_from_json(dump)
         print(@@Person.all())
     @@}
 ```
@@ -134,10 +134,10 @@ Either one may be called any number of times after `@@{`, in any
 control-flow shape — including *conditionally*, letting a script choose
 between them at runtime — since each just replaces whatever `sqrrl__world`
 currently holds, rather than needing to be the one thing that first
-brings it into existence (see `@@finalize_init_from_json()`/
+brings it into existence (see `@@end_init_from_json()`/
 `@@init_from_json(...)` below for the reload side's own cleanup step).
 
-Every `@@init()`/`@@start_init_from_json(...)` call checks that whatever
+Every `@@init()`/`@@begin_init_from_json(...)` call checks that whatever
 `sqrrl__world` *currently* holds is empty before replacing it. If something
 is still alive in it — a stray local variable, a list built out of its
 handles, anything other than the world's own internal bookkeeping —
@@ -147,7 +147,7 @@ explicit `finally:` rather than relying on `sqrrl__World`'s own `__del__` —
 not `raises`, deliberately: a leak is the same kind of bug regardless of
 when it's discovered, never a legitimate condition worth making catchable
 in one case and fatal in the other (a destructor can't propagate a raise
-at all). `@@start_init_from_json(...)` still needs the enclosing function
+at all). `@@begin_init_from_json(...)` still needs the enclosing function
 to be `raises` (reconstructing from JSON can fail for unrelated reasons —
 a `unique` field's constraint, say), but plain `@@init()` alone doesn't.
 
@@ -176,8 +176,8 @@ outright — that would mean two disconnected `sqrrl__world` bindings with
 no shared scope between them, defeating the whole point of threading one
 world through `@@`.
 
-`@@finalize_init_from_json()` is required, not optional cleanup — it drops
-every entity `@@start_init_from_json(...)` retained only *temporarily*
+`@@end_init_from_json()` is required, not optional cleanup — it drops
+every entity `@@begin_init_from_json(...)` retained only *temporarily*
 while reconstructing the world (see "JSON serialization" below for why
 that retention is needed and where it lives). Skip it and the *next* leak
 check — the next `@@init()`-family call, or `@@}`/`sqrrl__world.__del__`
@@ -191,9 +191,9 @@ other last handle dropping:
 ```
 def main(dump: String) raises:
     @@{
-        @@start_init_from_json(dump)
+        @@begin_init_from_json(dump)
         var kept = @@Person.all()      # re-establish whatever references matter first
-        @@finalize_init_from_json()    # required -- drop everything else the reload retained
+        @@end_init_from_json()    # required -- drop everything else the reload retained
         print(len(kept))
     @@}
 ```
@@ -201,8 +201,8 @@ def main(dump: String) raises:
 If a script doesn't need to grab anything from the reload beyond what real
 relation fields and `keepalive` tags already keep alive on their own,
 `@@init_from_json(json)` does both steps in one call —
-`@@start_init_from_json(json)` immediately followed by
-`@@finalize_init_from_json()` — so there's nothing to remember to call
+`@@begin_init_from_json(json)` immediately followed by
+`@@end_init_from_json()` — so there's nothing to remember to call
 separately:
 
 ```
@@ -883,7 +883,7 @@ artifact; it only means anything alongside whichever other tables its
 relation fields (direct or through an embedded plain struct's own
 relation field) point into. Whole-world serialization is the form that's
 actually self-contained, so that's what's DSL-reachable: `@@init()`'s
-reload counterpart is `@@start_init_from_json`/`@@finalize_init_from_json`
+reload counterpart is `@@begin_init_from_json`/`@@end_init_from_json`
 (see "Constructing and using one" above); the dump half has no sugar at
 all (there's nothing to inject — it just always dumps everything), so
 that's thread-`sqrrl__world`-by-hand territory (see
@@ -927,7 +927,7 @@ have nothing else holding them yet (no relation field pointing at them,
 no `keepalive` tag), so they're retained *temporarily* instead, in
 `reloaded.sqrrl__temp_keep_alives` (an `Optional[TempKeepAlives]`, one
 `List[EntityHandle[...]]` field per non-tagged struct) — until whichever of
-`@@finalize_init_from_json()` or its hand-written equivalent,
+`@@end_init_from_json()` or its hand-written equivalent,
 `reloaded.sqrrl__finalize_temp_keep_alives()`, drops it. Grab whatever
 references actually matter before dropping it — anything else with no
 other anchor is destroyed at that point, same as any other last handle
@@ -940,7 +940,7 @@ the reads that come before it has been observed to corrupt those *earlier*
 reads (confirmed: a `.for_<unique>` lookup partway through a function
 reading back an already-collapsed table that a `.all()` call two lines
 above it, in that same function, still saw correctly). Calling the method
-instead — whether via `@@finalize_init_from_json()` or by hand on a
+instead — whether via `@@end_init_from_json()` or by hand on a
 manually-threaded world — avoids it.
 
 ## Project layout

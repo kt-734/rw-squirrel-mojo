@@ -180,6 +180,7 @@ struct sqrrl__PersonTable(Movable):
                     continue
                 sc.expect_byte(UInt8(ord("]")))
                 break
+
 def main() raises:
     var sqrrl__world = sqrrl__init()
     try:

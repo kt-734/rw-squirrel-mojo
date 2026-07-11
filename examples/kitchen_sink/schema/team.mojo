@@ -302,3 +302,4 @@ struct sqrrl__TeamTable(Movable):
                     continue
                 sc.expect_byte(UInt8(ord("]")))
                 break
+

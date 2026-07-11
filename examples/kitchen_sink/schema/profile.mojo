@@ -26,3 +26,4 @@ struct Profile(Copyable, Movable, ImplicitlyDeletable):
         self.past_addresses = past_addresses^
         self.boxed_ratings = boxed_ratings^
 
+

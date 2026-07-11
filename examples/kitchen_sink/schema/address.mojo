@@ -12,3 +12,4 @@ struct Address(Copyable, Movable, ImplicitlyDeletable):
         self.street = street^
         self.city = city^
 
+

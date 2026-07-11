@@ -36,6 +36,14 @@ escape hatch [Advanced features](advanced-features.md) covers in full.
 — a relation field pointing the *other* direction (`@@Person` holding
 `@@employee: @@Employee`), across multiple files.
 
+**[`friends`](https://github.com/kt-734/rw-squirrel-mojo/tree/main/examples/friends)**
+— a symmetric self-relation (`@@Person` "friends with" `@@Person`) modeled
+via a `keepalive` join struct (`@@Group`) with a `multi @@member: @@Person`
+field, since a relation field can never point back at its own struct
+(always a cycle, regardless of `List`/`Set`/`multi`). `@@are_friends`/
+`@@all_friends` are ordinary `@@`-marked functions built on top of the
+generated `for_member`/`add_to_member`.
+
 **[`org`](https://github.com/kt-734/rw-squirrel-mojo/tree/main/examples/org)**
 — entity construction factored into `@@`-marked functions
 (`@@make_department`, `@@hire`, `@@make_team`) imported across files, with
@@ -63,7 +71,7 @@ def main() raises:
 hand-written plain structs, deeply nested containers, reading a wrapped
 relation field/indexing/reading a further field in one expression, a plain
 struct's own relation field read through a fully unmarked local variable,
-and the whole-world JSON dump/reload (`@@start_init_from_json`/
-`@@finalize_init_from_json`) — all in one project. The one to read once
+and the whole-world JSON dump/reload (`@@begin_init_from_json`/
+`@@end_init_from_json`) — all in one project. The one to read once
 you need to know how a specific combination of features actually
 interacts.

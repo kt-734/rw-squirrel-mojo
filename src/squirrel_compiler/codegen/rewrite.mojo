@@ -97,7 +97,7 @@ def rewrite_markers(
     it into scope explicitly, once per function that needs it, starting
     with `@@{`, which becomes `var sqrrl__world = sqrrl__init()`
     -- a real, live, empty world immediately, not an uninitialized
-    declaration. That's what lets `@@init()`/`@@start_init_from_json(...)`
+    declaration. That's what lets `@@init()`/`@@begin_init_from_json(...)`
     be called any number of times afterward, in any control-flow shape
     (including conditionally, `if .../else @@init();`), each one just
     replacing whatever `sqrrl__world` currently holds: there's no
@@ -105,13 +105,13 @@ def rewrite_markers(
     initialization checking to need to rule out, since `@@{`
     already guaranteed a valid value up front. `@@init()` becomes
     `sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world = sqrrl__init()`,
-    `@@start_init_from_json(json)` becomes
+    `@@begin_init_from_json(json)` becomes
     `sqrrl__world.sqrrl__check_no_leaks(); sqrrl__world =
     sqrrl__init_from_json(json)` (reload instead of a fresh, empty world --
     `json`'s own text is spliced in verbatim, unparsed, same as any other
     construct's field value). `sqrrl__init_from_json` (see
     `driver.emit_world_module`) is its own generated function, not inlined
-    here, specifically because `@@start_init_from_json(...)` can now be
+    here, specifically because `@@begin_init_from_json(...)` can now be
     called more than once in the same straight-line function -- inlining
     the `var sqrrl__scanner = sqrrl__JsonScanner(json)` a single call site
     could get away with would redeclare that same local a second time.
@@ -122,7 +122,7 @@ def rewrite_markers(
     one proceeds -- harmless the very first time this runs, since
     `@@{`'s own world starts out empty by construction, so there's
     no special-casing needed for "is this the first call." Both `@@init()`/
-    `@@start_init_from_json(...)` are bare assignments, never a fresh
+    `@@begin_init_from_json(...)` are bare assignments, never a fresh
     `var`, since `@@{` already declared the name; using either one
     before `@@{` has run is rejected (see their own branches
     below). Or a function whose own name
@@ -168,7 +168,7 @@ def rewrite_markers(
     `@@{` makes `sqrrl__world` a real, live value immediately (see
     above), so once it's declared, it's *always* safe to read; the only
     thing left to guard against is `@@Type{...}`/`@@name(`/
-    `@@finalize_init_from_json()`/`@@init()`/`@@start_init_from_json(...)`
+    `@@end_init_from_json()`/`@@init()`/`@@begin_init_from_json(...)`
     appearing before `@@{` has run at all in this function, which
     `world_declared` alone is enough to catch. Referencing an entity that
     was never constructed via `@@Type{...}` in this same function, or
@@ -224,12 +224,29 @@ def rewrite_markers(
         if kind == MarkerKind.STRUCT:
             var parsed = sc.parse_struct()
             out += emit_table(parsed, plain_struct_fields)
+            # `scan_indented_block` (inside `sc.parse_struct()`) consumes
+            # every blank line trailing the struct's own field list as part
+            # of finding where the block ends (it has to -- a blank line's
+            # indentation can't tell it anything) -- so whatever separated
+            # this struct from the next thing in the source is already gone
+            # by the time `self.pos` lands past it, and the next loop
+            # iteration's `between` text copy starts right at the next
+            # non-blank content with no blank line of its own left to copy.
+            # Adding one back here unconditionally is what keeps a `.rel`
+            # file with more than one top-level thing (two `@@struct`s, or a
+            # struct followed by a function) from emitting them jammed
+            # together with zero separation -- confirmed via `examples/
+            # friends/friends.rel`, the first `.rel` file in this codebase
+            # to actually put more than one `@@struct`/script body in a
+            # single file and surface it.
+            out += "\n"
             pending_decl = None
             pending_for_loop_decl = None
 
         elif kind == MarkerKind.PLAIN_STRUCT:
             var parsed = sc.parse_plain_struct()
             out += emit_plain_struct(parsed)
+            out += "\n"
             pending_decl = None
             pending_for_loop_decl = None
 
@@ -299,18 +316,18 @@ def rewrite_markers(
             pending_decl = None
             pending_for_loop_decl = None
 
-        elif kind == MarkerKind.START_INIT_FROM_JSON:
-            var json_expr = sc.parse_start_init_from_json()
+        elif kind == MarkerKind.BEGIN_INIT_FROM_JSON:
+            var json_expr = sc.parse_begin_init_from_json()
             if not world_declared:
                 raise sc.err(
-                    "InvalidSquirrelSyntax: '@@start_init_from_json(...)'"
+                    "InvalidSquirrelSyntax: '@@begin_init_from_json(...)'"
                     " needs '@@{' called first in this function"
                 )
             # `sqrrl__init_from_json` (see `driver.emit_world_module`) wraps
             # building a `sqrrl__JsonScanner` and calling
             # `sqrrl__world_from_json` in its own function, rather than
             # inlining `var sqrrl__scanner = sqrrl__JsonScanner(...)` here
-            # -- `@@start_init_from_json(...)` may now be called more than
+            # -- `@@begin_init_from_json(...)` may now be called more than
             # once in the same straight-line function (any number of times
             # after `@@{`), and inlining it would redeclare that
             # same local a second time, a genuine Mojo error, not just a
@@ -330,15 +347,15 @@ def rewrite_markers(
                     "InvalidSquirrelSyntax: '@@init_from_json(...)' needs"
                     " '@@{' called first in this function"
                 )
-            # `@@start_init_from_json(...)` immediately followed by
-            # `@@finalize_init_from_json()`, for the common case where the
+            # `@@begin_init_from_json(...)` immediately followed by
+            # `@@end_init_from_json()`, for the common case where the
             # caller doesn't need to grab anything from the reload beyond
             # what real relation fields/`keepalive` tags already keep
             # alive on their own -- finalizing isn't an optional cleanup
-            # step (see `FINALIZE_INIT_FROM_JSON` below): skip it and the
+            # step (see `END_INIT_FROM_JSON` below): skip it and the
             # very next leak check (the next `@@init()`-family call, or
             # `sqrrl__world.__del__` if the function just returns) aborts,
-            # since every non-`keepalive` entity `@@start_init_from_json`
+            # since every non-`keepalive` entity `@@begin_init_from_json`
             # retained is still "live" as far as `Table.all()` is
             # concerned until `sqrrl__finalize_temp_keep_alives()` drops
             # them. This marker exists so that's not a footgun you can
@@ -351,13 +368,13 @@ def rewrite_markers(
             pending_decl = None
             pending_for_loop_decl = None
 
-        elif kind == MarkerKind.FINALIZE_INIT_FROM_JSON:
-            sc.parse_finalize_init_from_json()
+        elif kind == MarkerKind.END_INIT_FROM_JSON:
+            sc.parse_end_init_from_json()
             if not world_declared:
                 raise sc.err(
-                    "InvalidSquirrelSyntax: '@@finalize_init_from_json()' needs"
+                    "InvalidSquirrelSyntax: '@@end_init_from_json()' needs"
                     " 'sqrrl__world' -- open @@{ then @@init() or"
-                    " @@start_init_from_json(...) first"
+                    " @@begin_init_from_json(...) first"
                 )
             # `sqrrl__world.sqrrl__finalize_temp_keep_alives()`, not an
             # inlined `sqrrl__world.sqrrl__temp_keep_alives = None` here --

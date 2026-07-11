@@ -473,3 +473,4 @@ struct sqrrl__ProjectTable(Movable):
                     continue
                 sc.expect_byte(UInt8(ord("]")))
                 break
+

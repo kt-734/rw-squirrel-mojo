@@ -1199,10 +1199,10 @@ def test_convert_directory_rejects_multiple_declare_calls() raises:
     _rmtree(root)
 
 
-def test_convert_directory_rejects_start_init_from_json_without_declare_in_that_function() raises:
+def test_convert_directory_rejects_begin_init_from_json_without_declare_in_that_function() raises:
     """`world_declared` is function-scoped, reset at every top-level `def`
     (same as `world_available` always was) -- a *different* function using
-    `@@start_init_from_json(...)` needs its *own* `@@{` in that
+    `@@begin_init_from_json(...)` needs its *own* `@@{` in that
     same function, even if `main()` already declared and initialized its
     own `sqrrl__world`; there's no way for the two to end up sharing one
     binding this way regardless (see
@@ -1227,7 +1227,7 @@ def test_convert_directory_rejects_start_init_from_json_without_declare_in_that_
         "    @@}\n"
         "\n"
         "def reload(dump: String) raises:\n"
-        "    @@start_init_from_json(dump);\n"
+        "    @@begin_init_from_json(dump);\n"
     )
     main_rel.close()
 
@@ -1239,7 +1239,7 @@ def test_convert_directory_rejects_start_init_from_json_without_declare_in_that_
 
 def test_convert_directory_allows_conditional_reload_or_init_after_declare() raises:
     """The end-to-end point of `@@{`: a real project can now choose
-    between `@@init()` and `@@start_init_from_json(...)` conditionally, in
+    between `@@init()` and `@@begin_init_from_json(...)` conditionally, in
     one function, with both branches sharing the same declared
     `sqrrl__world` -- something neither form could do alone before
     `@@{` existed (see `misc_builders.check_single_declare_call`'s
@@ -1258,7 +1258,7 @@ def test_convert_directory_allows_conditional_reload_or_init_after_declare() rai
         "def main(dump: String, restore: Bool) raises:\n"
         "    @@{\n"
         "        if restore:\n"
-        "            @@start_init_from_json(dump);\n"
+        "            @@begin_init_from_json(dump);\n"
         "        else:\n"
         "            @@init();\n"
         '        var @@d = @@Department { .name = "engineering" };\n'
@@ -1282,14 +1282,14 @@ def test_convert_directory_allows_conditional_reload_or_init_after_declare() rai
     _rmtree(root)
 
 
-def test_convert_directory_generates_start_init_from_json() raises:
-    """`@@start_init_from_json(json)` desugars to `sqrrl__world =
+def test_convert_directory_generates_begin_init_from_json() raises:
+    """`@@begin_init_from_json(json)` desugars to `sqrrl__world =
     sqrrl__init_from_json(json)` -- `@@init()`'s reload counterpart,
     obtaining the same shared `sqrrl__world` binding from a JSON dump
     instead of an empty `sqrrl__World()`. Calls into a generated
     `sqrrl__init_from_json` function (which builds its own
     `sqrrl__JsonScanner` internally) rather than inlining one at the call
-    site, so `@@start_init_from_json(...)` can be called more than once in
+    site, so `@@begin_init_from_json(...)` can be called more than once in
     the same function without redeclaring a scanner local (see
     `driver.emit_world_module`)."""
     var root = "test/tmp_driver_init_from_json_fixture"
@@ -1305,7 +1305,7 @@ def test_convert_directory_generates_start_init_from_json() raises:
     main_rel.write(
         "def main(dump: String) raises:\n"
         "    @@{\n"
-        "        @@start_init_from_json(dump);\n"
+        "        @@begin_init_from_json(dump);\n"
         '        var @@d = @@Department { .name = "engineering" };\n'
         "        print(@@d.name);\n"
         "    @@}\n"
@@ -1381,10 +1381,10 @@ def test_convert_directory_generates_check_no_leaks_and_del() raises:
     _rmtree(root)
 
 
-def test_convert_directory_generates_finalize_init_from_json() raises:
-    """`@@finalize_init_from_json()` desugars to
+def test_convert_directory_generates_end_init_from_json() raises:
+    """`@@end_init_from_json()` desugars to
     `sqrrl__world.sqrrl__finalize_temp_keep_alives()` -- dropping every
-    entity a prior `@@start_init_from_json(...)` retained only temporarily
+    entity a prior `@@begin_init_from_json(...)` retained only temporarily
     (see `TempKeepAlives`, `driver.emit_world_module`). Not inlined as
     `sqrrl__world.sqrrl__temp_keep_alives = None` directly at the call site
     -- confirmed empirically that corrupts earlier statements in the same
@@ -1392,7 +1392,7 @@ def test_convert_directory_generates_finalize_init_from_json() raises:
     repro). Valid after `@@init()` too, not just the reload form (a no-op
     there, since an ordinary `sqrrl__init()`-built world already starts
     with `sqrrl__temp_keep_alives = None`)."""
-    var root = "test/tmp_driver_finalize_init_from_json_fixture"
+    var root = "test/tmp_driver_end_init_from_json_fixture"
     if exists(root):
         _rmtree(root)
     makedirs(root, exist_ok=True)
@@ -1405,8 +1405,8 @@ def test_convert_directory_generates_finalize_init_from_json() raises:
     main_rel.write(
         "def main(dump: String) raises:\n"
         "    @@{\n"
-        "        @@start_init_from_json(dump);\n"
-        "        @@finalize_init_from_json();\n"
+        "        @@begin_init_from_json(dump);\n"
+        "        @@end_init_from_json();\n"
         "        print(len(@@Department.all()));\n"
         "    @@}\n"
     )
@@ -1422,8 +1422,8 @@ def test_convert_directory_generates_finalize_init_from_json() raises:
     _rmtree(root)
 
 
-def test_convert_directory_rejects_finalize_init_from_json_before_declare() raises:
-    """`@@finalize_init_from_json()` needs `sqrrl__world` already declared,
+def test_convert_directory_rejects_end_init_from_json_before_declare() raises:
+    """`@@end_init_from_json()` needs `sqrrl__world` already declared,
     same as `@@Type { ... }` construction or an ordinary `@@name(...)`
     world function call does -- rejected with the same
     'InvalidSquirrelSyntax' family of error rather than falling through to
@@ -1440,7 +1440,7 @@ def test_convert_directory_rejects_finalize_init_from_json_before_declare() rais
     var main_rel = open(join(root, "main.rel"), "w")
     main_rel.write(
         "def main() raises:\n"
-        "    @@finalize_init_from_json();\n"
+        "    @@end_init_from_json();\n"
     )
     main_rel.close()
 
@@ -1451,8 +1451,8 @@ def test_convert_directory_rejects_finalize_init_from_json_before_declare() rais
 
 
 def test_convert_directory_generates_init_from_json() raises:
-    """`@@init_from_json(json)` desugars to `@@start_init_from_json(json)`
-    immediately followed by `@@finalize_init_from_json()`, in one
+    """`@@init_from_json(json)` desugars to `@@begin_init_from_json(json)`
+    immediately followed by `@@end_init_from_json()`, in one
     statement -- for the common case where a script doesn't need to grab
     anything from the reload beyond what real relation fields/`keepalive`
     tags already keep alive on their own, so there's nothing to remember
@@ -1492,7 +1492,7 @@ def test_convert_directory_generates_init_from_json() raises:
 
 
 def test_convert_directory_rejects_init_from_json_without_declare_in_that_function() raises:
-    """Same `world_declared` gate as `@@start_init_from_json(...)`'s own --
+    """Same `world_declared` gate as `@@begin_init_from_json(...)`'s own --
     a different function using `@@init_from_json(...)` needs its own
     `@@{` in that same function."""
     var root = "test/tmp_driver_init_from_json_no_declare_fixture"

@@ -104,7 +104,7 @@ def emit_world_module(discovery: DiscoveryResult, relation_targets: Dict[String,
     `sqrrl__temp_keep_alives: Optional[TempKeepAlives]` field holds it --
     `None` for an ordinary `sqrrl__init()`-built world (nothing temporary
     to hold), populated by `sqrrl__world_from_json` right before
-    reconstruction begins. `@@finalize_init_from_json()` (see
+    reconstruction begins. `@@end_init_from_json()` (see
     `rewrite_markers`) drops every one of them via
     `sqrrl__finalize_temp_keep_alives()` once a script has re-established
     whatever references it actually needs -- anything with no relation and
@@ -129,7 +129,7 @@ def emit_world_module(discovery: DiscoveryResult, relation_targets: Dict[String,
     than leaving it uninitialized, `sqrrl__world` is *never* in a state
     where reading it would be unsafe -- there's no `world_available` left
     to track. What *is* worth catching instead: `@@init()`/
-    `@@start_init_from_json(...)` replacing an already-live world (see
+    `@@begin_init_from_json(...)` replacing an already-live world (see
     `rewrite_markers`), or `sqrrl__world` itself going out of scope, while
     something *outside* the world still holds a live handle into it --
     `sqrrl__check_no_leaks` is called at both points, `abort`ing with a
@@ -190,7 +190,7 @@ def emit_world_module(discovery: DiscoveryResult, relation_targets: Dict[String,
     out += "        self.sqrrl__temp_keep_alives = None\n"
 
     # `sqrrl__check_no_leaks` -- called both explicitly, right before
-    # `@@init()`/`@@start_init_from_json(...)` replaces an already-live
+    # `@@init()`/`@@begin_init_from_json(...)` replaces an already-live
     # `sqrrl__world` (see `rewrite_markers`), and from `__del__` below, when
     # `sqrrl__world` itself is dropped at the end of whatever function
     # declared it. Either way, the world is about to stop being *this*
@@ -292,10 +292,10 @@ def emit_world_module(discovery: DiscoveryResult, relation_targets: Dict[String,
         out += "            break\n"
     out += "    return sqrrl__world^\n"
 
-    # `sqrrl__init_from_json` -- `@@start_init_from_json(json)`'s own
+    # `sqrrl__init_from_json` -- `@@begin_init_from_json(json)`'s own
     # call target (see `rewrite_markers`), taking the JSON `String`
     # directly rather than a `sqrrl__JsonScanner` the caller has to build
-    # itself. Not just convenience: `@@start_init_from_json(...)` may now
+    # itself. Not just convenience: `@@begin_init_from_json(...)` may now
     # be called more than once in the same straight-line function (any
     # number of times after `@@{`), and inlining `var sqrrl__scanner
     # = sqrrl__JsonScanner(...)` at each call site the way a single call

@@ -40,14 +40,14 @@ def main() raises:
 Every other function that needs `sqrrl__world` takes `@@` on its own
 parameter list instead of opening a block of its own. `@@init()` inside
 the block re-initializes it to a fresh, empty world (rarely needed right
-after `@@{`, which already starts empty). `@@start_init_from_json(json)` is
+after `@@{`, which already starts empty). `@@begin_init_from_json(json)` is
 its reload counterpart, reconstructing the world from a previous
 `sqrrl__world.to_json()` dump instead. Either may be called any number of
 times after `@@{`, in any control-flow shape — including conditionally
-(see `@@finalize_init_from_json()`/`@@init_from_json(...)` below for the
+(see `@@end_init_from_json()`/`@@init_from_json(...)` below for the
 reload side's own cleanup step).
 
-Every `@@init()`/`@@start_init_from_json(...)` call checks that whatever
+Every `@@init()`/`@@begin_init_from_json(...)` call checks that whatever
 `sqrrl__world` currently holds is empty before replacing it. If something is
 still alive in it, that's a real bug worth surfacing rather than silently
 discarding: it `abort`s with a `LeakedEntities` message. `@@}` runs the same
@@ -75,8 +75,8 @@ ends — checked at compile time.
 A second, independent `@@{` anywhere else in the project is rejected
 outright.
 
-`@@finalize_init_from_json()` is required, not optional cleanup — it drops
-every entity `@@start_init_from_json(...)` retained only *temporarily*
+`@@end_init_from_json()` is required, not optional cleanup — it drops
+every entity `@@begin_init_from_json(...)` retained only *temporarily*
 while reconstructing the world (see "JSON serialization" below for why
 that retention is needed and where it lives). Skip it and the *next* leak
 check — the next `@@init()`-family call, or `@@}`/`sqrrl__world.__del__` if
@@ -90,9 +90,9 @@ last handle dropping:
 ```
 def main(dump: String) raises:
     @@{
-        @@start_init_from_json(dump)
+        @@begin_init_from_json(dump)
         var kept = @@Person.all()      # re-establish whatever references matter first
-        @@finalize_init_from_json()    # required -- drop everything else the reload retained
+        @@end_init_from_json()    # required -- drop everything else the reload retained
         print(len(kept))
     @@}
 ```
@@ -100,8 +100,8 @@ def main(dump: String) raises:
 If a script doesn't need to grab anything from the reload beyond what real
 relation fields and `keepalive` tags already keep alive on their own,
 `@@init_from_json(json)` does both steps in one call —
-`@@start_init_from_json(json)` immediately followed by
-`@@finalize_init_from_json()` — so there's nothing to remember to call
+`@@begin_init_from_json(json)` immediately followed by
+`@@end_init_from_json()` — so there's nothing to remember to call
 separately:
 
 ```
@@ -590,7 +590,7 @@ that risk to only the structs that ask for it.
 restoring every table's every live entity at once — there's no per-entity
 `@@Type.to_json(...)` sugar, since a relation field only ever serializes as
 the target's bare id, not its contents. `@@init()`'s reload counterpart is
-`@@start_init_from_json`/`@@finalize_init_from_json` (see "Constructing and
+`@@begin_init_from_json`/`@@end_init_from_json` (see "Constructing and
 using one" above); the dump half has no sugar at all — there's nothing to
 inject, it just always dumps everything — so that's thread-`sqrrl__world`-
 by-hand territory (see [Advanced features](advanced-features.md)):
