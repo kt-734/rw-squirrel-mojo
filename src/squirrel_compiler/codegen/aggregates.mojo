@@ -11,20 +11,26 @@ def _fold_body(
     via `assign_prefix` (`"return "` for the `_for_` singular form,
     `"out[entry.key] = "` for the `_by_` all-groups form) -- shared
     across both, and across every `X` modifier that reaches it (`unique`
-    is trivial enough it never calls this at all, see `_emit_pair`),
-    since folding over an already-materialized `List[UInt32]` looks
-    identical regardless of which `Rel` variant originally produced those
-    ids. Starts from the first id's own value rather than a constructed
-    zero/identity value -- `Y`'s declared type is trusted (same as
-    `ordered`/`unique` are trusted for `Comparable`/`Hashable`) to
-    support `+`/`<`/`>`, but never assumed to support construction from
-    an integer literal too, which a zero-initialized accumulator would
-    require. `get_fwd(...)` returns an `Optional[T]` and `.take()` needs
-    a mutable binding -- can't chain `.get_fwd(...).take()` directly on
-    the rvalue it returns (confirmed: Mojo rejects that as "invalid use
-    of mutating method on rvalue"), so every fetch binds to a named `var`
-    first, matching how `get_<field>` itself already does this two-step
-    (`var got = ...get_fwd(...); return got.take()`).
+    is trivial enough it never calls this at all, see `_emit_pair`).
+    `ids_expr` is iterated directly with a plain `for id in ids_expr:` --
+    not indexed -- so it works identically whether the `Rel` variant that
+    produced it hands back a `Set[UInt32]` or a `List[UInt32]`, with no
+    separate materialize-to-`List` step needed first just to get indexable
+    access (see `_emit_for_variant`/`_emit_by_variant`, which now pass
+    their bucket straight through). The running result is `Optional[Y]`
+    (`None` until the first element sets it) rather than seeded from an
+    assumed-present first element up front, for the same reason -- an
+    arbitrary iterable has no "index 0" to seed from without indexing.
+    `Y`'s declared type is trusted (same as `ordered`/`unique` are trusted
+    for `Comparable`/`Hashable`) to support `+`/`<`/`>`, but never assumed
+    to support construction from an integer literal too, which a
+    zero-initialized (rather than `Optional`) accumulator would require.
+    `get_fwd(...)` returns an `Optional[T]` and `.take()` needs a mutable
+    binding -- can't chain `.get_fwd(...).take()` directly on the rvalue
+    it returns (confirmed: Mojo rejects that as "invalid use of mutating
+    method on rvalue"), so every fetch binds to a named `var` first,
+    matching how `get_<field>` itself already does this two-step (`var
+    got = ...get_fwd(...); return got.take()`).
 
     `median` is the one kind here that isn't a running fold at all --
     finding a middle element needs every value collected and sorted
@@ -56,41 +62,31 @@ def _fold_body(
         out += indent + assign_prefix + "sqrrl__values[len(sqrrl__values) // 2]\n"
         return out
 
-    var get_fwd = String("self.table.state[].state.") + y_name + ".get_fwd(" + ids_expr + "["
+    var get_fwd = String("self.table.state[].state.") + y_name + ".get_fwd(sqrrl__id)"
     var out = String()
-    out += indent + "var sqrrl__opt = " + get_fwd + "0])\n"
-    out += indent + "var sqrrl__result = sqrrl__opt.take()\n"
+    out += indent + "var sqrrl__result: Optional[" + y_field_type + "] = None\n"
+    out += indent + "for sqrrl__id in " + ids_expr + ":\n"
+    out += indent + "    var sqrrl__opt = " + get_fwd + "\n"
+    out += indent + "    var sqrrl__v = sqrrl__opt.take()\n"
     if agg_kind == "min" or agg_kind == "max":
         var op = "<" if agg_kind == "min" else ">"
-        out += indent + "for sqrrl__i in range(1, len(" + ids_expr + ")):\n"
-        out += indent + "    var sqrrl__opt2 = " + get_fwd + "sqrrl__i])\n"
-        out += indent + "    var sqrrl__v = sqrrl__opt2.take()\n"
-        out += indent + "    if sqrrl__v " + op + " sqrrl__result:\n"
+        out += indent + "    if sqrrl__result and sqrrl__v " + op + " sqrrl__result.value():\n"
         out += indent + "        sqrrl__result = sqrrl__v\n"
-        out += indent + assign_prefix + "sqrrl__result\n"
+        out += indent + "    elif not sqrrl__result:\n"
+        out += indent + "        sqrrl__result = sqrrl__v\n"
+        out += indent + assign_prefix + "sqrrl__result.take()\n"
     elif agg_kind == "avg":
-        out += indent + "for sqrrl__i in range(1, len(" + ids_expr + ")):\n"
-        out += indent + "    var sqrrl__opt2 = " + get_fwd + "sqrrl__i])\n"
-        out += indent + "    sqrrl__result = sqrrl__result + sqrrl__opt2.take()\n"
-        out += indent + assign_prefix + "Float64(sqrrl__result) / Float64(len(" + ids_expr + "))\n"
+        out += indent + "    if sqrrl__result:\n"
+        out += indent + "        sqrrl__result = sqrrl__result.value() + sqrrl__v\n"
+        out += indent + "    else:\n"
+        out += indent + "        sqrrl__result = sqrrl__v\n"
+        out += indent + assign_prefix + "Float64(sqrrl__result.take()) / Float64(len(" + ids_expr + "))\n"
     else:  # sum
-        out += indent + "for sqrrl__i in range(1, len(" + ids_expr + ")):\n"
-        out += indent + "    var sqrrl__opt2 = " + get_fwd + "sqrrl__i])\n"
-        out += indent + "    sqrrl__result = sqrrl__result + sqrrl__opt2.take()\n"
-        out += indent + assign_prefix + "sqrrl__result\n"
-    return out
-
-
-def _materialize_ids(bucket_expr: String, indent: String) -> String:
-    """`sqrrl__ids: List[UInt32]`, collected from `bucket_expr` (a
-    `Set[UInt32]` or `List[UInt32]`) -- normalizes either shape to one
-    indexable form, so `_fold_body`'s `ids_expr[0]`/`ids_expr[i]` works
-    regardless of which `Rel` variant `bucket_expr` came from (`Set`
-    itself isn't indexable in Mojo, unlike `List`)."""
-    var out = String()
-    out += indent + "var sqrrl__ids = List[UInt32]()\n"
-    out += indent + "for sqrrl__id in " + bucket_expr + ":\n"
-    out += indent + "    sqrrl__ids.append(sqrrl__id)\n"
+        out += indent + "    if sqrrl__result:\n"
+        out += indent + "        sqrrl__result = sqrrl__result.value() + sqrrl__v\n"
+        out += indent + "    else:\n"
+        out += indent + "        sqrrl__result = sqrrl__v\n"
+        out += indent + assign_prefix + "sqrrl__result.take()\n"
     return out
 
 
@@ -137,14 +133,12 @@ def _emit_for_variant(
     else:
         x_value_type = emit_field_type(x)
     out += String(t"    def {method_name}(self, value: {x_value_type}) raises -> {result_type}:\n")
-    out += _materialize_ids(
-        String("self.table.state[].state.") + x.name + ".get_bwd(value)", "        "
-    )
+    out += String(t"        var sqrrl__bucket = self.table.state[].state.{x.name}.get_bwd(value)\n")
     out += String(
-        t'        if len(sqrrl__ids) == 0:\n'
+        t'        if len(sqrrl__bucket) == 0:\n'
         t'            raise Error("{method_name}: no entities found for this value")\n'
     )
-    out += _fold_body(agg_kind, y.name, y_field_type, "sqrrl__ids", "        ", "return ")
+    out += _fold_body(agg_kind, y.name, y_field_type, "sqrrl__bucket", "        ", "return ")
     return out
 
 
@@ -242,8 +236,7 @@ def _emit_by_variant(
     out += String(t"        {binding} sqrrl__buckets = self.table.state[].state.{x.name}.all_bwd()\n")
     out += String(t"        var out = Dict[{x_key_type}, {result_type}]()\n")
     out += "        for entry in sqrrl__buckets.items():\n"
-    out += _materialize_ids("entry.value", "            ")
-    out += _fold_body(agg_kind, y.name, y_field_type, "sqrrl__ids", "            ", "out[entry.key] = ")
+    out += _fold_body(agg_kind, y.name, y_field_type, "entry.value", "            ", "out[entry.key] = ")
     out += "        return out^\n"
     return out
 

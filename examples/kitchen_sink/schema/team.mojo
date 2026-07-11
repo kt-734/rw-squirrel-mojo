@@ -72,23 +72,23 @@ struct sqrrl__TeamTable(Movable):
     def set_name(mut self, e: EntityHandle[sqrrl__TeamTableState], v: String):
         self.table.state[].state.name.update(e.id(), v)
 
-    def for_name(self, value: String) -> List[EntityHandle[sqrrl__TeamTableState]]:
+    def for_name(self, value: String) -> Set[EntityHandle[sqrrl__TeamTableState]]:
         var ids = self.table.state[].state.name.get_bwd(value)
-        var out = List[EntityHandle[sqrrl__TeamTableState]]()
+        var out = Set[EntityHandle[sqrrl__TeamTableState]]()
         for id in ids:
-            out.append(self.table.handle_for(id))
+            out.add(self.table.handle_for(id))
         return out^
 
     def count_name(self, value: String) -> Int:
         return len(self.table.state[].state.name.get_bwd(value))
 
-    def group_by_name(self) -> Dict[String, List[EntityHandle[sqrrl__TeamTableState]]]:
+    def group_by_name(self) -> Dict[String, Set[EntityHandle[sqrrl__TeamTableState]]]:
         ref buckets = self.table.state[].state.name.all_bwd()
-        var out = Dict[String, List[EntityHandle[sqrrl__TeamTableState]]]()
+        var out = Dict[String, Set[EntityHandle[sqrrl__TeamTableState]]]()
         for entry in buckets.items():
-            var handles = List[EntityHandle[sqrrl__TeamTableState]]()
+            var handles = Set[EntityHandle[sqrrl__TeamTableState]]()
             for id in entry.value:
-                handles.append(self.table.handle_for(id))
+                handles.add(self.table.handle_for(id))
             out[entry.key] = handles^
         return out^
 
@@ -120,23 +120,23 @@ struct sqrrl__TeamTable(Movable):
     def set_members(mut self, e: EntityHandle[sqrrl__TeamTableState], v: List[EntityHandle[sqrrl__PersonTableState]]):
         self.table.state[].state.members.update(e.id(), v)
 
-    def for_members(self, value: List[EntityHandle[sqrrl__PersonTableState]]) -> List[EntityHandle[sqrrl__TeamTableState]]:
+    def for_members(self, value: List[EntityHandle[sqrrl__PersonTableState]]) -> Set[EntityHandle[sqrrl__TeamTableState]]:
         var ids = self.table.state[].state.members.get_bwd(value)
-        var out = List[EntityHandle[sqrrl__TeamTableState]]()
+        var out = Set[EntityHandle[sqrrl__TeamTableState]]()
         for id in ids:
-            out.append(self.table.handle_for(id))
+            out.add(self.table.handle_for(id))
         return out^
 
     def count_members(self, value: List[EntityHandle[sqrrl__PersonTableState]]) -> Int:
         return len(self.table.state[].state.members.get_bwd(value))
 
-    def group_by_members(self) -> Dict[List[EntityHandle[sqrrl__PersonTableState]], List[EntityHandle[sqrrl__TeamTableState]]]:
+    def group_by_members(self) -> Dict[List[EntityHandle[sqrrl__PersonTableState]], Set[EntityHandle[sqrrl__TeamTableState]]]:
         ref buckets = self.table.state[].state.members.all_bwd()
-        var out = Dict[List[EntityHandle[sqrrl__PersonTableState]], List[EntityHandle[sqrrl__TeamTableState]]]()
+        var out = Dict[List[EntityHandle[sqrrl__PersonTableState]], Set[EntityHandle[sqrrl__TeamTableState]]]()
         for entry in buckets.items():
-            var handles = List[EntityHandle[sqrrl__TeamTableState]]()
+            var handles = Set[EntityHandle[sqrrl__TeamTableState]]()
             for id in entry.value:
-                handles.append(self.table.handle_for(id))
+                handles.add(self.table.handle_for(id))
             out[entry.key] = handles^
         return out^
 
@@ -160,23 +160,23 @@ struct sqrrl__TeamTable(Movable):
     def set_advisor(mut self, e: EntityHandle[sqrrl__TeamTableState], v: Optional[EntityHandle[sqrrl__EmployeeTableState]]):
         self.table.state[].state.advisor.update(e.id(), v)
 
-    def for_advisor(self, value: Optional[EntityHandle[sqrrl__EmployeeTableState]]) -> List[EntityHandle[sqrrl__TeamTableState]]:
+    def for_advisor(self, value: Optional[EntityHandle[sqrrl__EmployeeTableState]]) -> Set[EntityHandle[sqrrl__TeamTableState]]:
         var ids = self.table.state[].state.advisor.get_bwd(value)
-        var out = List[EntityHandle[sqrrl__TeamTableState]]()
+        var out = Set[EntityHandle[sqrrl__TeamTableState]]()
         for id in ids:
-            out.append(self.table.handle_for(id))
+            out.add(self.table.handle_for(id))
         return out^
 
     def count_advisor(self, value: Optional[EntityHandle[sqrrl__EmployeeTableState]]) -> Int:
         return len(self.table.state[].state.advisor.get_bwd(value))
 
-    def group_by_advisor(self) -> Dict[Optional[EntityHandle[sqrrl__EmployeeTableState]], List[EntityHandle[sqrrl__TeamTableState]]]:
+    def group_by_advisor(self) -> Dict[Optional[EntityHandle[sqrrl__EmployeeTableState]], Set[EntityHandle[sqrrl__TeamTableState]]]:
         ref buckets = self.table.state[].state.advisor.all_bwd()
-        var out = Dict[Optional[EntityHandle[sqrrl__EmployeeTableState]], List[EntityHandle[sqrrl__TeamTableState]]]()
+        var out = Dict[Optional[EntityHandle[sqrrl__EmployeeTableState]], Set[EntityHandle[sqrrl__TeamTableState]]]()
         for entry in buckets.items():
-            var handles = List[EntityHandle[sqrrl__TeamTableState]]()
+            var handles = Set[EntityHandle[sqrrl__TeamTableState]]()
             for id in entry.value:
-                handles.append(self.table.handle_for(id))
+                handles.add(self.table.handle_for(id))
             out[entry.key] = handles^
         return out^
 

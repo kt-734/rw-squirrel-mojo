@@ -109,9 +109,11 @@ def main() raises:
 
         var sqrrl__eng_team = sqrrl__world.Employee.for_dept(sqrrl__eng)
         print("eng team size (via for_dept):", len(sqrrl__eng_team))
-        print("first member title before promotion:", sqrrl__world.Employee.get_title(sqrrl__eng_team[0]))
-        sqrrl__world.Employee.set_title(sqrrl__eng_team[0], "Staff Engineer");
-        print("first member title after write-through-index:", sqrrl__world.Employee.get_title(sqrrl__eng_team[0]))
+        for sqrrl__member in  sqrrl__eng_team:
+            print("a member's title before promotion:", sqrrl__world.Employee.get_title(sqrrl__member))
+            sqrrl__world.Employee.set_title(sqrrl__member, "Staff Engineer");
+            print("that member's title after writing through the loop variable:", sqrrl__world.Employee.get_title(sqrrl__member))
+            break
 
         var names = List[String]()
         names.append("Carol")

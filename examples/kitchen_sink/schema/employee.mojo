@@ -107,23 +107,23 @@ struct sqrrl__EmployeeTable(Movable):
     def set_title(mut self, e: EntityHandle[sqrrl__EmployeeTableState], v: String):
         self.table.state[].state.title.update(e.id(), v)
 
-    def for_title(self, value: String) -> List[EntityHandle[sqrrl__EmployeeTableState]]:
+    def for_title(self, value: String) -> Set[EntityHandle[sqrrl__EmployeeTableState]]:
         var ids = self.table.state[].state.title.get_bwd(value)
-        var out = List[EntityHandle[sqrrl__EmployeeTableState]]()
+        var out = Set[EntityHandle[sqrrl__EmployeeTableState]]()
         for id in ids:
-            out.append(self.table.handle_for(id))
+            out.add(self.table.handle_for(id))
         return out^
 
     def count_title(self, value: String) -> Int:
         return len(self.table.state[].state.title.get_bwd(value))
 
-    def group_by_title(self) -> Dict[String, List[EntityHandle[sqrrl__EmployeeTableState]]]:
+    def group_by_title(self) -> Dict[String, Set[EntityHandle[sqrrl__EmployeeTableState]]]:
         ref buckets = self.table.state[].state.title.all_bwd()
-        var out = Dict[String, List[EntityHandle[sqrrl__EmployeeTableState]]]()
+        var out = Dict[String, Set[EntityHandle[sqrrl__EmployeeTableState]]]()
         for entry in buckets.items():
-            var handles = List[EntityHandle[sqrrl__EmployeeTableState]]()
+            var handles = Set[EntityHandle[sqrrl__EmployeeTableState]]()
             for id in entry.value:
-                handles.append(self.table.handle_for(id))
+                handles.add(self.table.handle_for(id))
             out[entry.key] = handles^
         return out^
 
@@ -192,13 +192,13 @@ struct sqrrl__EmployeeTable(Movable):
             out.append(self.table.handle_for(id))
         return out^
 
-    def group_by_years_employed(self) -> Dict[UInt32, List[EntityHandle[sqrrl__EmployeeTableState]]]:
+    def group_by_years_employed(self) -> Dict[UInt32, Set[EntityHandle[sqrrl__EmployeeTableState]]]:
         var buckets = self.table.state[].state.years_employed.all_bwd()
-        var out = Dict[UInt32, List[EntityHandle[sqrrl__EmployeeTableState]]]()
+        var out = Dict[UInt32, Set[EntityHandle[sqrrl__EmployeeTableState]]]()
         for entry in buckets.items():
-            var handles = List[EntityHandle[sqrrl__EmployeeTableState]]()
+            var handles = Set[EntityHandle[sqrrl__EmployeeTableState]]()
             for id in entry.value:
-                handles.append(self.table.handle_for(id))
+                handles.add(self.table.handle_for(id))
             out[entry.key] = handles^
         return out^
 
@@ -222,23 +222,23 @@ struct sqrrl__EmployeeTable(Movable):
     def set_salary(mut self, e: EntityHandle[sqrrl__EmployeeTableState], v: Float64):
         self.table.state[].state.salary.update(e.id(), v)
 
-    def for_salary(self, value: Float64) -> List[EntityHandle[sqrrl__EmployeeTableState]]:
+    def for_salary(self, value: Float64) -> Set[EntityHandle[sqrrl__EmployeeTableState]]:
         var ids = self.table.state[].state.salary.get_bwd(value)
-        var out = List[EntityHandle[sqrrl__EmployeeTableState]]()
+        var out = Set[EntityHandle[sqrrl__EmployeeTableState]]()
         for id in ids:
-            out.append(self.table.handle_for(id))
+            out.add(self.table.handle_for(id))
         return out^
 
     def count_salary(self, value: Float64) -> Int:
         return len(self.table.state[].state.salary.get_bwd(value))
 
-    def group_by_salary(self) -> Dict[Float64, List[EntityHandle[sqrrl__EmployeeTableState]]]:
+    def group_by_salary(self) -> Dict[Float64, Set[EntityHandle[sqrrl__EmployeeTableState]]]:
         ref buckets = self.table.state[].state.salary.all_bwd()
-        var out = Dict[Float64, List[EntityHandle[sqrrl__EmployeeTableState]]]()
+        var out = Dict[Float64, Set[EntityHandle[sqrrl__EmployeeTableState]]]()
         for entry in buckets.items():
-            var handles = List[EntityHandle[sqrrl__EmployeeTableState]]()
+            var handles = Set[EntityHandle[sqrrl__EmployeeTableState]]()
             for id in entry.value:
-                handles.append(self.table.handle_for(id))
+                handles.add(self.table.handle_for(id))
             out[entry.key] = handles^
         return out^
 
@@ -262,23 +262,23 @@ struct sqrrl__EmployeeTable(Movable):
     def set_dept(mut self, e: EntityHandle[sqrrl__EmployeeTableState], v: EntityHandle[sqrrl__DepartmentTableState]):
         self.table.state[].state.dept.update(e.id(), v)
 
-    def for_dept(self, value: EntityHandle[sqrrl__DepartmentTableState]) -> List[EntityHandle[sqrrl__EmployeeTableState]]:
+    def for_dept(self, value: EntityHandle[sqrrl__DepartmentTableState]) -> Set[EntityHandle[sqrrl__EmployeeTableState]]:
         var ids = self.table.state[].state.dept.get_bwd(value)
-        var out = List[EntityHandle[sqrrl__EmployeeTableState]]()
+        var out = Set[EntityHandle[sqrrl__EmployeeTableState]]()
         for id in ids:
-            out.append(self.table.handle_for(id))
+            out.add(self.table.handle_for(id))
         return out^
 
     def count_dept(self, value: EntityHandle[sqrrl__DepartmentTableState]) -> Int:
         return len(self.table.state[].state.dept.get_bwd(value))
 
-    def group_by_dept(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState], List[EntityHandle[sqrrl__EmployeeTableState]]]:
+    def group_by_dept(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState], Set[EntityHandle[sqrrl__EmployeeTableState]]]:
         ref buckets = self.table.state[].state.dept.all_bwd()
-        var out = Dict[EntityHandle[sqrrl__DepartmentTableState], List[EntityHandle[sqrrl__EmployeeTableState]]]()
+        var out = Dict[EntityHandle[sqrrl__DepartmentTableState], Set[EntityHandle[sqrrl__EmployeeTableState]]]()
         for entry in buckets.items():
-            var handles = List[EntityHandle[sqrrl__EmployeeTableState]]()
+            var handles = Set[EntityHandle[sqrrl__EmployeeTableState]]()
             for id in entry.value:
-                handles.append(self.table.handle_for(id))
+                handles.add(self.table.handle_for(id))
             out[entry.key] = handles^
         return out^
 
@@ -311,14 +311,15 @@ struct sqrrl__EmployeeTable(Movable):
                 sqrrl__ids.append(sqrrl__id)
         if len(sqrrl__ids) == 0:
             raise Error("min_years_employed: table has no entities")
-        var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v < sqrrl__result:
+        var sqrrl__result: Optional[UInt32] = None
+        for sqrrl__id in sqrrl__ids:
+            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v < sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def max_years_employed(self) raises -> UInt32:
         var sqrrl__ids = List[UInt32]()
@@ -328,14 +329,15 @@ struct sqrrl__EmployeeTable(Movable):
                 sqrrl__ids.append(sqrrl__id)
         if len(sqrrl__ids) == 0:
             raise Error("max_years_employed: table has no entities")
-        var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v > sqrrl__result:
+        var sqrrl__result: Optional[UInt32] = None
+        for sqrrl__id in sqrrl__ids:
+            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v > sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def median_years_employed(self) raises -> UInt32:
         ref sqrrl__sorted = self.table.state[].state.years_employed.sorted_ids()
@@ -397,65 +399,59 @@ struct sqrrl__EmployeeTable(Movable):
         ref sqrrl__buckets = self.table.state[].state.title.all_bwd()
         var out = Dict[String, UInt32]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[UInt32] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[sqrrl__i])
-                var sqrrl__v = sqrrl__opt2.take()
-                if sqrrl__v < sqrrl__result:
+                var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result and sqrrl__v < sqrrl__result.value():
                     sqrrl__result = sqrrl__v
-            out[entry.key] = sqrrl__result
+                elif not sqrrl__result:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def min_years_employed_for_title(self, value: String) raises -> UInt32:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.title.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.title.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("min_years_employed_for_title: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v < sqrrl__result:
+        var sqrrl__result: Optional[UInt32] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v < sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def max_years_employed_by_title(self) -> Dict[String, UInt32]:
         ref sqrrl__buckets = self.table.state[].state.title.all_bwd()
         var out = Dict[String, UInt32]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[UInt32] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[sqrrl__i])
-                var sqrrl__v = sqrrl__opt2.take()
-                if sqrrl__v > sqrrl__result:
+                var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result and sqrrl__v > sqrrl__result.value():
                     sqrrl__result = sqrrl__v
-            out[entry.key] = sqrrl__result
+                elif not sqrrl__result:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def max_years_employed_for_title(self, value: String) raises -> UInt32:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.title.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.title.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("max_years_employed_for_title: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v > sqrrl__result:
+        var sqrrl__result: Optional[UInt32] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v > sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def median_years_employed_by_title(self) -> Dict[String, UInt32]:
         ref sqrrl__sorted = self.table.state[].state.years_employed.sorted_ids()
@@ -476,13 +472,11 @@ struct sqrrl__EmployeeTable(Movable):
         return out^
 
     def median_years_employed_for_title(self, value: String) raises -> UInt32:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.title.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.title.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("median_years_employed_for_title: no entities found for this value")
         var sqrrl__values = List[UInt32]()
-        for sqrrl__id in sqrrl__ids:
+        for sqrrl__id in sqrrl__bucket:
             var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
             sqrrl__values.append(sqrrl__opt.take())
         sort(sqrrl__values)
@@ -492,65 +486,59 @@ struct sqrrl__EmployeeTable(Movable):
         ref sqrrl__buckets = self.table.state[].state.salary.all_bwd()
         var out = Dict[Float64, UInt32]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[UInt32] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[sqrrl__i])
-                var sqrrl__v = sqrrl__opt2.take()
-                if sqrrl__v < sqrrl__result:
+                var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result and sqrrl__v < sqrrl__result.value():
                     sqrrl__result = sqrrl__v
-            out[entry.key] = sqrrl__result
+                elif not sqrrl__result:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def min_years_employed_for_salary(self, value: Float64) raises -> UInt32:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.salary.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.salary.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("min_years_employed_for_salary: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v < sqrrl__result:
+        var sqrrl__result: Optional[UInt32] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v < sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def max_years_employed_by_salary(self) -> Dict[Float64, UInt32]:
         ref sqrrl__buckets = self.table.state[].state.salary.all_bwd()
         var out = Dict[Float64, UInt32]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[UInt32] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[sqrrl__i])
-                var sqrrl__v = sqrrl__opt2.take()
-                if sqrrl__v > sqrrl__result:
+                var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result and sqrrl__v > sqrrl__result.value():
                     sqrrl__result = sqrrl__v
-            out[entry.key] = sqrrl__result
+                elif not sqrrl__result:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def max_years_employed_for_salary(self, value: Float64) raises -> UInt32:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.salary.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.salary.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("max_years_employed_for_salary: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v > sqrrl__result:
+        var sqrrl__result: Optional[UInt32] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v > sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def median_years_employed_by_salary(self) -> Dict[Float64, UInt32]:
         ref sqrrl__sorted = self.table.state[].state.years_employed.sorted_ids()
@@ -571,13 +559,11 @@ struct sqrrl__EmployeeTable(Movable):
         return out^
 
     def median_years_employed_for_salary(self, value: Float64) raises -> UInt32:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.salary.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.salary.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("median_years_employed_for_salary: no entities found for this value")
         var sqrrl__values = List[UInt32]()
-        for sqrrl__id in sqrrl__ids:
+        for sqrrl__id in sqrrl__bucket:
             var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
             sqrrl__values.append(sqrrl__opt.take())
         sort(sqrrl__values)
@@ -587,65 +573,59 @@ struct sqrrl__EmployeeTable(Movable):
         ref sqrrl__buckets = self.table.state[].state.dept.all_bwd()
         var out = Dict[EntityHandle[sqrrl__DepartmentTableState], UInt32]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[UInt32] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[sqrrl__i])
-                var sqrrl__v = sqrrl__opt2.take()
-                if sqrrl__v < sqrrl__result:
+                var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result and sqrrl__v < sqrrl__result.value():
                     sqrrl__result = sqrrl__v
-            out[entry.key] = sqrrl__result
+                elif not sqrrl__result:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def min_years_employed_for_dept(self, value: EntityHandle[sqrrl__DepartmentTableState]) raises -> UInt32:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.dept.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.dept.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("min_years_employed_for_dept: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v < sqrrl__result:
+        var sqrrl__result: Optional[UInt32] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v < sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def max_years_employed_by_dept(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState], UInt32]:
         ref sqrrl__buckets = self.table.state[].state.dept.all_bwd()
         var out = Dict[EntityHandle[sqrrl__DepartmentTableState], UInt32]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[UInt32] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[sqrrl__i])
-                var sqrrl__v = sqrrl__opt2.take()
-                if sqrrl__v > sqrrl__result:
+                var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result and sqrrl__v > sqrrl__result.value():
                     sqrrl__result = sqrrl__v
-            out[entry.key] = sqrrl__result
+                elif not sqrrl__result:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def max_years_employed_for_dept(self, value: EntityHandle[sqrrl__DepartmentTableState]) raises -> UInt32:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.dept.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.dept.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("max_years_employed_for_dept: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.years_employed.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v > sqrrl__result:
+        var sqrrl__result: Optional[UInt32] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v > sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def median_years_employed_by_dept(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState], UInt32]:
         ref sqrrl__sorted = self.table.state[].state.years_employed.sorted_ids()
@@ -666,13 +646,11 @@ struct sqrrl__EmployeeTable(Movable):
         return out^
 
     def median_years_employed_for_dept(self, value: EntityHandle[sqrrl__DepartmentTableState]) raises -> UInt32:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.dept.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.dept.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("median_years_employed_for_dept: no entities found for this value")
         var sqrrl__values = List[UInt32]()
-        for sqrrl__id in sqrrl__ids:
+        for sqrrl__id in sqrrl__bucket:
             var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
             sqrrl__values.append(sqrrl__opt.take())
         sort(sqrrl__values)
@@ -686,12 +664,15 @@ struct sqrrl__EmployeeTable(Movable):
                 sqrrl__ids.append(sqrrl__id)
         if len(sqrrl__ids) == 0:
             raise Error("sum_salary: table has no entities")
-        var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-            sqrrl__result = sqrrl__result + sqrrl__opt2.take()
-        return sqrrl__result
+        var sqrrl__result: Optional[Float64] = None
+        for sqrrl__id in sqrrl__ids:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result:
+                sqrrl__result = sqrrl__result.value() + sqrrl__v
+            else:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def avg_salary(self) raises -> Float64:
         var sqrrl__ids = List[UInt32]()
@@ -701,12 +682,15 @@ struct sqrrl__EmployeeTable(Movable):
                 sqrrl__ids.append(sqrrl__id)
         if len(sqrrl__ids) == 0:
             raise Error("avg_salary: table has no entities")
-        var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-            sqrrl__result = sqrrl__result + sqrrl__opt2.take()
-        return Float64(sqrrl__result) / Float64(len(sqrrl__ids))
+        var sqrrl__result: Optional[Float64] = None
+        for sqrrl__id in sqrrl__ids:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result:
+                sqrrl__result = sqrrl__result.value() + sqrrl__v
+            else:
+                sqrrl__result = sqrrl__v
+        return Float64(sqrrl__result.take()) / Float64(len(sqrrl__ids))
 
     def min_salary(self) raises -> Float64:
         var sqrrl__ids = List[UInt32]()
@@ -716,14 +700,15 @@ struct sqrrl__EmployeeTable(Movable):
                 sqrrl__ids.append(sqrrl__id)
         if len(sqrrl__ids) == 0:
             raise Error("min_salary: table has no entities")
-        var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v < sqrrl__result:
+        var sqrrl__result: Optional[Float64] = None
+        for sqrrl__id in sqrrl__ids:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v < sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def max_salary(self) raises -> Float64:
         var sqrrl__ids = List[UInt32]()
@@ -733,14 +718,15 @@ struct sqrrl__EmployeeTable(Movable):
                 sqrrl__ids.append(sqrrl__id)
         if len(sqrrl__ids) == 0:
             raise Error("max_salary: table has no entities")
-        var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v > sqrrl__result:
+        var sqrrl__result: Optional[Float64] = None
+        for sqrrl__id in sqrrl__ids:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v > sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def median_salary(self) raises -> Float64:
         var sqrrl__ids = List[UInt32]()
@@ -826,131 +812,124 @@ struct sqrrl__EmployeeTable(Movable):
         ref sqrrl__buckets = self.table.state[].state.title.all_bwd()
         var out = Dict[String, Float64]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[Float64] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-                sqrrl__result = sqrrl__result + sqrrl__opt2.take()
-            out[entry.key] = sqrrl__result
+                var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result:
+                    sqrrl__result = sqrrl__result.value() + sqrrl__v
+                else:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def sum_salary_for_title(self, value: String) raises -> Float64:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.title.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.title.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("sum_salary_for_title: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-            sqrrl__result = sqrrl__result + sqrrl__opt2.take()
-        return sqrrl__result
+        var sqrrl__result: Optional[Float64] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result:
+                sqrrl__result = sqrrl__result.value() + sqrrl__v
+            else:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def avg_salary_by_title(self) -> Dict[String, Float64]:
         ref sqrrl__buckets = self.table.state[].state.title.all_bwd()
         var out = Dict[String, Float64]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[Float64] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-                sqrrl__result = sqrrl__result + sqrrl__opt2.take()
-            out[entry.key] = Float64(sqrrl__result) / Float64(len(sqrrl__ids))
+                var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result:
+                    sqrrl__result = sqrrl__result.value() + sqrrl__v
+                else:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = Float64(sqrrl__result.take()) / Float64(len(entry.value))
         return out^
 
     def avg_salary_for_title(self, value: String) raises -> Float64:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.title.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.title.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("avg_salary_for_title: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-            sqrrl__result = sqrrl__result + sqrrl__opt2.take()
-        return Float64(sqrrl__result) / Float64(len(sqrrl__ids))
+        var sqrrl__result: Optional[Float64] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result:
+                sqrrl__result = sqrrl__result.value() + sqrrl__v
+            else:
+                sqrrl__result = sqrrl__v
+        return Float64(sqrrl__result.take()) / Float64(len(sqrrl__bucket))
 
     def min_salary_by_title(self) -> Dict[String, Float64]:
         ref sqrrl__buckets = self.table.state[].state.title.all_bwd()
         var out = Dict[String, Float64]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[Float64] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-                var sqrrl__v = sqrrl__opt2.take()
-                if sqrrl__v < sqrrl__result:
+                var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result and sqrrl__v < sqrrl__result.value():
                     sqrrl__result = sqrrl__v
-            out[entry.key] = sqrrl__result
+                elif not sqrrl__result:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def min_salary_for_title(self, value: String) raises -> Float64:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.title.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.title.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("min_salary_for_title: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v < sqrrl__result:
+        var sqrrl__result: Optional[Float64] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v < sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def max_salary_by_title(self) -> Dict[String, Float64]:
         ref sqrrl__buckets = self.table.state[].state.title.all_bwd()
         var out = Dict[String, Float64]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[Float64] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-                var sqrrl__v = sqrrl__opt2.take()
-                if sqrrl__v > sqrrl__result:
+                var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result and sqrrl__v > sqrrl__result.value():
                     sqrrl__result = sqrrl__v
-            out[entry.key] = sqrrl__result
+                elif not sqrrl__result:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def max_salary_for_title(self, value: String) raises -> Float64:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.title.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.title.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("max_salary_for_title: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v > sqrrl__result:
+        var sqrrl__result: Optional[Float64] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v > sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def median_salary_by_title(self) -> Dict[String, Float64]:
         ref sqrrl__buckets = self.table.state[].state.title.all_bwd()
         var out = Dict[String, Float64]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
-            for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
             var sqrrl__values = List[Float64]()
-            for sqrrl__id in sqrrl__ids:
+            for sqrrl__id in entry.value:
                 var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
                 sqrrl__values.append(sqrrl__opt.take())
             sort(sqrrl__values)
@@ -958,13 +937,11 @@ struct sqrrl__EmployeeTable(Movable):
         return out^
 
     def median_salary_for_title(self, value: String) raises -> Float64:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.title.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.title.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("median_salary_for_title: no entities found for this value")
         var sqrrl__values = List[Float64]()
-        for sqrrl__id in sqrrl__ids:
+        for sqrrl__id in sqrrl__bucket:
             var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
             sqrrl__values.append(sqrrl__opt.take())
         sort(sqrrl__values)
@@ -974,131 +951,124 @@ struct sqrrl__EmployeeTable(Movable):
         var sqrrl__buckets = self.table.state[].state.years_employed.all_bwd()
         var out = Dict[UInt32, Float64]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[Float64] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-                sqrrl__result = sqrrl__result + sqrrl__opt2.take()
-            out[entry.key] = sqrrl__result
+                var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result:
+                    sqrrl__result = sqrrl__result.value() + sqrrl__v
+                else:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def sum_salary_for_years_employed(self, value: UInt32) raises -> Float64:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.years_employed.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.years_employed.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("sum_salary_for_years_employed: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-            sqrrl__result = sqrrl__result + sqrrl__opt2.take()
-        return sqrrl__result
+        var sqrrl__result: Optional[Float64] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result:
+                sqrrl__result = sqrrl__result.value() + sqrrl__v
+            else:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def avg_salary_by_years_employed(self) -> Dict[UInt32, Float64]:
         var sqrrl__buckets = self.table.state[].state.years_employed.all_bwd()
         var out = Dict[UInt32, Float64]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[Float64] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-                sqrrl__result = sqrrl__result + sqrrl__opt2.take()
-            out[entry.key] = Float64(sqrrl__result) / Float64(len(sqrrl__ids))
+                var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result:
+                    sqrrl__result = sqrrl__result.value() + sqrrl__v
+                else:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = Float64(sqrrl__result.take()) / Float64(len(entry.value))
         return out^
 
     def avg_salary_for_years_employed(self, value: UInt32) raises -> Float64:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.years_employed.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.years_employed.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("avg_salary_for_years_employed: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-            sqrrl__result = sqrrl__result + sqrrl__opt2.take()
-        return Float64(sqrrl__result) / Float64(len(sqrrl__ids))
+        var sqrrl__result: Optional[Float64] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result:
+                sqrrl__result = sqrrl__result.value() + sqrrl__v
+            else:
+                sqrrl__result = sqrrl__v
+        return Float64(sqrrl__result.take()) / Float64(len(sqrrl__bucket))
 
     def min_salary_by_years_employed(self) -> Dict[UInt32, Float64]:
         var sqrrl__buckets = self.table.state[].state.years_employed.all_bwd()
         var out = Dict[UInt32, Float64]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[Float64] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-                var sqrrl__v = sqrrl__opt2.take()
-                if sqrrl__v < sqrrl__result:
+                var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result and sqrrl__v < sqrrl__result.value():
                     sqrrl__result = sqrrl__v
-            out[entry.key] = sqrrl__result
+                elif not sqrrl__result:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def min_salary_for_years_employed(self, value: UInt32) raises -> Float64:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.years_employed.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.years_employed.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("min_salary_for_years_employed: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v < sqrrl__result:
+        var sqrrl__result: Optional[Float64] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v < sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def max_salary_by_years_employed(self) -> Dict[UInt32, Float64]:
         var sqrrl__buckets = self.table.state[].state.years_employed.all_bwd()
         var out = Dict[UInt32, Float64]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[Float64] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-                var sqrrl__v = sqrrl__opt2.take()
-                if sqrrl__v > sqrrl__result:
+                var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result and sqrrl__v > sqrrl__result.value():
                     sqrrl__result = sqrrl__v
-            out[entry.key] = sqrrl__result
+                elif not sqrrl__result:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def max_salary_for_years_employed(self, value: UInt32) raises -> Float64:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.years_employed.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.years_employed.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("max_salary_for_years_employed: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v > sqrrl__result:
+        var sqrrl__result: Optional[Float64] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v > sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def median_salary_by_years_employed(self) -> Dict[UInt32, Float64]:
         var sqrrl__buckets = self.table.state[].state.years_employed.all_bwd()
         var out = Dict[UInt32, Float64]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
-            for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
             var sqrrl__values = List[Float64]()
-            for sqrrl__id in sqrrl__ids:
+            for sqrrl__id in entry.value:
                 var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
                 sqrrl__values.append(sqrrl__opt.take())
             sort(sqrrl__values)
@@ -1106,13 +1076,11 @@ struct sqrrl__EmployeeTable(Movable):
         return out^
 
     def median_salary_for_years_employed(self, value: UInt32) raises -> Float64:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.years_employed.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.years_employed.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("median_salary_for_years_employed: no entities found for this value")
         var sqrrl__values = List[Float64]()
-        for sqrrl__id in sqrrl__ids:
+        for sqrrl__id in sqrrl__bucket:
             var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
             sqrrl__values.append(sqrrl__opt.take())
         sort(sqrrl__values)
@@ -1122,131 +1090,124 @@ struct sqrrl__EmployeeTable(Movable):
         ref sqrrl__buckets = self.table.state[].state.dept.all_bwd()
         var out = Dict[EntityHandle[sqrrl__DepartmentTableState], Float64]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[Float64] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-                sqrrl__result = sqrrl__result + sqrrl__opt2.take()
-            out[entry.key] = sqrrl__result
+                var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result:
+                    sqrrl__result = sqrrl__result.value() + sqrrl__v
+                else:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def sum_salary_for_dept(self, value: EntityHandle[sqrrl__DepartmentTableState]) raises -> Float64:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.dept.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.dept.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("sum_salary_for_dept: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-            sqrrl__result = sqrrl__result + sqrrl__opt2.take()
-        return sqrrl__result
+        var sqrrl__result: Optional[Float64] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result:
+                sqrrl__result = sqrrl__result.value() + sqrrl__v
+            else:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def avg_salary_by_dept(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState], Float64]:
         ref sqrrl__buckets = self.table.state[].state.dept.all_bwd()
         var out = Dict[EntityHandle[sqrrl__DepartmentTableState], Float64]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[Float64] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-                sqrrl__result = sqrrl__result + sqrrl__opt2.take()
-            out[entry.key] = Float64(sqrrl__result) / Float64(len(sqrrl__ids))
+                var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result:
+                    sqrrl__result = sqrrl__result.value() + sqrrl__v
+                else:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = Float64(sqrrl__result.take()) / Float64(len(entry.value))
         return out^
 
     def avg_salary_for_dept(self, value: EntityHandle[sqrrl__DepartmentTableState]) raises -> Float64:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.dept.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.dept.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("avg_salary_for_dept: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-            sqrrl__result = sqrrl__result + sqrrl__opt2.take()
-        return Float64(sqrrl__result) / Float64(len(sqrrl__ids))
+        var sqrrl__result: Optional[Float64] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result:
+                sqrrl__result = sqrrl__result.value() + sqrrl__v
+            else:
+                sqrrl__result = sqrrl__v
+        return Float64(sqrrl__result.take()) / Float64(len(sqrrl__bucket))
 
     def min_salary_by_dept(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState], Float64]:
         ref sqrrl__buckets = self.table.state[].state.dept.all_bwd()
         var out = Dict[EntityHandle[sqrrl__DepartmentTableState], Float64]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[Float64] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-                var sqrrl__v = sqrrl__opt2.take()
-                if sqrrl__v < sqrrl__result:
+                var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result and sqrrl__v < sqrrl__result.value():
                     sqrrl__result = sqrrl__v
-            out[entry.key] = sqrrl__result
+                elif not sqrrl__result:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def min_salary_for_dept(self, value: EntityHandle[sqrrl__DepartmentTableState]) raises -> Float64:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.dept.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.dept.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("min_salary_for_dept: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v < sqrrl__result:
+        var sqrrl__result: Optional[Float64] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v < sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def max_salary_by_dept(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState], Float64]:
         ref sqrrl__buckets = self.table.state[].state.dept.all_bwd()
         var out = Dict[EntityHandle[sqrrl__DepartmentTableState], Float64]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[Float64] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-                var sqrrl__v = sqrrl__opt2.take()
-                if sqrrl__v > sqrrl__result:
+                var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result and sqrrl__v > sqrrl__result.value():
                     sqrrl__result = sqrrl__v
-            out[entry.key] = sqrrl__result
+                elif not sqrrl__result:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def max_salary_for_dept(self, value: EntityHandle[sqrrl__DepartmentTableState]) raises -> Float64:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.dept.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.dept.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("max_salary_for_dept: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.salary.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v > sqrrl__result:
+        var sqrrl__result: Optional[Float64] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v > sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def median_salary_by_dept(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState], Float64]:
         ref sqrrl__buckets = self.table.state[].state.dept.all_bwd()
         var out = Dict[EntityHandle[sqrrl__DepartmentTableState], Float64]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
-            for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
             var sqrrl__values = List[Float64]()
-            for sqrrl__id in sqrrl__ids:
+            for sqrrl__id in entry.value:
                 var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
                 sqrrl__values.append(sqrrl__opt.take())
             sort(sqrrl__values)
@@ -1254,13 +1215,11 @@ struct sqrrl__EmployeeTable(Movable):
         return out^
 
     def median_salary_for_dept(self, value: EntityHandle[sqrrl__DepartmentTableState]) raises -> Float64:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.dept.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.dept.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("median_salary_for_dept: no entities found for this value")
         var sqrrl__values = List[Float64]()
-        for sqrrl__id in sqrrl__ids:
+        for sqrrl__id in sqrrl__bucket:
             var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
             sqrrl__values.append(sqrrl__opt.take())
         sort(sqrrl__values)

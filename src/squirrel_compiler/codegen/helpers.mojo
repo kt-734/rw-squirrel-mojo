@@ -151,23 +151,37 @@ def container_element_of(t: String) -> String:
     return out^
 
 
-def _is_ordered_field_query(
+def _ordered_range_suffixes() -> List[String]:
+    var out = List[String]()
+    out.append("_greater_than")
+    out.append("_less_than")
+    out.append("_at_least")
+    out.append("_at_most")
+    out.append("_between")
+    return out^
+
+
+def _is_ordered_range_query(
     entity: String, target_field: String, ordered_fields: Dict[String, List[String]]
 ) raises -> Bool:
     """True if `target_field` (a `for_<field>` call's name, `for_` prefix
-    already stripped) is an exact match for one of `entity`'s `ordered`
-    fields -- that specific call (`OrderedRel.get_bwd`) returns
-    `Set[EntityHandle[...]]`, matching `Table.all()`, unlike this same
-    field's own five range-shaped siblings (`_greater_than`/`_less_than`/
-    `_at_least`/`_at_most`/`_between`, still `List`-returning like any
-    other field's `for_<field>`, see `emit_table`'s `FieldModifier.
-    ORDERED` branch) or the exact-match `for_<field>` of a non-`ordered`
-    field."""
+    already stripped) is one of an `ordered` field's five range-shaped
+    siblings (`for_<field>_greater_than`/`_less_than`/`_at_least`/
+    `_at_most`/`_between`) -- those stay `List`-returning (they carry
+    `_sorted`'s real order), unlike every exact-match `for_<field>`
+    (`ordered` or not), which is `Set`-returning (see `emit_table`).
+    Checked by suffix-stripping and confirming what's left names one of
+    `entity`'s actual `ordered` fields -- not just pattern-matching the
+    suffix alone, which would misfire on a field genuinely named
+    something like `cost_between`."""
     if entity not in ordered_fields:
         return False
-    for of in ordered_fields[entity]:
-        if target_field == of:
-            return True
+    for suffix in _ordered_range_suffixes():
+        if target_field.endswith(suffix):
+            var prefix = String(target_field[byte=0 : target_field.byte_length() - suffix.byte_length()])
+            for of in ordered_fields[entity]:
+                if prefix == of:
+                    return True
     return False
 
 

@@ -70,23 +70,23 @@ struct sqrrl__ProjectTable(Movable):
     def set_name(mut self, e: EntityHandle[sqrrl__ProjectTableState], v: String):
         self.table.state[].state.name.update(e.id(), v)
 
-    def for_name(self, value: String) -> List[EntityHandle[sqrrl__ProjectTableState]]:
+    def for_name(self, value: String) -> Set[EntityHandle[sqrrl__ProjectTableState]]:
         var ids = self.table.state[].state.name.get_bwd(value)
-        var out = List[EntityHandle[sqrrl__ProjectTableState]]()
+        var out = Set[EntityHandle[sqrrl__ProjectTableState]]()
         for id in ids:
-            out.append(self.table.handle_for(id))
+            out.add(self.table.handle_for(id))
         return out^
 
     def count_name(self, value: String) -> Int:
         return len(self.table.state[].state.name.get_bwd(value))
 
-    def group_by_name(self) -> Dict[String, List[EntityHandle[sqrrl__ProjectTableState]]]:
+    def group_by_name(self) -> Dict[String, Set[EntityHandle[sqrrl__ProjectTableState]]]:
         ref buckets = self.table.state[].state.name.all_bwd()
-        var out = Dict[String, List[EntityHandle[sqrrl__ProjectTableState]]]()
+        var out = Dict[String, Set[EntityHandle[sqrrl__ProjectTableState]]]()
         for entry in buckets.items():
-            var handles = List[EntityHandle[sqrrl__ProjectTableState]]()
+            var handles = Set[EntityHandle[sqrrl__ProjectTableState]]()
             for id in entry.value:
-                handles.append(self.table.handle_for(id))
+                handles.add(self.table.handle_for(id))
             out[entry.key] = handles^
         return out^
 
@@ -155,13 +155,13 @@ struct sqrrl__ProjectTable(Movable):
             out.append(self.table.handle_for(id))
         return out^
 
-    def group_by_priority(self) -> Dict[UInt32, List[EntityHandle[sqrrl__ProjectTableState]]]:
+    def group_by_priority(self) -> Dict[UInt32, Set[EntityHandle[sqrrl__ProjectTableState]]]:
         var buckets = self.table.state[].state.priority.all_bwd()
-        var out = Dict[UInt32, List[EntityHandle[sqrrl__ProjectTableState]]]()
+        var out = Dict[UInt32, Set[EntityHandle[sqrrl__ProjectTableState]]]()
         for entry in buckets.items():
-            var handles = List[EntityHandle[sqrrl__ProjectTableState]]()
+            var handles = Set[EntityHandle[sqrrl__ProjectTableState]]()
             for id in entry.value:
-                handles.append(self.table.handle_for(id))
+                handles.add(self.table.handle_for(id))
             out[entry.key] = handles^
         return out^
 
@@ -185,23 +185,23 @@ struct sqrrl__ProjectTable(Movable):
     def set_vendor(mut self, e: EntityHandle[sqrrl__ProjectTableState], v: EntityHandle[sqrrl__VendorTableState]):
         self.table.state[].state.vendor.update(e.id(), v)
 
-    def for_vendor(self, value: EntityHandle[sqrrl__VendorTableState]) -> List[EntityHandle[sqrrl__ProjectTableState]]:
+    def for_vendor(self, value: EntityHandle[sqrrl__VendorTableState]) -> Set[EntityHandle[sqrrl__ProjectTableState]]:
         var ids = self.table.state[].state.vendor.get_bwd(value)
-        var out = List[EntityHandle[sqrrl__ProjectTableState]]()
+        var out = Set[EntityHandle[sqrrl__ProjectTableState]]()
         for id in ids:
-            out.append(self.table.handle_for(id))
+            out.add(self.table.handle_for(id))
         return out^
 
     def count_vendor(self, value: EntityHandle[sqrrl__VendorTableState]) -> Int:
         return len(self.table.state[].state.vendor.get_bwd(value))
 
-    def group_by_vendor(self) -> Dict[EntityHandle[sqrrl__VendorTableState], List[EntityHandle[sqrrl__ProjectTableState]]]:
+    def group_by_vendor(self) -> Dict[EntityHandle[sqrrl__VendorTableState], Set[EntityHandle[sqrrl__ProjectTableState]]]:
         ref buckets = self.table.state[].state.vendor.all_bwd()
-        var out = Dict[EntityHandle[sqrrl__VendorTableState], List[EntityHandle[sqrrl__ProjectTableState]]]()
+        var out = Dict[EntityHandle[sqrrl__VendorTableState], Set[EntityHandle[sqrrl__ProjectTableState]]]()
         for entry in buckets.items():
-            var handles = List[EntityHandle[sqrrl__ProjectTableState]]()
+            var handles = Set[EntityHandle[sqrrl__ProjectTableState]]()
             for id in entry.value:
-                handles.append(self.table.handle_for(id))
+                handles.add(self.table.handle_for(id))
             out[entry.key] = handles^
         return out^
 
@@ -234,14 +234,15 @@ struct sqrrl__ProjectTable(Movable):
                 sqrrl__ids.append(sqrrl__id)
         if len(sqrrl__ids) == 0:
             raise Error("min_priority: table has no entities")
-        var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.priority.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v < sqrrl__result:
+        var sqrrl__result: Optional[UInt32] = None
+        for sqrrl__id in sqrrl__ids:
+            var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v < sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def max_priority(self) raises -> UInt32:
         var sqrrl__ids = List[UInt32]()
@@ -251,14 +252,15 @@ struct sqrrl__ProjectTable(Movable):
                 sqrrl__ids.append(sqrrl__id)
         if len(sqrrl__ids) == 0:
             raise Error("max_priority: table has no entities")
-        var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.priority.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v > sqrrl__result:
+        var sqrrl__result: Optional[UInt32] = None
+        for sqrrl__id in sqrrl__ids:
+            var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v > sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def median_priority(self) raises -> UInt32:
         ref sqrrl__sorted = self.table.state[].state.priority.sorted_ids()
@@ -271,65 +273,59 @@ struct sqrrl__ProjectTable(Movable):
         ref sqrrl__buckets = self.table.state[].state.name.all_bwd()
         var out = Dict[String, UInt32]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[UInt32] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.priority.get_fwd(sqrrl__ids[sqrrl__i])
-                var sqrrl__v = sqrrl__opt2.take()
-                if sqrrl__v < sqrrl__result:
+                var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result and sqrrl__v < sqrrl__result.value():
                     sqrrl__result = sqrrl__v
-            out[entry.key] = sqrrl__result
+                elif not sqrrl__result:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def min_priority_for_name(self, value: String) raises -> UInt32:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.name.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.name.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("min_priority_for_name: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.priority.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v < sqrrl__result:
+        var sqrrl__result: Optional[UInt32] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v < sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def max_priority_by_name(self) -> Dict[String, UInt32]:
         ref sqrrl__buckets = self.table.state[].state.name.all_bwd()
         var out = Dict[String, UInt32]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[UInt32] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.priority.get_fwd(sqrrl__ids[sqrrl__i])
-                var sqrrl__v = sqrrl__opt2.take()
-                if sqrrl__v > sqrrl__result:
+                var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result and sqrrl__v > sqrrl__result.value():
                     sqrrl__result = sqrrl__v
-            out[entry.key] = sqrrl__result
+                elif not sqrrl__result:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def max_priority_for_name(self, value: String) raises -> UInt32:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.name.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.name.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("max_priority_for_name: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.priority.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v > sqrrl__result:
+        var sqrrl__result: Optional[UInt32] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v > sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def median_priority_by_name(self) -> Dict[String, UInt32]:
         ref sqrrl__sorted = self.table.state[].state.priority.sorted_ids()
@@ -350,13 +346,11 @@ struct sqrrl__ProjectTable(Movable):
         return out^
 
     def median_priority_for_name(self, value: String) raises -> UInt32:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.name.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.name.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("median_priority_for_name: no entities found for this value")
         var sqrrl__values = List[UInt32]()
-        for sqrrl__id in sqrrl__ids:
+        for sqrrl__id in sqrrl__bucket:
             var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__id)
             sqrrl__values.append(sqrrl__opt.take())
         sort(sqrrl__values)
@@ -366,65 +360,59 @@ struct sqrrl__ProjectTable(Movable):
         ref sqrrl__buckets = self.table.state[].state.vendor.all_bwd()
         var out = Dict[EntityHandle[sqrrl__VendorTableState], UInt32]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[UInt32] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.priority.get_fwd(sqrrl__ids[sqrrl__i])
-                var sqrrl__v = sqrrl__opt2.take()
-                if sqrrl__v < sqrrl__result:
+                var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result and sqrrl__v < sqrrl__result.value():
                     sqrrl__result = sqrrl__v
-            out[entry.key] = sqrrl__result
+                elif not sqrrl__result:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def min_priority_for_vendor(self, value: EntityHandle[sqrrl__VendorTableState]) raises -> UInt32:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.vendor.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.vendor.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("min_priority_for_vendor: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.priority.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v < sqrrl__result:
+        var sqrrl__result: Optional[UInt32] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v < sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def max_priority_by_vendor(self) -> Dict[EntityHandle[sqrrl__VendorTableState], UInt32]:
         ref sqrrl__buckets = self.table.state[].state.vendor.all_bwd()
         var out = Dict[EntityHandle[sqrrl__VendorTableState], UInt32]()
         for entry in sqrrl__buckets.items():
-            var sqrrl__ids = List[UInt32]()
+            var sqrrl__result: Optional[UInt32] = None
             for sqrrl__id in entry.value:
-                sqrrl__ids.append(sqrrl__id)
-            var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__ids[0])
-            var sqrrl__result = sqrrl__opt.take()
-            for sqrrl__i in range(1, len(sqrrl__ids)):
-                var sqrrl__opt2 = self.table.state[].state.priority.get_fwd(sqrrl__ids[sqrrl__i])
-                var sqrrl__v = sqrrl__opt2.take()
-                if sqrrl__v > sqrrl__result:
+                var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__id)
+                var sqrrl__v = sqrrl__opt.take()
+                if sqrrl__result and sqrrl__v > sqrrl__result.value():
                     sqrrl__result = sqrrl__v
-            out[entry.key] = sqrrl__result
+                elif not sqrrl__result:
+                    sqrrl__result = sqrrl__v
+            out[entry.key] = sqrrl__result.take()
         return out^
 
     def max_priority_for_vendor(self, value: EntityHandle[sqrrl__VendorTableState]) raises -> UInt32:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.vendor.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.vendor.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("max_priority_for_vendor: no entities found for this value")
-        var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__ids[0])
-        var sqrrl__result = sqrrl__opt.take()
-        for sqrrl__i in range(1, len(sqrrl__ids)):
-            var sqrrl__opt2 = self.table.state[].state.priority.get_fwd(sqrrl__ids[sqrrl__i])
-            var sqrrl__v = sqrrl__opt2.take()
-            if sqrrl__v > sqrrl__result:
+        var sqrrl__result: Optional[UInt32] = None
+        for sqrrl__id in sqrrl__bucket:
+            var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__id)
+            var sqrrl__v = sqrrl__opt.take()
+            if sqrrl__result and sqrrl__v > sqrrl__result.value():
                 sqrrl__result = sqrrl__v
-        return sqrrl__result
+            elif not sqrrl__result:
+                sqrrl__result = sqrrl__v
+        return sqrrl__result.take()
 
     def median_priority_by_vendor(self) -> Dict[EntityHandle[sqrrl__VendorTableState], UInt32]:
         ref sqrrl__sorted = self.table.state[].state.priority.sorted_ids()
@@ -445,13 +433,11 @@ struct sqrrl__ProjectTable(Movable):
         return out^
 
     def median_priority_for_vendor(self, value: EntityHandle[sqrrl__VendorTableState]) raises -> UInt32:
-        var sqrrl__ids = List[UInt32]()
-        for sqrrl__id in self.table.state[].state.vendor.get_bwd(value):
-            sqrrl__ids.append(sqrrl__id)
-        if len(sqrrl__ids) == 0:
+        var sqrrl__bucket = self.table.state[].state.vendor.get_bwd(value)
+        if len(sqrrl__bucket) == 0:
             raise Error("median_priority_for_vendor: no entities found for this value")
         var sqrrl__values = List[UInt32]()
-        for sqrrl__id in sqrrl__ids:
+        for sqrrl__id in sqrrl__bucket:
             var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__id)
             sqrrl__values.append(sqrrl__opt.take())
         sort(sqrrl__values)

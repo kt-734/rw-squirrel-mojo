@@ -18,7 +18,7 @@ from squirrel_compiler.codegen.helpers import (
     is_container_type,
     container_wrapper_of,
     container_element_of,
-    _is_ordered_field_query,
+    _is_ordered_range_query,
     _resolve_relation_field_target,
 )
 from squirrel_compiler.codegen.table import emit_table
@@ -717,13 +717,15 @@ def rewrite_markers(
                 # of that field's own target type instead (`relation_schema
                 # [fa.entity][field]`), not `fa.entity` itself -- easy to
                 # miss since it's not literally `fa.entity`'s own table.
-                # An `ordered` field's `for_<field>` (exact match only --
-                # its five range-shaped siblings stay `List`-returning like
-                # any other field's `for_<field>`) returns
-                # `Set[EntityHandle[...]]` instead, matching `emit_table`'s
-                # own codegen for it (see its `FieldModifier.ORDERED`
-                # branch). Any other `for_<field>` returns
-                # `List[EntityHandle[...]]` (tracked via `entity_to_type`'s
+                # Every exact-match `for_<field>` (`ordered` or not)
+                # returns `Set[EntityHandle[...]]` -- ids matching one
+                # exact value have no meaningful order among them, see
+                # `emit_table`'s own codegen. An `ordered` field's five
+                # range-shaped siblings (`_greater_than`/`_less_than`/
+                # `_at_least`/`_at_most`/`_between`) are the one exception,
+                # staying `List`-returning since those genuinely carry
+                # `_sorted`'s order -- `_is_ordered_range_query` is what
+                # tells the two apart (tracked via `entity_to_type`'s
                 # container encoding, `encode_container_type`). All these
                 # are tracked and enforced the same way now that both a single entity
                 # and a container of them can be properly followed up with
@@ -749,10 +751,10 @@ def rewrite_markers(
                         is_entity_returning = True
                     else:
                         is_list_returning = True
-                        if _is_ordered_field_query(fa.entity, target_field, ordered_fields):
-                            registered_type = encode_container_type("Set", fa.entity)
-                        else:
+                        if _is_ordered_range_query(fa.entity, target_field, ordered_fields):
                             registered_type = encode_container_type("List", fa.entity)
+                        else:
+                            registered_type = encode_container_type("Set", fa.entity)
                 elif fa.field.startswith("get_") and fa.entity in relation_schema:
                     var target_field = String(fa.field[byte=4 : fa.field.byte_length()])
                     if target_field in relation_schema[fa.entity]:
@@ -918,18 +920,29 @@ def rewrite_markers(
                     var expr: String
                     if is_container_type(declared_type):
                         if not fa.index_expr:
-                            raise sc.err(
-                                "InvalidSquirrelSyntax: '@@"
-                                + fa.entity
-                                + "' is a "
-                                + container_wrapper_of(declared_type)
-                                + " of '@@"
-                                + container_element_of(declared_type)
-                                + "' -- index into it first ('@@"
+                            var wrapper = container_wrapper_of(declared_type)
+                            var how_to_access = (
+                                "index into it first ('@@"
                                 + fa.entity
                                 + "[i]."
                                 + fa.field
                                 + "')"
+                            ) if wrapper == "List" else (
+                                "iterate over it first ('for @@x in @@"
+                                + fa.entity
+                                + ": ... @@x."
+                                + fa.field
+                                + "')"
+                            )
+                            raise sc.err(
+                                "InvalidSquirrelSyntax: '@@"
+                                + fa.entity
+                                + "' is a "
+                                + wrapper
+                                + " of '@@"
+                                + container_element_of(declared_type)
+                                + "' -- "
+                                + how_to_access
                             )
                         current_type = container_element_of(declared_type)
                         var rewritten_index = rewrite_markers(

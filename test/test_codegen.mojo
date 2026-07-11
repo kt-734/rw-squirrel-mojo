@@ -566,7 +566,7 @@ def test_collection_relation_field_uses_ordinary_rel_by_default() raises:
     )
     assert_true(
         "def for_members(self, value: List[EntityHandle[sqrrl__EmployeeTableState]])"
-        " -> List[EntityHandle[sqrrl__DepartmentTableState]]:" in out
+        " -> Set[EntityHandle[sqrrl__DepartmentTableState]]:" in out
     )
     assert_true("_ = self.members.fetch_remove_fwd(id)" in out)
 
@@ -762,7 +762,7 @@ def test_multi_relation_field_uses_multi_rel_and_element_typed_accessors() raise
     assert_true("return self.table.state[].state.members.remove(e.id(), value)" in out)
     assert_true(
         "def for_members(self, value: EntityHandle[sqrrl__EmployeeTableState]) ->"
-        " List[EntityHandle[sqrrl__DepartmentTableState]]:" in out
+        " Set[EntityHandle[sqrrl__DepartmentTableState]]:" in out
     )
     assert_true("_ = self.members.fetch_remove_fwd(id)" in out)
 
@@ -780,7 +780,7 @@ def test_multi_plain_field_uses_element_type_not_list() raises:
         "def add_to_tags(mut self, e: EntityHandle[sqrrl__FooTableState], value: String) -> Bool:" in out
     )
     assert_true(
-        "def for_tags(self, value: String) -> List[EntityHandle[sqrrl__FooTableState]]:" in out
+        "def for_tags(self, value: String) -> Set[EntityHandle[sqrrl__FooTableState]]:" in out
     )
 
 
@@ -788,18 +788,20 @@ def test_emits_group_by_for_plain_field() raises:
     """`group_by_<field>` on a plain field walks `Rel.all_bwd()` (the
     whole reverse index, every value at once) rather than one bucket via
     `for_<field>`, rebuilding it into `Dict[FieldType,
-    List[EntityHandle[...]]]`."""
+    Set[EntityHandle[...]]]` -- `Set`, not `List`, same reasoning as
+    `for_<field>` itself: every id in one bucket shares that exact value,
+    with no meaningful order among them."""
     var sc = Scanner("@@struct @@Employee:\n    @@dept: @@Department\n")
     assert_true(sc.find_next_struct_decl())
     var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
 
     assert_true(
         "def group_by_dept(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState],"
-        " List[EntityHandle[sqrrl__EmployeeTableState]]]:" in out
+        " Set[EntityHandle[sqrrl__EmployeeTableState]]]:" in out
     )
     assert_true("ref buckets = self.table.state[].state.dept.all_bwd()" in out)
     assert_true("for entry in buckets.items():" in out)
-    assert_true("handles.append(self.table.handle_for(id))" in out)
+    assert_true("handles.add(self.table.handle_for(id))" in out)
     assert_true("out[entry.key] = handles^" in out)
 
 
@@ -827,32 +829,35 @@ def test_emits_group_by_for_multi_field() raises:
     keyed by the *element* type (`emit_multi_element_type`), same as
     `for_<field>`/`add_to_<field>`/`remove_from_<field>` already are for
     `multi` -- "for each Employee, every Department containing them," not
-    the field's own whole `Set[...]` type."""
+    the field's own whole `Set[...]` type. Each bucket's own value side is
+    `Set`, same reasoning as `for_<field>`."""
     var sc = Scanner("@@struct @@Department:\n    multi @@members: @@Employee\n")
     assert_true(sc.find_next_struct_decl())
     var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
 
     assert_true(
         "def group_by_members(self) -> Dict[EntityHandle[sqrrl__EmployeeTableState],"
-        " List[EntityHandle[sqrrl__DepartmentTableState]]]:" in out
+        " Set[EntityHandle[sqrrl__DepartmentTableState]]]:" in out
     )
     assert_true("ref buckets = self.table.state[].state.members.all_bwd()" in out)
     assert_true("for entry in buckets.items():" in out)
-    assert_true("handles.append(self.table.handle_for(id))" in out)
+    assert_true("handles.add(self.table.handle_for(id))" in out)
 
 
 def test_emits_group_by_for_ordered_field() raises:
     """`group_by_<field>` on an `ordered` field walks `OrderedRel.
     all_bwd()` -- already ascending-ordered, since `Dict`'s own iteration
     order matches insertion order -- rebuilding it into `Dict[FieldType,
-    List[EntityHandle[...]]]` in the same order."""
+    Set[EntityHandle[...]]]` in the same order. The outer `Dict`'s own
+    iteration order is meaningful; each bucket's `Set` isn't -- same
+    reasoning as `for_<field>`."""
     var sc = Scanner("@@struct @@Employee:\n    ordered years_employed: UInt32\n")
     assert_true(sc.find_next_struct_decl())
     var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
 
     assert_true(
         "def group_by_years_employed(self) -> Dict[UInt32,"
-        " List[EntityHandle[sqrrl__EmployeeTableState]]]:" in out
+        " Set[EntityHandle[sqrrl__EmployeeTableState]]]:" in out
     )
     assert_true(
         "var buckets = self.table.state[].state.years_employed.all_bwd()" in out

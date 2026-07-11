@@ -66,23 +66,23 @@ struct sqrrl__AuditLogTable(Movable):
     def set_message(mut self, e: EntityHandle[sqrrl__AuditLogTableState], v: String):
         self.table.state[].state.message.update(e.id(), v)
 
-    def for_message(self, value: String) -> List[EntityHandle[sqrrl__AuditLogTableState]]:
+    def for_message(self, value: String) -> Set[EntityHandle[sqrrl__AuditLogTableState]]:
         var ids = self.table.state[].state.message.get_bwd(value)
-        var out = List[EntityHandle[sqrrl__AuditLogTableState]]()
+        var out = Set[EntityHandle[sqrrl__AuditLogTableState]]()
         for id in ids:
-            out.append(self.table.handle_for(id))
+            out.add(self.table.handle_for(id))
         return out^
 
     def count_message(self, value: String) -> Int:
         return len(self.table.state[].state.message.get_bwd(value))
 
-    def group_by_message(self) -> Dict[String, List[EntityHandle[sqrrl__AuditLogTableState]]]:
+    def group_by_message(self) -> Dict[String, Set[EntityHandle[sqrrl__AuditLogTableState]]]:
         ref buckets = self.table.state[].state.message.all_bwd()
-        var out = Dict[String, List[EntityHandle[sqrrl__AuditLogTableState]]]()
+        var out = Dict[String, Set[EntityHandle[sqrrl__AuditLogTableState]]]()
         for entry in buckets.items():
-            var handles = List[EntityHandle[sqrrl__AuditLogTableState]]()
+            var handles = Set[EntityHandle[sqrrl__AuditLogTableState]]()
             for id in entry.value:
-                handles.append(self.table.handle_for(id))
+                handles.add(self.table.handle_for(id))
             out[entry.key] = handles^
         return out^
 

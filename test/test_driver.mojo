@@ -394,7 +394,7 @@ def test_convert_directory_emits_ordinary_rel_for_collection_relation_field() ra
     )
     assert_true(
         "def for_members(self, value: List[EntityHandle[sqrrl__EmployeeTableState]])"
-        " -> List[EntityHandle[sqrrl__DepartmentTableState]]:" in generated
+        " -> Set[EntityHandle[sqrrl__DepartmentTableState]]:" in generated
     )
 
     _rmtree(root)
@@ -629,7 +629,7 @@ def test_convert_directory_allows_one_sided_multi_relation() raises:
     )
     assert_true(
         "def for_students(self, value: EntityHandle[sqrrl__StudentTableState]) ->"
-        " List[EntityHandle[sqrrl__CourseTableState]]:" in generated
+        " Set[EntityHandle[sqrrl__CourseTableState]]:" in generated
     )
 
     _rmtree(root)

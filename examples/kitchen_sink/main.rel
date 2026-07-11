@@ -82,9 +82,11 @@ def main() raises:
 
         var @@eng_team = @@Employee.for_dept(@@eng)
         print("eng team size (via for_dept):", len(@@eng_team))
-        print("first member title before promotion:", @@eng_team[0].title)
-        @@eng_team[0].title = "Staff Engineer"
-        print("first member title after write-through-index:", @@eng_team[0].title)
+        for @@member in @@eng_team:
+            print("a member's title before promotion:", @@member.title)
+            @@member.title = "Staff Engineer"
+            print("that member's title after writing through the loop variable:", @@member.title)
+            break
 
         var names = List[String]()
         names.append("Carol")

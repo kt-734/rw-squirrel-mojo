@@ -45,23 +45,23 @@ struct sqrrl__EmployeeTable(Movable):
     def set_title(mut self, e: EntityHandle[sqrrl__EmployeeTableState], v: String):
         self.table.state[].state.title.update(e.id(), v)
 
-    def for_title(self, value: String) -> List[EntityHandle[sqrrl__EmployeeTableState]]:
+    def for_title(self, value: String) -> Set[EntityHandle[sqrrl__EmployeeTableState]]:
         var ids = self.table.state[].state.title.get_bwd(value)
-        var out = List[EntityHandle[sqrrl__EmployeeTableState]]()
+        var out = Set[EntityHandle[sqrrl__EmployeeTableState]]()
         for id in ids:
-            out.append(self.table.handle_for(id))
+            out.add(self.table.handle_for(id))
         return out^
 
     def count_title(self, value: String) -> Int:
         return len(self.table.state[].state.title.get_bwd(value))
 
-    def group_by_title(self) -> Dict[String, List[EntityHandle[sqrrl__EmployeeTableState]]]:
+    def group_by_title(self) -> Dict[String, Set[EntityHandle[sqrrl__EmployeeTableState]]]:
         ref buckets = self.table.state[].state.title.all_bwd()
-        var out = Dict[String, List[EntityHandle[sqrrl__EmployeeTableState]]]()
+        var out = Dict[String, Set[EntityHandle[sqrrl__EmployeeTableState]]]()
         for entry in buckets.items():
-            var handles = List[EntityHandle[sqrrl__EmployeeTableState]]()
+            var handles = Set[EntityHandle[sqrrl__EmployeeTableState]]()
             for id in entry.value:
-                handles.append(self.table.handle_for(id))
+                handles.add(self.table.handle_for(id))
             out[entry.key] = handles^
         return out^
 

@@ -25,27 +25,34 @@ def main() raises:
         var @@bob = @@Employee { .title = "Senior Engineer", .@@dept = @@eng }
 
         # A relation field's own for_<field> works exactly like a plain
-        # field's -- @@dept isn't unique, so for_dept returns a List, tracked
-        # (via "var @@team = ...", no explicit annotation needed) and
-        # indexable with proper @@name[i].field access.
+        # field's -- @@dept isn't unique, so for_dept returns a Set, tracked
+        # (via "var @@team = ...", no explicit annotation needed). Ids
+        # matching one exact value share that value, so there's no
+        # meaningful order among them -- a Set reflects that honestly,
+        # unlike indexing, which would imply an order that isn't real.
         var @@team = @@Employee.for_dept(@@eng)
         print("team size:", len(@@team))
-        print("first team member:", @@team[0].title)
-        @@team[0].title = "Lead Engineer"
-        print("after writing through the index:", @@team[0].title)
+        for @@member in @@team:
+            print("a team member:", @@member.title)
+            @@member.title = "Lead Engineer"
+            print("after writing through the loop variable:", @@member.title)
+            break
 
         # get_<field> on a relation field returns a single tracked entity too --
         # of the relation's *target* type (Department), not Employee.
         var @@alices_dept = @@Employee.get_dept(@@alice)
         print("alice's department:", @@alices_dept.name)
 
-        # Indexing without a following field extracts a bare, untracked
-        # EntityHandle -- usable as-is, or re-marked with an explicit
-        # annotation exactly like a value from ordinary hand-written Mojo
-        # (hire, below) can be.
-        var raw_member = @@team[1]
-        var @@second: @@Employee = raw_member
-        print("second team member (retroactively marked):", @@second.title)
+        # A bare (unmarked) loop variable is untracked -- usable as-is, or
+        # re-marked with an explicit annotation exactly like a value from
+        # ordinary hand-written Mojo (hire, below) can be. (Whichever team
+        # member the Set's arbitrary order hands back here -- possibly the
+        # same one just promoted above -- there's exactly one to pick from
+        # in this small example either way.)
+        for member in @@team:
+            var @@untracked_member: @@Employee = member
+            print("bare loop variable, retroactively marked:", @@untracked_member.title)
+            break
 
         var raw_hire = hire(sqrrl__world, "Intern", @@eng)
         var @@intern: @@Employee = raw_hire

@@ -52,23 +52,23 @@ struct sqrrl__VendorTable(Movable):
     def set_name(mut self, e: EntityHandle[sqrrl__VendorTableState], v: String):
         self.table.state[].state.name.update(e.id(), v)
 
-    def for_name(self, value: String) -> List[EntityHandle[sqrrl__VendorTableState]]:
+    def for_name(self, value: String) -> Set[EntityHandle[sqrrl__VendorTableState]]:
         var ids = self.table.state[].state.name.get_bwd(value)
-        var out = List[EntityHandle[sqrrl__VendorTableState]]()
+        var out = Set[EntityHandle[sqrrl__VendorTableState]]()
         for id in ids:
-            out.append(self.table.handle_for(id))
+            out.add(self.table.handle_for(id))
         return out^
 
     def count_name(self, value: String) -> Int:
         return len(self.table.state[].state.name.get_bwd(value))
 
-    def group_by_name(self) -> Dict[String, List[EntityHandle[sqrrl__VendorTableState]]]:
+    def group_by_name(self) -> Dict[String, Set[EntityHandle[sqrrl__VendorTableState]]]:
         ref buckets = self.table.state[].state.name.all_bwd()
-        var out = Dict[String, List[EntityHandle[sqrrl__VendorTableState]]]()
+        var out = Dict[String, Set[EntityHandle[sqrrl__VendorTableState]]]()
         for entry in buckets.items():
-            var handles = List[EntityHandle[sqrrl__VendorTableState]]()
+            var handles = Set[EntityHandle[sqrrl__VendorTableState]]()
             for id in entry.value:
-                handles.append(self.table.handle_for(id))
+                handles.add(self.table.handle_for(id))
             out[entry.key] = handles^
         return out^
 

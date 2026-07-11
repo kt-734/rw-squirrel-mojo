@@ -152,12 +152,12 @@ def build_unique_fields(discovery: DiscoveryResult) -> Dict[String, List[String]
 def build_ordered_fields(discovery: DiscoveryResult) -> Dict[String, List[String]]:
     """Struct name -> names of its `ordered`-marked fields, for every
     `@@struct` declared project-wide. Lets `rewrite_markers`
-    (`_is_ordered_field_query`) tell whether a `@@Type.for_<field>(...)`
-    (or one of its five range-shaped siblings) table-level call returns
-    `Set[EntityHandle[...]]` (an `ordered` field's own six query methods,
-    see `emit_table`'s `FieldModifier.ORDERED` branch) rather than the
-    `List[EntityHandle[...]]` any other field's `for_<field>` returns --
-    same reasoning as `build_unique_fields`."""
+    (`_is_ordered_range_query`) tell whether a `@@Type.for_<field>_
+    greater_than(...)`-style table-level call (one of an `ordered`
+    field's five range-shaped siblings) returns `List[EntityHandle[...]]`
+    (real order, from `_sorted`) rather than the `Set[EntityHandle[...]]`
+    every exact-match `for_<field>` returns, `ordered` or not -- same
+    reasoning as `build_unique_fields`."""
     var ordered_fields = Dict[String, List[String]]()
     for ds in discovery.structs:
         var names = List[String]()

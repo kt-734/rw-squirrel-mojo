@@ -51,23 +51,23 @@ struct sqrrl__PersonTable(Movable):
     def set_name(mut self, e: EntityHandle[sqrrl__PersonTableState], v: String):
         self.table.state[].state.name.update(e.id(), v)
 
-    def for_name(self, value: String) -> List[EntityHandle[sqrrl__PersonTableState]]:
+    def for_name(self, value: String) -> Set[EntityHandle[sqrrl__PersonTableState]]:
         var ids = self.table.state[].state.name.get_bwd(value)
-        var out = List[EntityHandle[sqrrl__PersonTableState]]()
+        var out = Set[EntityHandle[sqrrl__PersonTableState]]()
         for id in ids:
-            out.append(self.table.handle_for(id))
+            out.add(self.table.handle_for(id))
         return out^
 
     def count_name(self, value: String) -> Int:
         return len(self.table.state[].state.name.get_bwd(value))
 
-    def group_by_name(self) -> Dict[String, List[EntityHandle[sqrrl__PersonTableState]]]:
+    def group_by_name(self) -> Dict[String, Set[EntityHandle[sqrrl__PersonTableState]]]:
         ref buckets = self.table.state[].state.name.all_bwd()
-        var out = Dict[String, List[EntityHandle[sqrrl__PersonTableState]]]()
+        var out = Dict[String, Set[EntityHandle[sqrrl__PersonTableState]]]()
         for entry in buckets.items():
-            var handles = List[EntityHandle[sqrrl__PersonTableState]]()
+            var handles = Set[EntityHandle[sqrrl__PersonTableState]]()
             for id in entry.value:
-                handles.append(self.table.handle_for(id))
+                handles.add(self.table.handle_for(id))
             out[entry.key] = handles^
         return out^
 
@@ -91,23 +91,23 @@ struct sqrrl__PersonTable(Movable):
     def set_age(mut self, e: EntityHandle[sqrrl__PersonTableState], v: UInt32):
         self.table.state[].state.age.update(e.id(), v)
 
-    def for_age(self, value: UInt32) -> List[EntityHandle[sqrrl__PersonTableState]]:
+    def for_age(self, value: UInt32) -> Set[EntityHandle[sqrrl__PersonTableState]]:
         var ids = self.table.state[].state.age.get_bwd(value)
-        var out = List[EntityHandle[sqrrl__PersonTableState]]()
+        var out = Set[EntityHandle[sqrrl__PersonTableState]]()
         for id in ids:
-            out.append(self.table.handle_for(id))
+            out.add(self.table.handle_for(id))
         return out^
 
     def count_age(self, value: UInt32) -> Int:
         return len(self.table.state[].state.age.get_bwd(value))
 
-    def group_by_age(self) -> Dict[UInt32, List[EntityHandle[sqrrl__PersonTableState]]]:
+    def group_by_age(self) -> Dict[UInt32, Set[EntityHandle[sqrrl__PersonTableState]]]:
         ref buckets = self.table.state[].state.age.all_bwd()
-        var out = Dict[UInt32, List[EntityHandle[sqrrl__PersonTableState]]]()
+        var out = Dict[UInt32, Set[EntityHandle[sqrrl__PersonTableState]]]()
         for entry in buckets.items():
-            var handles = List[EntityHandle[sqrrl__PersonTableState]]()
+            var handles = Set[EntityHandle[sqrrl__PersonTableState]]()
             for id in entry.value:
-                handles.append(self.table.handle_for(id))
+                handles.add(self.table.handle_for(id))
             out[entry.key] = handles^
         return out^
 

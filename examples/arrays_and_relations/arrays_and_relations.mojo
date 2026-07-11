@@ -49,23 +49,23 @@ struct sqrrl__DepartmentTable(Movable):
     def set_name(mut self, e: EntityHandle[sqrrl__DepartmentTableState], v: String):
         self.table.state[].state.name.update(e.id(), v)
 
-    def for_name(self, value: String) -> List[EntityHandle[sqrrl__DepartmentTableState]]:
+    def for_name(self, value: String) -> Set[EntityHandle[sqrrl__DepartmentTableState]]:
         var ids = self.table.state[].state.name.get_bwd(value)
-        var out = List[EntityHandle[sqrrl__DepartmentTableState]]()
+        var out = Set[EntityHandle[sqrrl__DepartmentTableState]]()
         for id in ids:
-            out.append(self.table.handle_for(id))
+            out.add(self.table.handle_for(id))
         return out^
 
     def count_name(self, value: String) -> Int:
         return len(self.table.state[].state.name.get_bwd(value))
 
-    def group_by_name(self) -> Dict[String, List[EntityHandle[sqrrl__DepartmentTableState]]]:
+    def group_by_name(self) -> Dict[String, Set[EntityHandle[sqrrl__DepartmentTableState]]]:
         ref buckets = self.table.state[].state.name.all_bwd()
-        var out = Dict[String, List[EntityHandle[sqrrl__DepartmentTableState]]]()
+        var out = Dict[String, Set[EntityHandle[sqrrl__DepartmentTableState]]]()
         for entry in buckets.items():
-            var handles = List[EntityHandle[sqrrl__DepartmentTableState]]()
+            var handles = Set[EntityHandle[sqrrl__DepartmentTableState]]()
             for id in entry.value:
-                handles.append(self.table.handle_for(id))
+                handles.add(self.table.handle_for(id))
             out[entry.key] = handles^
         return out^
 
@@ -188,23 +188,23 @@ struct sqrrl__EmployeeTable(Movable):
     def set_title(mut self, e: EntityHandle[sqrrl__EmployeeTableState], v: String):
         self.table.state[].state.title.update(e.id(), v)
 
-    def for_title(self, value: String) -> List[EntityHandle[sqrrl__EmployeeTableState]]:
+    def for_title(self, value: String) -> Set[EntityHandle[sqrrl__EmployeeTableState]]:
         var ids = self.table.state[].state.title.get_bwd(value)
-        var out = List[EntityHandle[sqrrl__EmployeeTableState]]()
+        var out = Set[EntityHandle[sqrrl__EmployeeTableState]]()
         for id in ids:
-            out.append(self.table.handle_for(id))
+            out.add(self.table.handle_for(id))
         return out^
 
     def count_title(self, value: String) -> Int:
         return len(self.table.state[].state.title.get_bwd(value))
 
-    def group_by_title(self) -> Dict[String, List[EntityHandle[sqrrl__EmployeeTableState]]]:
+    def group_by_title(self) -> Dict[String, Set[EntityHandle[sqrrl__EmployeeTableState]]]:
         ref buckets = self.table.state[].state.title.all_bwd()
-        var out = Dict[String, List[EntityHandle[sqrrl__EmployeeTableState]]]()
+        var out = Dict[String, Set[EntityHandle[sqrrl__EmployeeTableState]]]()
         for entry in buckets.items():
-            var handles = List[EntityHandle[sqrrl__EmployeeTableState]]()
+            var handles = Set[EntityHandle[sqrrl__EmployeeTableState]]()
             for id in entry.value:
-                handles.append(self.table.handle_for(id))
+                handles.add(self.table.handle_for(id))
             out[entry.key] = handles^
         return out^
 
@@ -228,23 +228,23 @@ struct sqrrl__EmployeeTable(Movable):
     def set_dept(mut self, e: EntityHandle[sqrrl__EmployeeTableState], v: EntityHandle[sqrrl__DepartmentTableState]):
         self.table.state[].state.dept.update(e.id(), v)
 
-    def for_dept(self, value: EntityHandle[sqrrl__DepartmentTableState]) -> List[EntityHandle[sqrrl__EmployeeTableState]]:
+    def for_dept(self, value: EntityHandle[sqrrl__DepartmentTableState]) -> Set[EntityHandle[sqrrl__EmployeeTableState]]:
         var ids = self.table.state[].state.dept.get_bwd(value)
-        var out = List[EntityHandle[sqrrl__EmployeeTableState]]()
+        var out = Set[EntityHandle[sqrrl__EmployeeTableState]]()
         for id in ids:
-            out.append(self.table.handle_for(id))
+            out.add(self.table.handle_for(id))
         return out^
 
     def count_dept(self, value: EntityHandle[sqrrl__DepartmentTableState]) -> Int:
         return len(self.table.state[].state.dept.get_bwd(value))
 
-    def group_by_dept(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState], List[EntityHandle[sqrrl__EmployeeTableState]]]:
+    def group_by_dept(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState], Set[EntityHandle[sqrrl__EmployeeTableState]]]:
         ref buckets = self.table.state[].state.dept.all_bwd()
-        var out = Dict[EntityHandle[sqrrl__DepartmentTableState], List[EntityHandle[sqrrl__EmployeeTableState]]]()
+        var out = Dict[EntityHandle[sqrrl__DepartmentTableState], Set[EntityHandle[sqrrl__EmployeeTableState]]]()
         for entry in buckets.items():
-            var handles = List[EntityHandle[sqrrl__EmployeeTableState]]()
+            var handles = Set[EntityHandle[sqrrl__EmployeeTableState]]()
             for id in entry.value:
-                handles.append(self.table.handle_for(id))
+                handles.add(self.table.handle_for(id))
             out[entry.key] = handles^
         return out^
 
@@ -346,27 +346,34 @@ def main() raises:
         var sqrrl__bob = sqrrl__world.Employee.create(title = "Senior Engineer", dept = sqrrl__eng)
 
         # A relation field's own for_<field> works exactly like a plain
-        # field's -- @@dept isn't unique, so for_dept returns a List, tracked
-        # (via "var @@team = ...", no explicit annotation needed) and
-        # indexable with proper @@name[i].field access.
+        # field's -- @@dept isn't unique, so for_dept returns a Set, tracked
+        # (via "var @@team = ...", no explicit annotation needed). Ids
+        # matching one exact value share that value, so there's no
+        # meaningful order among them -- a Set reflects that honestly,
+        # unlike indexing, which would imply an order that isn't real.
         var sqrrl__team = sqrrl__world.Employee.for_dept(sqrrl__eng)
         print("team size:", len(sqrrl__team))
-        print("first team member:", sqrrl__world.Employee.get_title(sqrrl__team[0]))
-        sqrrl__world.Employee.set_title(sqrrl__team[0], "Lead Engineer");
-        print("after writing through the index:", sqrrl__world.Employee.get_title(sqrrl__team[0]))
+        for sqrrl__member in  sqrrl__team:
+            print("a team member:", sqrrl__world.Employee.get_title(sqrrl__member))
+            sqrrl__world.Employee.set_title(sqrrl__member, "Lead Engineer");
+            print("after writing through the loop variable:", sqrrl__world.Employee.get_title(sqrrl__member))
+            break
 
         # get_<field> on a relation field returns a single tracked entity too --
         # of the relation's *target* type (Department), not Employee.
         var sqrrl__alices_dept = sqrrl__world.Employee.get_dept(sqrrl__alice)
         print("alice's department:", sqrrl__world.Department.get_name(sqrrl__alices_dept))
 
-        # Indexing without a following field extracts a bare, untracked
-        # EntityHandle -- usable as-is, or re-marked with an explicit
-        # annotation exactly like a value from ordinary hand-written Mojo
-        # (hire, below) can be.
-        var raw_member = sqrrl__team[1]
-        var sqrrl__second: EntityHandle[sqrrl__EmployeeTableState] = raw_member
-        print("second team member (retroactively marked):", sqrrl__world.Employee.get_title(sqrrl__second))
+        # A bare (unmarked) loop variable is untracked -- usable as-is, or
+        # re-marked with an explicit annotation exactly like a value from
+        # ordinary hand-written Mojo (hire, below) can be. (Whichever team
+        # member the Set's arbitrary order hands back here -- possibly the
+        # same one just promoted above -- there's exactly one to pick from
+        # in this small example either way.)
+        for member in sqrrl__team:
+            var sqrrl__untracked_member: EntityHandle[sqrrl__EmployeeTableState] = member
+            print("bare loop variable, retroactively marked:", sqrrl__world.Employee.get_title(sqrrl__untracked_member))
+            break
 
         var raw_hire = hire(sqrrl__world, "Intern", sqrrl__eng)
         var sqrrl__intern: EntityHandle[sqrrl__EmployeeTableState] = raw_hire

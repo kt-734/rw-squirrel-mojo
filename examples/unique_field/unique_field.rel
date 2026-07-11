@@ -18,8 +18,9 @@ def main() raises:
             print("rejected duplicate email:", e)
 
         var @@matches = @@Person.for_name("alice")
-        print("for_name is not unique, so it returns a list:", len(@@matches), "match(es)")
-        print("indexed into it:", @@matches[0].name)
+        print("for_name is not unique, so it returns a Set:", len(@@matches), "match(es)")
+        for @@m in @@matches:
+            print("a match:", @@m.name)
 
         print(@@alice.name, @@bob.name)
     @@}
