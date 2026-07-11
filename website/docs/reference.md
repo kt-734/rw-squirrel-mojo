@@ -154,16 +154,17 @@ The value side of that `Dict` (`List[EntityHandle[...]]`/
 way to bind both a `Dict`'s key and value through the marker system yet,
 only whichever one iterating the bare container already gives for free.
 
-## `sum_<field>`/`avg_<field>`/`min_<field>`/`max_<field>` — aggregating one field by another
+## `sum_<field>`/`avg_<field>`/`min_<field>`/`max_<field>`/`median_<field>` — aggregating one field by another
 
-Generated for a `math`- or `ordered`-marked field, paired against every
+Generated for a `stats`- or `ordered`-marked field, paired against every
 *other* groupable field in the struct (any modifier but `forwardonly`,
 which has no reverse index to group by at all). `ordered` alone earns
-`min_`/`max_` for free (it already requires `Comparable` for its own
-range queries); `math` earns all four (it requires `+` too, for
-`sum_`/`avg_`). This parser can't verify a field's declared type actually
-supports `+`/`<`/`>` any more than `unique` can verify `Hashable` —
-`math`/`ordered` are trusted the same way, rejected by Mojo's own compiler
+`min_`/`max_`/`median_` for free (it already requires `Comparable` for
+its own range queries, and finding a median needs comparisons, not
+arithmetic); `stats` additionally earns `sum_`/`avg_` (it requires `+`
+too). This parser can't verify a field's declared type actually supports
+`+`/`<`/`>` any more than `unique` can verify `Hashable` —
+`stats`/`ordered` are trusted the same way, rejected by Mojo's own compiler
 if wrong.
 
 Three shapes per aggregate kind, `<y>` the aggregated field and `<x>` the
@@ -175,18 +176,34 @@ grouping field:
 | `{agg}_<y>_by_<x>()` | `() -> Dict[XFieldType, ResultType]` | every group at once, walking `x`'s own `all_bwd()` the same way `group_by_<field>`/`count_by_<field>` do |
 | `{agg}_<y>_for_<x>(value)` | `(value: XFieldType) raises -> ResultType` | one group, via `x`'s own `get_bwd(value)` — cheaper when only one group matters, mirroring `for_<field>`/`count_<field>` sitting alongside their own `_by_` sibling |
 
-`{agg}` is `sum`/`avg`/`min`/`max`. `ResultType` is `<y>`'s own declared
-type for `sum`/`min`/`max` — exact either way — but always `Float64` for
-`avg`, regardless of `<y>`'s own type (`Int`, `UInt32`, ...): an integer
-average silently truncating (`total // count`) would lose information a
+`{agg}` is `sum`/`avg`/`min`/`max`/`median`. `ResultType` is `<y>`'s own
+declared type for every one of them except `avg` — even `median`, since
+picking a middle value out of the data (the upper of the two middle
+values for an even-sized group, not an interpolation) never needs `<y>`
+to support arithmetic, only `<`. `avg` alone is always `Float64`,
+regardless of `<y>`'s own type (`Int`, `UInt32`, ...): an integer average
+silently truncating (`total // count`) would lose information a
 `Float64` promotion doesn't.
 
 `{agg}_<y>_for_<x>(value)` and the whole-table `{agg}_<y>()` both `raise`
 if the group/table is empty — there's no sensible non-raising default for
-an empty average, minimum, or maximum, and raising uniformly (rather than
-only for those three) keeps all four aggregate kinds behaving the same
-way. `{agg}_<y>_by_<x>()` never raises — every bucket `all_bwd()` hands
-back already has at least one id in it by construction.
+an empty average, minimum, maximum, or median, and raising uniformly
+(rather than only for some of them) keeps every aggregate kind behaving
+the same way. `{agg}_<y>_by_<x>()` never raises — every bucket `all_bwd()`
+hands back already has at least one id in it by construction.
+
+`median`'s whole-table and `_by_<x>` shapes are the two places `ordered`
+and `stats` genuinely diverge in *how* they're computed, not just in
+which kinds they earn: an `ordered` `<y>` already maintains a value-sorted
+id list for its own range queries, so both shapes read the middle
+directly out of that (O(1) for the whole table; one linear pass
+distributing ids into per-group buckets, already in order, for `_by_`).
+A `stats`-only `<y>`, or `_for_<x>` regardless of `<y>`'s modifiers, has
+no such structure to lean on and collects-then-sorts fresh each time —
+the true cost of a median with nothing already ordered to read from.
+(`_for_<x>` never uses the fast path even for an `ordered` `<y>`: sorting
+just the one group asked about is cheaper than scanning the whole
+table's sorted list to filter it down to that group.)
 
 `<x> == <y>` is skipped entirely (no `sum_salary_by_salary`) — aggregating
 a field grouped by itself is degenerate, since every entity in one of its
@@ -230,7 +247,7 @@ Opt-in via `equatable` on the struct declaration (`@@struct equatable
 @@Name:`, combinable with `keepalive` in either order). Every field's own
 type needs to support `!=` for it to compile — not checked ahead of time,
 the same trust-the-compiler reasoning as `unique`'s `Hashable`/`ordered`'s
-`Comparable`/`math`'s `+` — but unlike those three, `value_eq` used to be
+`Comparable`/`stats`'s `+` — but unlike those three, `value_eq` used to be
 generated unconditionally for every struct, so any struct with a single
 non-`Equatable` field (most commonly an embedded plain struct, which
 doesn't derive `Equatable` by default) carried that compile risk whether
@@ -242,7 +259,7 @@ risk to structs that actually ask for it.
 ## Example
 
 An `Employee` struct with a `unique email`, a `title`, a
-`@@dept: @@Department` field, and a `math salary: Float64` field
+`@@dept: @@Department` field, and a `stats salary: Float64` field
 generates:
 
 ```
@@ -279,7 +296,7 @@ distinct_salary() -> Set[Float64]
 
 count() -> Int                                                   # whole-table, no grouping
 
-# math salary, paired against every other groupable field (email/title/dept):
+# stats salary, paired against every other groupable field (email/title/dept):
 sum_salary() raises -> Float64             avg_salary() raises -> Float64
 min_salary() raises -> Float64             max_salary() raises -> Float64
 

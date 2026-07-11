@@ -9,7 +9,8 @@ of hand-rolling a table, an id allocator, and forward/backward indexes
 yourself.
 
 A `.rel` file is otherwise just Mojo — anything not `@@`-marked passes
-through untouched.
+through untouched. (A squirrel buries nuts; informally, that's what we
+call these `@@` markers around here too.)
 
 ## Quick start
 
@@ -68,7 +69,7 @@ one project; each piece individually:
 > text, not something that understands Mojo's actual trait system.
 > Wherever a `.rel` author opts into a capability that requires their
 > field's type to support something specific — `unique` needs
-> `Hashable`, `ordered` needs `Comparable`, `math` needs `+`/`<`/`>`,
+> `Hashable`, `ordered` needs `Comparable`, `stats` needs `+`/`<`/`>`,
 > `equatable` needs `!=` (for `value_eq`) — this compiler never verifies
 > that requirement itself. It just generates the code trusting the
 > choice, and Mojo's own real compiler is what rejects it, with its own
@@ -350,7 +351,7 @@ one case this parser has no other way to learn a type for, since nothing
 | `forwardonly` | no reverse index at all — for fields whose type isn't hashable (e.g. `List[Int]`), or where the reverse lookup is simply never needed |
 | `multi`       | a genuine many-to-many relation: `Set[T]`-backed, with `add_to_<field>`/`remove_from_<field>` mutating one member at a time and `for_<field>` as the reverse query. Only ever needs declaring on *one* side of the relationship — see below |
 | `ordered`     | a sorted index alongside the field's value, giving range queries (`for_<field>_greater_than`/`_less_than`/`_at_least`/`_at_most`/`_between`) in addition to the usual exact-match `for_<field>` — see below |
-| `math`        | earns `sum_<field>`/`avg_<field>`/`min_<field>`/`max_<field>` (whole-table, per-group, and per-value siblings) against every other field in the struct — see below |
+| `stats`        | earns `sum_<field>`/`avg_<field>`/`min_<field>`/`max_<field>`/`median_<field>` (whole-table, per-group, and per-value siblings) against every other field in the struct — see below |
 
 ```
 @@struct @@Person:
@@ -400,10 +401,10 @@ The five range-shaped siblings (`_greater_than`/`_less_than`/`_at_least`/
 `for_<field>` — their whole point is the sorted order `ordered` maintains
 internally, which a `Set` would throw away.
 
-**`math`** — unlike `unique`/`forwardonly`/`multi`/`ordered`, this isn't a
+**`stats`** — unlike `unique`/`forwardonly`/`multi`/`ordered`, this isn't a
 storage choice for the field it's written on; it's independent of
 `modifier` entirely, so it combines freely with any of the other four
-(`ordered math price: Float64`, either order). It marks a field as
+(`ordered stats price: Float64`, either order). It marks a field as
 eligible to be *aggregated*, earning `sum_<field>`/`avg_<field>`/
 `min_<field>`/`max_<field>`, each paired against every *other* groupable
 field in the same struct (any modifier but `forwardonly`, which has no
@@ -413,7 +414,7 @@ reverse index to group by):
 @@struct @@Employee:
     name: String
     @@dept: @@Department
-    math salary: Float64
+    stats salary: Float64
 ```
 
 ```
@@ -437,8 +438,8 @@ average, minimum, or maximum, and raising uniformly (rather than only for
 those three) keeps all four aggregate kinds behaving the same way.
 
 An `ordered` field earns `min_<field>`/`max_<field>` for free, with no
-`math` needed — `ordered` already requires `Comparable` for its own range
-queries, and `min`/`max` need nothing more. `math` is what additionally
+`stats` needed — `ordered` already requires `Comparable` for its own range
+queries, and `min`/`max` need nothing more. `stats` is what additionally
 earns `sum_<field>`/`avg_<field>` (needing `+` too), and is required for
 `min_<field>`/`max_<field>` on a field that isn't otherwise `ordered`
 (same trust-the-user principle as `unique`/`ordered` themselves — see
@@ -644,7 +645,7 @@ Every `@@struct` produces two Mojo structs:
 | `group_by_<field>` | shape depends on the field's own modifier — see below | every value at once, mapped to its own matching entities |
 | `count_by_<field>` | shape depends on the field's own modifier — see below | every value at once, mapped to its own count — see below |
 | `distinct_<field>` | `() -> Set[FieldType]` (`List` for `ordered`, `Set[ElementType]` for `multi`) | every distinct value currently in use, no entities built at all — see below |
-| `sum_<field>`/`avg_<field>`/`min_<field>`/`max_<field>` | `() raises -> ResultType` (whole table); `_by_<other>() -> Dict[OtherFieldType, ResultType]`; `_for_<other>(value) raises -> ResultType` | `math`/`ordered` fields only, paired against every other groupable field — see below |
+| `sum_<field>`/`avg_<field>`/`min_<field>`/`max_<field>`/`median_<field>` | `() raises -> ResultType` (whole table); `_by_<other>() -> Dict[OtherFieldType, ResultType]`; `_for_<other>(value) raises -> ResultType` | `stats`/`ordered` fields only, paired against every other groupable field — see below |
 | `add_to_<field>` | `(e, value: ElementType) -> Bool` | `multi` fields only — `True` if newly added, `False` if already a member |
 | `remove_from_<field>` | `(e, value: ElementType) -> Bool` | `multi` fields only — `True` if it was actually removed |
 | `all` | `() -> Set[EntityHandle[...]]` | every currently-live entity in the table — generated for every struct, `keepalive` or not |
@@ -768,9 +769,10 @@ The *value* side of a `group_by_<field>`/`count_by_<field>` `Dict`
 through the marker system yet, only whichever one iterating the bare
 container already gives you for free.
 
-`sum_<field>`/`avg_<field>`/`min_<field>`/`max_<field>` are generated for
-a `math`- or `ordered`-marked field (see "Field modifiers" above), paired
-against every *other* groupable field in the struct, each in three shapes:
+`sum_<field>`/`avg_<field>`/`min_<field>`/`max_<field>`/`median_<field>`
+are generated for a `stats`- or `ordered`-marked field (see "Field
+modifiers" above), paired against every *other* groupable field in the
+struct, each in three shapes:
 
 ```
 print(@@Employee.sum_salary())                 # whole table, no grouping
@@ -787,6 +789,21 @@ is itself a relation — `for @@d in @@Employee.sum_salary_by_dept():` binds
 container), so there's nothing to `@@`-track there, same as
 `count_<field>(value)`'s own plain `Int` isn't. The whole-table form
 (no `_by_`/`_for_` at all) is likewise a bare scalar.
+
+`median_<field>` is earned by exactly the same fields as `min_`/`max_`
+(an `ordered` field, or a `stats` one) — finding a middle value needs
+`Comparable`, not `+`, so it's independent of whether `sum_`/`avg_` are
+also available. It returns the field's own declared type, never
+`Float64` (unlike `avg_`): a median has to be an actual value that
+occurred, since `String`/anything else merely `Comparable` can't be
+arithmetically averaged, and for an even-sized group it's the *upper* of
+the two middle values, not an interpolation between them. An `ordered`
+field's whole-table and `_by_<other>` medians are read directly off the
+sorted index `ordered` already maintains for its own range queries — no
+extra sort, unlike `_for_<other>` (sorting just the one group asked
+about is cheaper than filtering the whole sorted index down to it) or a
+`stats`-only field (nothing sorted to lean on at all), both of which
+collect and sort fresh.
 
 **How you get the count of a whole table** (not grouped by any field):
 `sqrrl__world.Name.count()` — generated unconditionally, same as `all()`.
@@ -809,7 +826,7 @@ same relation graph `check_no_relation_cycles` already keeps acyclic.
 `value_eq` is opt-in — a struct only gets it when tagged `equatable`
 (`@@struct equatable @@Name:`, combinable with `keepalive` in either
 order: `@@struct keepalive equatable @@Name:`), same trust-the-user
-principle as `unique`/`ordered`/`math` (see the top of this section) —
+principle as `unique`/`ordered`/`stats` (see the top of this section) —
 every field's own type needs to support `!=` for it to compile, never
 checked ahead of time here either. `value_eq` is also the cautionary tale
 behind that principle: it used to be generated unconditionally for every

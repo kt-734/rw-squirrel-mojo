@@ -260,6 +260,13 @@ struct sqrrl__ProjectTable(Movable):
                 sqrrl__result = sqrrl__v
         return sqrrl__result
 
+    def median_priority(self) raises -> UInt32:
+        ref sqrrl__sorted = self.table.state[].state.priority.sorted_ids()
+        if len(sqrrl__sorted) == 0:
+            raise Error("median_priority: table has no entities")
+        var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__sorted[len(sqrrl__sorted) // 2])
+        return sqrrl__opt.take()
+
     def min_priority_by_name(self) -> Dict[String, UInt32]:
         ref sqrrl__buckets = self.table.state[].state.name.all_bwd()
         var out = Dict[String, UInt32]()
@@ -324,6 +331,37 @@ struct sqrrl__ProjectTable(Movable):
                 sqrrl__result = sqrrl__v
         return sqrrl__result
 
+    def median_priority_by_name(self) -> Dict[String, UInt32]:
+        ref sqrrl__sorted = self.table.state[].state.priority.sorted_ids()
+        var sqrrl__buckets = Dict[String, List[UInt32]]()
+        for sqrrl__id in sqrrl__sorted:
+            var sqrrl__xopt = self.table.state[].state.name.get_fwd(sqrrl__id)
+            var sqrrl__xval = sqrrl__xopt.take()
+            if sqrrl__xval not in sqrrl__buckets:
+                sqrrl__buckets[sqrrl__xval.copy()] = List[UInt32]()
+            try:
+                sqrrl__buckets[sqrrl__xval].append(sqrrl__id)
+            except:
+                abort("median_priority_by_name: unreachable Dict operation failure")
+        var out = Dict[String, UInt32]()
+        for entry in sqrrl__buckets.items():
+            var sqrrl__opt = self.table.state[].state.priority.get_fwd(entry.value[len(entry.value) // 2])
+            out[entry.key] = sqrrl__opt.take()
+        return out^
+
+    def median_priority_for_name(self, value: String) raises -> UInt32:
+        var sqrrl__ids = List[UInt32]()
+        for sqrrl__id in self.table.state[].state.name.get_bwd(value):
+            sqrrl__ids.append(sqrrl__id)
+        if len(sqrrl__ids) == 0:
+            raise Error("median_priority_for_name: no entities found for this value")
+        var sqrrl__values = List[UInt32]()
+        for sqrrl__id in sqrrl__ids:
+            var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__id)
+            sqrrl__values.append(sqrrl__opt.take())
+        sort(sqrrl__values)
+        return sqrrl__values[len(sqrrl__values) // 2]
+
     def min_priority_by_vendor(self) -> Dict[EntityHandle[sqrrl__VendorTableState], UInt32]:
         ref sqrrl__buckets = self.table.state[].state.vendor.all_bwd()
         var out = Dict[EntityHandle[sqrrl__VendorTableState], UInt32]()
@@ -387,6 +425,37 @@ struct sqrrl__ProjectTable(Movable):
             if sqrrl__v > sqrrl__result:
                 sqrrl__result = sqrrl__v
         return sqrrl__result
+
+    def median_priority_by_vendor(self) -> Dict[EntityHandle[sqrrl__VendorTableState], UInt32]:
+        ref sqrrl__sorted = self.table.state[].state.priority.sorted_ids()
+        var sqrrl__buckets = Dict[EntityHandle[sqrrl__VendorTableState], List[UInt32]]()
+        for sqrrl__id in sqrrl__sorted:
+            var sqrrl__xopt = self.table.state[].state.vendor.get_fwd(sqrrl__id)
+            var sqrrl__xval = sqrrl__xopt.take()
+            if sqrrl__xval not in sqrrl__buckets:
+                sqrrl__buckets[sqrrl__xval.copy()] = List[UInt32]()
+            try:
+                sqrrl__buckets[sqrrl__xval].append(sqrrl__id)
+            except:
+                abort("median_priority_by_vendor: unreachable Dict operation failure")
+        var out = Dict[EntityHandle[sqrrl__VendorTableState], UInt32]()
+        for entry in sqrrl__buckets.items():
+            var sqrrl__opt = self.table.state[].state.priority.get_fwd(entry.value[len(entry.value) // 2])
+            out[entry.key] = sqrrl__opt.take()
+        return out^
+
+    def median_priority_for_vendor(self, value: EntityHandle[sqrrl__VendorTableState]) raises -> UInt32:
+        var sqrrl__ids = List[UInt32]()
+        for sqrrl__id in self.table.state[].state.vendor.get_bwd(value):
+            sqrrl__ids.append(sqrrl__id)
+        if len(sqrrl__ids) == 0:
+            raise Error("median_priority_for_vendor: no entities found for this value")
+        var sqrrl__values = List[UInt32]()
+        for sqrrl__id in sqrrl__ids:
+            var sqrrl__opt = self.table.state[].state.priority.get_fwd(sqrrl__id)
+            sqrrl__values.append(sqrrl__opt.take())
+        sort(sqrrl__values)
+        return sqrrl__values[len(sqrrl__values) // 2]
 
     def sqrrl__to_json(self, e: EntityHandle[sqrrl__ProjectTableState]) -> String:
         var out = String("{")

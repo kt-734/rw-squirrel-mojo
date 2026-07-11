@@ -306,51 +306,51 @@ def test_parse_struct_rejects_ordered_and_unique_together() raises:
         _ = sc.parse_struct()
 
 
-def test_parse_struct_math_field() raises:
-    var sc = Scanner("@@struct @@Employee:\n    math salary: Float64\n")
+def test_parse_struct_stats_field() raises:
+    var sc = Scanner("@@struct @@Employee:\n    stats salary: Float64\n")
     assert_true(sc.find_next_struct_decl())
     var parsed = sc.parse_struct()
     assert_equal(len(parsed.fields), 1)
     assert_equal(parsed.fields[0].name, String("salary"))
-    assert_true(parsed.fields[0].is_math)
+    assert_true(parsed.fields[0].is_stats)
     assert_true(parsed.fields[0].modifier == FieldModifier.NONE)
 
 
-def test_parse_struct_math_field_name_not_mistaken() raises:
-    var sc = Scanner("@@struct @@Foo:\n    mathematics: String\n")
+def test_parse_struct_stats_field_name_not_mistaken() raises:
+    var sc = Scanner("@@struct @@Foo:\n    statistics: String\n")
     assert_true(sc.find_next_struct_decl())
     var parsed = sc.parse_struct()
     assert_equal(len(parsed.fields), 1)
-    assert_equal(parsed.fields[0].name, String("mathematics"))
-    assert_false(parsed.fields[0].is_math)
+    assert_equal(parsed.fields[0].name, String("statistics"))
+    assert_false(parsed.fields[0].is_stats)
 
 
-def test_parse_struct_field_without_math_keyword_defaults_false() raises:
+def test_parse_struct_field_without_stats_keyword_defaults_false() raises:
     var sc = Scanner("@@struct @@Foo:\n    name: String\n")
     assert_true(sc.find_next_struct_decl())
     var parsed = sc.parse_struct()
-    assert_false(parsed.fields[0].is_math)
+    assert_false(parsed.fields[0].is_stats)
 
 
-def test_parse_struct_math_combines_with_ordered_either_order() raises:
-    var sc1 = Scanner("@@struct @@Foo:\n    math ordered price: Float64\n")
+def test_parse_struct_stats_combines_with_ordered_either_order() raises:
+    var sc1 = Scanner("@@struct @@Foo:\n    stats ordered price: Float64\n")
     assert_true(sc1.find_next_struct_decl())
     var parsed1 = sc1.parse_struct()
-    assert_true(parsed1.fields[0].is_math)
+    assert_true(parsed1.fields[0].is_stats)
     assert_true(parsed1.fields[0].modifier == FieldModifier.ORDERED)
 
-    var sc2 = Scanner("@@struct @@Foo:\n    ordered math weight: Float64\n")
+    var sc2 = Scanner("@@struct @@Foo:\n    ordered stats weight: Float64\n")
     assert_true(sc2.find_next_struct_decl())
     var parsed2 = sc2.parse_struct()
-    assert_true(parsed2.fields[0].is_math)
+    assert_true(parsed2.fields[0].is_stats)
     assert_true(parsed2.fields[0].modifier == FieldModifier.ORDERED)
 
 
-def test_parse_struct_math_combines_with_unique() raises:
-    var sc = Scanner("@@struct @@Foo:\n    unique math price: Float64\n")
+def test_parse_struct_stats_combines_with_unique() raises:
+    var sc = Scanner("@@struct @@Foo:\n    unique stats price: Float64\n")
     assert_true(sc.find_next_struct_decl())
     var parsed = sc.parse_struct()
-    assert_true(parsed.fields[0].is_math)
+    assert_true(parsed.fields[0].is_stats)
     assert_true(parsed.fields[0].modifier == FieldModifier.UNIQUE)
 
 

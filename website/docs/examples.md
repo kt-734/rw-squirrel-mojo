@@ -64,7 +64,7 @@ def main() raises:
 
 **[`kitchen_sink`](https://github.com/kt-734/rw-squirrel-mojo/tree/main/examples/kitchen_sink)**
 — every field modifier (`unique`, `forwardonly`, `multi`, `ordered`,
-`math`) and struct-level tag (`keepalive`, `equatable`),
+`stats`) and struct-level tag (`keepalive`, `equatable`),
 `count`/`count_<field>`/`group_by_<field>`/
 `count_by_<field>`/`distinct_<field>`/`value_eq`/the `sum_`/`avg_`/`min_`/
 `max_` aggregate family, deep relation chains and diamonds, generic and

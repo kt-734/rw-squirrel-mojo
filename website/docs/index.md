@@ -20,10 +20,41 @@ forward/backward indexes yourself.
 A `.rel` file is otherwise just Mojo. Anything not `@@`-marked passes through
 untouched.
 
+Work with simple or complex data in your apps — you'll like this.
+
 [Get started](getting-started.md){ .md-button .md-button--primary }
 [Read the DSL guide](dsl-guide.md){ .md-button }
 
 </div>
+
+## Why model data this way
+
+A raw id and a struct field can point at "the same thing" your data model
+does, but only a real relation makes that connection something the
+compiler and the generated code actually know about:
+
+- **One copy, referenced everywhere it's used.** An entity lives in exactly
+  one table row; every relation field pointing at it shares that same row
+  rather than duplicating its data. Update it once, and everything
+  referencing it sees the update — there's no second copy to forget.
+- **The reverse lookup always exists.** Declaring `@@dept: @@Department` on
+  `@@Employee` doesn't just let you read an employee's department — it also
+  gives `@@Department`'s own side `for_dept(...)`, with no separate index to
+  hand-write and keep in sync.
+- **References can't dangle.** A relation field is a refcounted
+  `EntityHandle`, not a bare id — the target it points at is guaranteed
+  live for as long as anything points at it, and a relation graph that
+  could never be safely torn down (a cycle) is rejected before you can
+  even compile, not discovered at runtime.
+- **The schema grows without disturbing what's already there.** Adding a
+  new relationship between two existing structs — even a self-relation,
+  via a join struct — never means restructuring how either one stores its
+  own fields.
+- **Constraints are declared once, not re-checked by hand everywhere.**
+  `unique`, cardinality (one-to-many vs. `multi`'s many-to-many), and
+  acyclicity are structural properties of the schema, enforced the same
+  way for every caller — not application-code discipline that's easy to
+  get right once and forget somewhere else.
 
 ## One field instead of a hand-rolled index
 

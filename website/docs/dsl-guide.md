@@ -3,8 +3,10 @@
 ![](images/emblems/dsl.png){ align=right width="180" }
 
 `@@` marks everything Squirrel-specific — struct declarations, entity
-construction, relation fields, and world threading. A `.rel` file is
-otherwise just Mojo; anything not `@@`-marked passes through untouched. See
+construction, relation fields, and world threading. (Informally, these
+`@@` markers get called "nuts" around here — a squirrel buries nuts,
+after all.) A `.rel` file is otherwise just Mojo; anything not
+`@@`-marked passes through untouched. See
 [`examples/kitchen_sink`](https://github.com/kt-734/rw-squirrel-mojo/tree/main/examples/kitchen_sink)
 for all of this combined in one project.
 
@@ -133,6 +135,17 @@ var @@alice = @@Employee { .title = "Engineer", .@@dept = @@eng }
 var @@team = @@Employee.for_dept(@@eng) # List[EntityHandle[...]], indexable
 var @@alices_dept = @@alice.@@dept      # a single tracked Department
 ```
+
+That reference is strictly one-directional: a relation field keeps whatever
+it *points at* alive, never the reverse, and never anything further
+upstream. `@@alice.@@dept` keeps `@@eng` alive for as long as `@@alice`
+holds that field — but `@@eng` being pointed at by `@@alice` (or by any
+number of other `@@Employee`s) does nothing to keep `@@alice` alive in
+return. Nothing about being someone's target creates a reference back.
+The only way a struct's own rows stay alive independent of who points at
+them is the `keepalive` tag (see [`keepalive`](#keepalive)) — a table
+holding onto its own rows, not a relation at all, which is why it's the
+one thing that breaks this forward-only pattern.
 
 `@@alice.@@dept` reads the relation field via instance syntax, tracking the
 result the same way `for_<field>`/`create` do: a plain, unmarked variable is
@@ -271,7 +284,7 @@ field declared on just `Course` already answers both directions —
     that understands Mojo's actual trait system. Wherever a `.rel`
     author opts into a capability that requires their field's type to
     support something specific — `unique` needs `Hashable`, `ordered`
-    needs `Comparable`, `math` needs `+`/`<`/`>`, `equatable` needs `!=`
+    needs `Comparable`, `stats` needs `+`/`<`/`>`, `equatable` needs `!=`
     (for `value_eq`) — this compiler never verifies that requirement
     itself. It just generates the code trusting the choice, and Mojo's
     own real compiler is what rejects it, with its own accurate error,
@@ -293,7 +306,7 @@ One keyword before a field name:
 | `forwardonly` | no reverse index at all — for fields whose type isn't hashable, or where the reverse lookup is simply never needed |
 | `multi`       | a genuine many-to-many relation: `Set[T]`-backed, with `add_to_<field>`/`remove_from_<field>` mutating one member at a time and `for_<field>` as the reverse query. Only ever needs declaring on *one* side |
 | `ordered`     | a sorted index alongside the field's value, giving range queries (`for_<field>_greater_than`/`_less_than`/`_at_least`/`_at_most`/`_between`) in addition to the usual exact-match `for_<field>` |
-| `math`        | earns `sum_<field>`/`avg_<field>`/`min_<field>`/`max_<field>` against every other field in the struct — independent of the other four, combines freely with any of them |
+| `stats`        | earns `sum_<field>`/`avg_<field>`/`min_<field>`/`max_<field>`/`median_<field>` against every other field in the struct — independent of the other four, combines freely with any of them |
 
 ```
 @@struct @@Person:
@@ -330,7 +343,7 @@ for @@e in @@Employee.for_years_employed_between(2, 5):
     print(@@e.name)
 ```
 
-**`math`** marks a field as aggregatable, earning `sum_<field>`/
+**`stats`** marks a field as aggregatable, earning `sum_<field>`/
 `avg_<field>`/`min_<field>`/`max_<field>`, each paired against every
 *other* groupable field (any modifier but `forwardonly`) in three shapes:
 whole-table (no grouping at all), `_by_<other>()` (every group at once, a
@@ -341,7 +354,7 @@ matters):
 @@struct @@Employee:
     name: String
     @@dept: @@Department
-    math salary: Float64
+    stats salary: Float64
 ```
 
 ```
@@ -352,12 +365,25 @@ for @@d in @@Employee.sum_salary_by_dept():     # every department at once
 ```
 
 An `ordered` field earns `min_<field>`/`max_<field>` for free (it already
-requires `Comparable`) with no `math` needed; `math` is what additionally
+requires `Comparable`) with no `stats` needed; `stats` is what additionally
 earns `sum_<field>`/`avg_<field>`. `avg_<field>` always returns `Float64`
 regardless of the field's own declared type, so an integer average
 doesn't silently truncate. `_for_<other>`/the whole-table form both raise
 on an empty group/table — there's no sensible non-raising default for an
 empty average, minimum, or maximum.
+
+`median_<field>` is earned by the same fields as `min_`/`max_` — an
+`ordered` field, or a `stats` one — since finding a middle value needs
+`Comparable` too, not arithmetic. Unlike `avg_`, it returns the field's
+own declared type, not `Float64` (the median of a `String` can't be
+averaged, so it's always an actual value from the data, picking the
+upper of the two middle values for an even-sized group rather than
+interpolating between them). An `ordered` field's whole-table and
+`_by_<other>` medians are backed directly by the sorted index `ordered`
+already maintains for its own range queries — no extra sort needed —
+while `_for_<other>` and a `stats`-only field's median collect and sort
+just for that one query, same as any other data structure with no
+maintained order would have to.
 
 **Compound queries** — every `for_<field>` is a single-field lookup; there's
 no DSL syntax for combining two conditions. No sugar is needed for it
@@ -553,6 +579,14 @@ _ = @@Project.create(name = "Website Revamp")    # handle discarded, entity live
 print("all projects:", len(@@Project.all()))
 ```
 
+`keepalive` is the exception to relation fields' forward-only keep-alive
+rule (see [Relation fields](#relation-fields)): a table holding onto its
+own rows, not a relation pointing at anything. Being someone's relation
+target never keeps *you* alive — a `@@Group` full of `multi @@members:
+@@Person` keeps every member `@@Person` alive, but nothing about that
+keeps the `@@Group` itself alive; only `keepalive` (or a live handle
+somewhere) does that.
+
 ## `equatable`
 
 `equatable` on a `@@struct` (combinable with `keepalive`, in either order:
@@ -573,7 +607,7 @@ print(@@Department.value_eq(@@eng, @@sales))     # False -- different fields
 
 Every field's own type needs to support `!=` for `value_eq` to compile —
 never checked ahead of time, same trust-the-user principle as
-`unique`/`ordered`/`math` (see [Field modifiers](#field-modifiers) above).
+`unique`/`ordered`/`stats` (see [Field modifiers](#field-modifiers) above).
 `value_eq` is the cautionary tale behind that principle: it used to be
 generated unconditionally for every struct, so any struct with a single
 non-`Equatable` field (most commonly an embedded plain struct, like

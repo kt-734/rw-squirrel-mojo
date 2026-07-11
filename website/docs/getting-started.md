@@ -16,6 +16,13 @@ curl -LO https://github.com/kt-734/rw-squirrel-mojo/releases/latest/download/squ
 tar -xzf squirrelc-linux-x86_64.tar.gz
 ```
 
+Linux x86_64 is the only release built today. Other OSes/architectures are
+planned closer to a 1.0.0 release — until then, building from source
+(below) on the target machine itself is the way to get `squirrelc` running
+anywhere else. Note this inherits Mojo's own platform support: Mojo
+doesn't run natively on Windows yet, so on Windows that means WSL rather
+than a native build.
+
 This unpacks a `squirrelc` executable and a `lib/` directory next to it —
 `squirrelc` looks for its libraries there, so move or copy the *pair*
 together (don't separate `squirrelc` from its `lib/`):

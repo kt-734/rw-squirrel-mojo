@@ -250,7 +250,7 @@ def build_plain_struct_fields(
                             name=field.name,
                             type_str=recover_relation_type_str(field.type_str),
                             modifier=field.modifier,
-                            is_math=field.is_math,
+                            is_stats=field.is_stats,
                         )
                     )
                 out[parsed.name] = fields^

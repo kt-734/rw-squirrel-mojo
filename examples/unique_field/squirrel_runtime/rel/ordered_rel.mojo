@@ -104,6 +104,20 @@ struct OrderedRel[T: KeyElement & Comparable & ImplicitlyDeletable & Copyable](R
             out[value^] = ids^
         return out^
 
+    def sorted_ids(self) -> ref [self._sorted] List[UInt32]:
+        """Every id currently holding a value, in ascending order by that
+        value -- a borrowed reference straight into `_sorted` (`self` is
+        only borrowed here, so this is read-only, same reasoning as `Rel.
+        all_bwd`), not a copy, exposing the order this struct already
+        maintains on every `put`/`update` rather than making a caller
+        rebuild it (collect then sort from scratch) when they already know
+        the field is `ordered`. What `median_<field>`'s whole-table and
+        `_by_` variants use (`codegen.aggregates`) to get an O(1)/O(n)
+        answer respectively instead of the O(n log n) a fresh sort would
+        cost -- the entire reason `ordered` maintains this structure at
+        all, not just for range queries."""
+        return self._sorted
+
     def greater_than(self, value: Self.T) -> List[UInt32]:
         """Every id whose value is strictly greater than `value`."""
         return self._slice(self._upper_bound(value), len(self._sorted))

@@ -696,7 +696,7 @@ struct Scanner(Movable):
                     name=field.name,
                     type_str=unqualify_self_type_params(field.type_str, type_params),
                     modifier=field.modifier,
-                    is_math=field.is_math,
+                    is_stats=field.is_stats,
                 )
             )
         return ParsedStruct(name=name, fields=fields^, type_params=type_params^)
@@ -808,7 +808,7 @@ struct Scanner(Movable):
                     name=field.name,
                     type_str=unqualify_self_type_params(field.type_str, type_params),
                     modifier=field.modifier,
-                    is_math=field.is_math,
+                    is_stats=field.is_stats,
                 )
             )
         return ParsedStruct(name=name, fields=fields^, type_params=type_params^)

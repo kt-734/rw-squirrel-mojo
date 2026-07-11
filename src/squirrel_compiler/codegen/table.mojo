@@ -213,7 +213,7 @@ def emit_table(parsed: ParsedStruct, plain_struct_fields: Dict[String, List[Fiel
     # `Equatable` by default) carried this same compile failure regardless
     # of whether its own author ever wanted `value_eq` at all. Gating it
     # behind an explicit keyword confines that risk to only the structs
-    # that actually ask for it, the same way `unique`/`ordered`/`math`
+    # that actually ask for it, the same way `unique`/`ordered`/`stats`
     # already confine their own type-support risk to an opt-in field.
     if parsed.is_equatable:
         out += "\n"

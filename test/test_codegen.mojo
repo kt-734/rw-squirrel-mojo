@@ -2681,14 +2681,14 @@ def test_transform_source_leaves_plain_field_group_by_call_untracked() raises:
         _ = transform_source(source, _employee_dept_schema(), empty_function_returns(), empty_unique_fields(), empty_ordered_fields(), empty_plain_struct_fields(), empty_relation_targets())
 
 
-def test_emits_sum_avg_min_max_for_math_field() raises:
-    """A `math`-marked field earns all four aggregate kinds, paired with
+def test_emits_sum_avg_min_max_for_stats_field() raises:
+    """A `stats`-marked field earns all four aggregate kinds, paired with
     every other groupable field (`name`, plain here): `_by_` (every group
     at once, `Dict`), `_for_` (one group, raises), and a whole-table
     sibling with no grouping field at all. `avg_` always returns
     `Float64` regardless of the aggregated field's own declared type
     (`Int` here) -- `sum_`/`min_`/`max_` stay in that type."""
-    var sc = Scanner("@@struct @@Employee:\n    name: String\n    math score: Int\n")
+    var sc = Scanner("@@struct @@Employee:\n    name: String\n    stats score: Int\n")
     assert_true(sc.find_next_struct_decl())
     var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
 
@@ -2704,7 +2704,7 @@ def test_emits_sum_avg_min_max_for_math_field() raises:
     assert_true("def min_score_by_name(self) -> Dict[String, Int]:" in out)
     assert_true("def max_score_for_name(self, value: String) raises -> Int:" in out)
 
-    # `name` isn't aggregatable (no `math`, not `ordered`) -- no siblings
+    # `name` isn't aggregatable (no `stats`, not `ordered`) -- no siblings
     # generated with it as the aggregated field.
     assert_true("def sum_name" not in out)
     assert_true("def avg_name" not in out)
@@ -2712,8 +2712,68 @@ def test_emits_sum_avg_min_max_for_math_field() raises:
     assert_true("def max_name" not in out)
 
 
+def test_ordered_field_earns_fast_path_median() raises:
+    """An `ordered` field's whole-table and `_by_<other>` medians read
+    straight out of `OrderedRel.sorted_ids()` (already maintained for its
+    own range queries) instead of collecting and sorting from scratch --
+    the entire point of `ordered` maintaining that structure at all."""
+    var sc = Scanner("@@struct @@Employee:\n    name: String\n    ordered years: UInt32\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true("def median_years(self) raises -> UInt32:" in out)
+    assert_true("self.table.state[].state.years.sorted_ids()" in out)
+    assert_true("def median_years_by_name(self) -> Dict[String, UInt32]:" in out)
+
+
+def test_stats_only_field_earns_slow_path_median() raises:
+    """A `stats`-only (not also `ordered`) field has no maintained sort
+    order to read from at all -- its median always collects every value
+    into a `List` and sorts it fresh, for every shape."""
+    var sc = Scanner("@@struct @@Employee:\n    name: String\n    stats salary: Float64\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true("def median_salary(self) raises -> Float64:" in out)
+    assert_true("sort(sqrrl__values)" in out)
+    assert_true("sorted_ids" not in out)
+
+
+def test_median_by_multi_grouping_field_falls_back_to_slow_path() raises:
+    """Even for an `ordered` `y`, `median_<y>_by_<x>` can't use the fast
+    bucket-walk when `x` is `multi` -- a `multi` field's `get_fwd(id)`
+    returns a whole *set* of values, not one, so a single id can belong
+    to several `x`-groups at once, breaking the fast path's one-bucket-
+    per-id assumption. Falls back to the general materialize-then-sort
+    path instead."""
+    var sc = Scanner(
+        "@@struct @@Department:\n    multi @@tags: @@Department\n    ordered years: UInt32\n"
+    )
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true(
+        "def median_years_by_tags(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState], UInt32]:"
+        in out
+    )
+    assert_true("sort(sqrrl__values)" in out)
+
+
+def test_median_for_variant_always_uses_slow_path_even_when_ordered() raises:
+    """`median_<y>_for_<x>` never uses `sorted_ids()`, even when `y` is
+    `ordered` -- sorting just the one group `get_bwd(value)` already hands
+    back is cheaper than scanning the whole table's sorted index down to
+    that one group."""
+    var sc = Scanner("@@struct @@Employee:\n    name: String\n    ordered years: UInt32\n")
+    assert_true(sc.find_next_struct_decl())
+    var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
+
+    assert_true("def median_years_for_name(self, value: String) raises -> UInt32:" in out)
+    assert_true("sort(sqrrl__values)" in out)
+
+
 def test_ordered_only_field_gets_min_max_but_not_sum_avg() raises:
-    """An `ordered` (not `math`) field already proves `Comparable` for
+    """An `ordered` (not `stats`) field already proves `Comparable` for
     its own range queries, earning `min_`/`max_` for free -- but not
     `sum_`/`avg_`, which need `+` too, something `ordered` alone never
     established."""
@@ -2734,7 +2794,7 @@ def test_aggregate_skips_pairing_field_with_itself() raises:
     in one of its own value-groups already holds that exact value -- so
     `x == y` is skipped for the `_by_`/`_for_` siblings; the whole-table
     sibling (no grouping field at all) is unaffected."""
-    var sc = Scanner("@@struct @@Employee:\n    math salary: Float64\n")
+    var sc = Scanner("@@struct @@Employee:\n    stats salary: Float64\n")
     assert_true(sc.find_next_struct_decl())
     var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
 
@@ -2747,7 +2807,7 @@ def test_aggregate_by_over_unique_grouping_field_is_trivial() raises:
     """`_by_` grouped by a `unique` field is trivial -- `UniqueRel.all_bwd()`
     already maps each value to its own single id, so there's no bucket to
     materialize into a `List` first, unlike every other modifier."""
-    var sc = Scanner("@@struct @@Employee:\n    unique email: String\n    math salary: Float64\n")
+    var sc = Scanner("@@struct @@Employee:\n    unique email: String\n    stats salary: Float64\n")
     assert_true(sc.find_next_struct_decl())
     var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
 
@@ -2760,7 +2820,7 @@ def test_aggregate_by_over_multi_grouping_field_keys_by_element_type() raises:
     """`_by_` grouped by a `multi` field is keyed by the *element* type,
     same as `group_by_<field>`/`count_by_<field>` already are for `multi`."""
     var sc = Scanner(
-        "@@struct @@Department:\n    multi @@members: @@Employee\n    math budget: Float64\n"
+        "@@struct @@Department:\n    multi @@members: @@Employee\n    stats budget: Float64\n"
     )
     assert_true(sc.find_next_struct_decl())
     var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
@@ -2778,7 +2838,7 @@ def test_aggregate_for_variant_raises_on_empty_group() raises:
     are never empty by construction) -- an arbitrary caller-supplied
     `value` can genuinely match nothing, and there's no sensible
     non-raising default for avg/min/max of nothing."""
-    var sc = Scanner("@@struct @@Employee:\n    name: String\n    math salary: Float64\n")
+    var sc = Scanner("@@struct @@Employee:\n    name: String\n    stats salary: Float64\n")
     assert_true(sc.find_next_struct_decl())
     var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
 
@@ -2792,7 +2852,7 @@ def test_aggregate_whole_table_variant_raises_on_empty_table() raises:
     `EntityHandle` built at all, not even a discarded one) -- the same
     primitives `Table.all()` itself uses -- and raises if the table has no
     live entities, same reasoning as `_for_`'s empty-bucket case."""
-    var sc = Scanner("@@struct @@Employee:\n    math salary: Float64\n")
+    var sc = Scanner("@@struct @@Employee:\n    stats salary: Float64\n")
     assert_true(sc.find_next_struct_decl())
     var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
 
@@ -2807,7 +2867,7 @@ def test_forwardonly_field_excluded_as_aggregate_grouping_field() raises:
     an aggregate's grouping field any more than it can `group_by_<field>`/
     `count_by_<field>` itself."""
     var sc = Scanner(
-        "@@struct @@Employee:\n    forwardonly tags: List[String]\n    math salary: Float64\n"
+        "@@struct @@Employee:\n    forwardonly tags: List[String]\n    stats salary: Float64\n"
     )
     assert_true(sc.find_next_struct_decl())
     var out = emit_table(sc.parse_struct(), empty_plain_struct_fields())
@@ -2825,7 +2885,7 @@ def test_transform_source_rewrites_for_loop_over_sum_by_call() raises:
         "@@struct @@Department:\n    name: String\n\n"
         "\n"
         "@@struct @@Employee:\n    name: String\n    @@dept: @@Department\n"
-        "    math salary: Float64\n\n"
+        "    stats salary: Float64\n\n"
         "\n"
         "def main() raises:\n"
         "    @@{\n"
@@ -2854,7 +2914,7 @@ def test_transform_source_leaves_plain_field_sum_by_call_untracked() raises:
     a plain field."""
     var source = String(
         "@@struct @@Employee:\n    name: String\n    @@dept: @@Department\n"
-        "    math salary: Float64\n\n"
+        "    stats salary: Float64\n\n"
         "\n"
         "def main() raises:\n"
         "    @@{\n"
@@ -2943,7 +3003,7 @@ def _note_plain_struct_fields() -> Dict[String, List[Field]]:
     tell "direct Mojo field access" (`Note` has no generated table) apart
     from "route through `get_<field>`" (an entity does)."""
     var fields = List[Field]()
-    fields.append(Field(name="author", type_str="@@Employee", modifier=FieldModifier.NONE, is_math=False))
+    fields.append(Field(name="author", type_str="@@Employee", modifier=FieldModifier.NONE, is_stats=False))
     var out = Dict[String, List[Field]]()
     out["Note"] = fields^
     return out^

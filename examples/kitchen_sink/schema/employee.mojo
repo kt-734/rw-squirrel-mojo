@@ -337,6 +337,13 @@ struct sqrrl__EmployeeTable(Movable):
                 sqrrl__result = sqrrl__v
         return sqrrl__result
 
+    def median_years_employed(self) raises -> UInt32:
+        ref sqrrl__sorted = self.table.state[].state.years_employed.sorted_ids()
+        if len(sqrrl__sorted) == 0:
+            raise Error("median_years_employed: table has no entities")
+        var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__sorted[len(sqrrl__sorted) // 2])
+        return sqrrl__opt.take()
+
     def min_years_employed_by_email(self) -> Dict[String, UInt32]:
         ref sqrrl__ids = self.table.state[].state.email.all_bwd()
         var out = Dict[String, UInt32]()
@@ -359,6 +366,29 @@ struct sqrrl__EmployeeTable(Movable):
         return out^
 
     def max_years_employed_for_email(self, value: String) raises -> UInt32:
+        var sqrrl__id = self.table.state[].state.email.get_bwd(value)
+        var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
+        return sqrrl__opt.take()
+
+    def median_years_employed_by_email(self) -> Dict[String, UInt32]:
+        ref sqrrl__sorted = self.table.state[].state.years_employed.sorted_ids()
+        var sqrrl__buckets = Dict[String, List[UInt32]]()
+        for sqrrl__id in sqrrl__sorted:
+            var sqrrl__xopt = self.table.state[].state.email.get_fwd(sqrrl__id)
+            var sqrrl__xval = sqrrl__xopt.take()
+            if sqrrl__xval not in sqrrl__buckets:
+                sqrrl__buckets[sqrrl__xval.copy()] = List[UInt32]()
+            try:
+                sqrrl__buckets[sqrrl__xval].append(sqrrl__id)
+            except:
+                abort("median_years_employed_by_email: unreachable Dict operation failure")
+        var out = Dict[String, UInt32]()
+        for entry in sqrrl__buckets.items():
+            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(entry.value[len(entry.value) // 2])
+            out[entry.key] = sqrrl__opt.take()
+        return out^
+
+    def median_years_employed_for_email(self, value: String) raises -> UInt32:
         var sqrrl__id = self.table.state[].state.email.get_bwd(value)
         var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
         return sqrrl__opt.take()
@@ -427,6 +457,37 @@ struct sqrrl__EmployeeTable(Movable):
                 sqrrl__result = sqrrl__v
         return sqrrl__result
 
+    def median_years_employed_by_title(self) -> Dict[String, UInt32]:
+        ref sqrrl__sorted = self.table.state[].state.years_employed.sorted_ids()
+        var sqrrl__buckets = Dict[String, List[UInt32]]()
+        for sqrrl__id in sqrrl__sorted:
+            var sqrrl__xopt = self.table.state[].state.title.get_fwd(sqrrl__id)
+            var sqrrl__xval = sqrrl__xopt.take()
+            if sqrrl__xval not in sqrrl__buckets:
+                sqrrl__buckets[sqrrl__xval.copy()] = List[UInt32]()
+            try:
+                sqrrl__buckets[sqrrl__xval].append(sqrrl__id)
+            except:
+                abort("median_years_employed_by_title: unreachable Dict operation failure")
+        var out = Dict[String, UInt32]()
+        for entry in sqrrl__buckets.items():
+            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(entry.value[len(entry.value) // 2])
+            out[entry.key] = sqrrl__opt.take()
+        return out^
+
+    def median_years_employed_for_title(self, value: String) raises -> UInt32:
+        var sqrrl__ids = List[UInt32]()
+        for sqrrl__id in self.table.state[].state.title.get_bwd(value):
+            sqrrl__ids.append(sqrrl__id)
+        if len(sqrrl__ids) == 0:
+            raise Error("median_years_employed_for_title: no entities found for this value")
+        var sqrrl__values = List[UInt32]()
+        for sqrrl__id in sqrrl__ids:
+            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
+            sqrrl__values.append(sqrrl__opt.take())
+        sort(sqrrl__values)
+        return sqrrl__values[len(sqrrl__values) // 2]
+
     def min_years_employed_by_salary(self) -> Dict[Float64, UInt32]:
         ref sqrrl__buckets = self.table.state[].state.salary.all_bwd()
         var out = Dict[Float64, UInt32]()
@@ -490,6 +551,37 @@ struct sqrrl__EmployeeTable(Movable):
             if sqrrl__v > sqrrl__result:
                 sqrrl__result = sqrrl__v
         return sqrrl__result
+
+    def median_years_employed_by_salary(self) -> Dict[Float64, UInt32]:
+        ref sqrrl__sorted = self.table.state[].state.years_employed.sorted_ids()
+        var sqrrl__buckets = Dict[Float64, List[UInt32]]()
+        for sqrrl__id in sqrrl__sorted:
+            var sqrrl__xopt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            var sqrrl__xval = sqrrl__xopt.take()
+            if sqrrl__xval not in sqrrl__buckets:
+                sqrrl__buckets[sqrrl__xval.copy()] = List[UInt32]()
+            try:
+                sqrrl__buckets[sqrrl__xval].append(sqrrl__id)
+            except:
+                abort("median_years_employed_by_salary: unreachable Dict operation failure")
+        var out = Dict[Float64, UInt32]()
+        for entry in sqrrl__buckets.items():
+            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(entry.value[len(entry.value) // 2])
+            out[entry.key] = sqrrl__opt.take()
+        return out^
+
+    def median_years_employed_for_salary(self, value: Float64) raises -> UInt32:
+        var sqrrl__ids = List[UInt32]()
+        for sqrrl__id in self.table.state[].state.salary.get_bwd(value):
+            sqrrl__ids.append(sqrrl__id)
+        if len(sqrrl__ids) == 0:
+            raise Error("median_years_employed_for_salary: no entities found for this value")
+        var sqrrl__values = List[UInt32]()
+        for sqrrl__id in sqrrl__ids:
+            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
+            sqrrl__values.append(sqrrl__opt.take())
+        sort(sqrrl__values)
+        return sqrrl__values[len(sqrrl__values) // 2]
 
     def min_years_employed_by_dept(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState], UInt32]:
         ref sqrrl__buckets = self.table.state[].state.dept.all_bwd()
@@ -555,6 +647,37 @@ struct sqrrl__EmployeeTable(Movable):
                 sqrrl__result = sqrrl__v
         return sqrrl__result
 
+    def median_years_employed_by_dept(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState], UInt32]:
+        ref sqrrl__sorted = self.table.state[].state.years_employed.sorted_ids()
+        var sqrrl__buckets = Dict[EntityHandle[sqrrl__DepartmentTableState], List[UInt32]]()
+        for sqrrl__id in sqrrl__sorted:
+            var sqrrl__xopt = self.table.state[].state.dept.get_fwd(sqrrl__id)
+            var sqrrl__xval = sqrrl__xopt.take()
+            if sqrrl__xval not in sqrrl__buckets:
+                sqrrl__buckets[sqrrl__xval.copy()] = List[UInt32]()
+            try:
+                sqrrl__buckets[sqrrl__xval].append(sqrrl__id)
+            except:
+                abort("median_years_employed_by_dept: unreachable Dict operation failure")
+        var out = Dict[EntityHandle[sqrrl__DepartmentTableState], UInt32]()
+        for entry in sqrrl__buckets.items():
+            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(entry.value[len(entry.value) // 2])
+            out[entry.key] = sqrrl__opt.take()
+        return out^
+
+    def median_years_employed_for_dept(self, value: EntityHandle[sqrrl__DepartmentTableState]) raises -> UInt32:
+        var sqrrl__ids = List[UInt32]()
+        for sqrrl__id in self.table.state[].state.dept.get_bwd(value):
+            sqrrl__ids.append(sqrrl__id)
+        if len(sqrrl__ids) == 0:
+            raise Error("median_years_employed_for_dept: no entities found for this value")
+        var sqrrl__values = List[UInt32]()
+        for sqrrl__id in sqrrl__ids:
+            var sqrrl__opt = self.table.state[].state.years_employed.get_fwd(sqrrl__id)
+            sqrrl__values.append(sqrrl__opt.take())
+        sort(sqrrl__values)
+        return sqrrl__values[len(sqrrl__values) // 2]
+
     def sum_salary(self) raises -> Float64:
         var sqrrl__ids = List[UInt32]()
         for sqrrl__i in range(self.table.state[].id_count()):
@@ -619,6 +742,21 @@ struct sqrrl__EmployeeTable(Movable):
                 sqrrl__result = sqrrl__v
         return sqrrl__result
 
+    def median_salary(self) raises -> Float64:
+        var sqrrl__ids = List[UInt32]()
+        for sqrrl__i in range(self.table.state[].id_count()):
+            var sqrrl__id = UInt32(sqrrl__i)
+            if self.table.state[].is_live(sqrrl__id):
+                sqrrl__ids.append(sqrrl__id)
+        if len(sqrrl__ids) == 0:
+            raise Error("median_salary: table has no entities")
+        var sqrrl__values = List[Float64]()
+        for sqrrl__id in sqrrl__ids:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            sqrrl__values.append(sqrrl__opt.take())
+        sort(sqrrl__values)
+        return sqrrl__values[len(sqrrl__values) // 2]
+
     def sum_salary_by_email(self) -> Dict[String, Float64]:
         ref sqrrl__ids = self.table.state[].state.email.all_bwd()
         var out = Dict[String, Float64]()
@@ -667,6 +805,19 @@ struct sqrrl__EmployeeTable(Movable):
         return out^
 
     def max_salary_for_email(self, value: String) raises -> Float64:
+        var sqrrl__id = self.table.state[].state.email.get_bwd(value)
+        var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+        return sqrrl__opt.take()
+
+    def median_salary_by_email(self) -> Dict[String, Float64]:
+        ref sqrrl__ids = self.table.state[].state.email.all_bwd()
+        var out = Dict[String, Float64]()
+        for entry in sqrrl__ids.items():
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(entry.value)
+            out[entry.key] = sqrrl__opt.take()
+        return out^
+
+    def median_salary_for_email(self, value: String) raises -> Float64:
         var sqrrl__id = self.table.state[].state.email.get_bwd(value)
         var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
         return sqrrl__opt.take()
@@ -791,6 +942,34 @@ struct sqrrl__EmployeeTable(Movable):
                 sqrrl__result = sqrrl__v
         return sqrrl__result
 
+    def median_salary_by_title(self) -> Dict[String, Float64]:
+        ref sqrrl__buckets = self.table.state[].state.title.all_bwd()
+        var out = Dict[String, Float64]()
+        for entry in sqrrl__buckets.items():
+            var sqrrl__ids = List[UInt32]()
+            for sqrrl__id in entry.value:
+                sqrrl__ids.append(sqrrl__id)
+            var sqrrl__values = List[Float64]()
+            for sqrrl__id in sqrrl__ids:
+                var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+                sqrrl__values.append(sqrrl__opt.take())
+            sort(sqrrl__values)
+            out[entry.key] = sqrrl__values[len(sqrrl__values) // 2]
+        return out^
+
+    def median_salary_for_title(self, value: String) raises -> Float64:
+        var sqrrl__ids = List[UInt32]()
+        for sqrrl__id in self.table.state[].state.title.get_bwd(value):
+            sqrrl__ids.append(sqrrl__id)
+        if len(sqrrl__ids) == 0:
+            raise Error("median_salary_for_title: no entities found for this value")
+        var sqrrl__values = List[Float64]()
+        for sqrrl__id in sqrrl__ids:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            sqrrl__values.append(sqrrl__opt.take())
+        sort(sqrrl__values)
+        return sqrrl__values[len(sqrrl__values) // 2]
+
     def sum_salary_by_years_employed(self) -> Dict[UInt32, Float64]:
         var sqrrl__buckets = self.table.state[].state.years_employed.all_bwd()
         var out = Dict[UInt32, Float64]()
@@ -911,6 +1090,34 @@ struct sqrrl__EmployeeTable(Movable):
                 sqrrl__result = sqrrl__v
         return sqrrl__result
 
+    def median_salary_by_years_employed(self) -> Dict[UInt32, Float64]:
+        var sqrrl__buckets = self.table.state[].state.years_employed.all_bwd()
+        var out = Dict[UInt32, Float64]()
+        for entry in sqrrl__buckets.items():
+            var sqrrl__ids = List[UInt32]()
+            for sqrrl__id in entry.value:
+                sqrrl__ids.append(sqrrl__id)
+            var sqrrl__values = List[Float64]()
+            for sqrrl__id in sqrrl__ids:
+                var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+                sqrrl__values.append(sqrrl__opt.take())
+            sort(sqrrl__values)
+            out[entry.key] = sqrrl__values[len(sqrrl__values) // 2]
+        return out^
+
+    def median_salary_for_years_employed(self, value: UInt32) raises -> Float64:
+        var sqrrl__ids = List[UInt32]()
+        for sqrrl__id in self.table.state[].state.years_employed.get_bwd(value):
+            sqrrl__ids.append(sqrrl__id)
+        if len(sqrrl__ids) == 0:
+            raise Error("median_salary_for_years_employed: no entities found for this value")
+        var sqrrl__values = List[Float64]()
+        for sqrrl__id in sqrrl__ids:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            sqrrl__values.append(sqrrl__opt.take())
+        sort(sqrrl__values)
+        return sqrrl__values[len(sqrrl__values) // 2]
+
     def sum_salary_by_dept(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState], Float64]:
         ref sqrrl__buckets = self.table.state[].state.dept.all_bwd()
         var out = Dict[EntityHandle[sqrrl__DepartmentTableState], Float64]()
@@ -1030,6 +1237,34 @@ struct sqrrl__EmployeeTable(Movable):
             if sqrrl__v > sqrrl__result:
                 sqrrl__result = sqrrl__v
         return sqrrl__result
+
+    def median_salary_by_dept(self) -> Dict[EntityHandle[sqrrl__DepartmentTableState], Float64]:
+        ref sqrrl__buckets = self.table.state[].state.dept.all_bwd()
+        var out = Dict[EntityHandle[sqrrl__DepartmentTableState], Float64]()
+        for entry in sqrrl__buckets.items():
+            var sqrrl__ids = List[UInt32]()
+            for sqrrl__id in entry.value:
+                sqrrl__ids.append(sqrrl__id)
+            var sqrrl__values = List[Float64]()
+            for sqrrl__id in sqrrl__ids:
+                var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+                sqrrl__values.append(sqrrl__opt.take())
+            sort(sqrrl__values)
+            out[entry.key] = sqrrl__values[len(sqrrl__values) // 2]
+        return out^
+
+    def median_salary_for_dept(self, value: EntityHandle[sqrrl__DepartmentTableState]) raises -> Float64:
+        var sqrrl__ids = List[UInt32]()
+        for sqrrl__id in self.table.state[].state.dept.get_bwd(value):
+            sqrrl__ids.append(sqrrl__id)
+        if len(sqrrl__ids) == 0:
+            raise Error("median_salary_for_dept: no entities found for this value")
+        var sqrrl__values = List[Float64]()
+        for sqrrl__id in sqrrl__ids:
+            var sqrrl__opt = self.table.state[].state.salary.get_fwd(sqrrl__id)
+            sqrrl__values.append(sqrrl__opt.take())
+        sort(sqrrl__values)
+        return sqrrl__values[len(sqrrl__values) // 2]
 
     def sqrrl__to_json(self, e: EntityHandle[sqrrl__EmployeeTableState]) -> String:
         var out = String("{")

@@ -144,7 +144,7 @@ def main() raises:
         # equatable @@Department:`) -- every field's own type needs to
         # support `!=` to compile, never checked ahead of time (Mojo's own
         # compiler is the one that catches it, same trust-the-compiler
-        # reasoning as `unique`/`ordered`/`math`), so this is confined to
+        # reasoning as `unique`/`ordered`/`stats`), so this is confined to
         # structs that actually ask for it. `Employee` doesn't (its
         # `profile: Profile` field isn't `Equatable`, so tagging it
         # `equatable` would never compile) -- `Department` does, since none
@@ -152,7 +152,7 @@ def main() raises:
         print("value_eq(eng, eng):", sqrrl__world.Department.value_eq(sqrrl__eng, sqrrl__eng))
         print("value_eq(eng, sales):", sqrrl__world.Department.value_eq(sqrrl__eng, sqrrl__sales))
 
-        # `math salary` -- whole-table, `_by_<field>`, and `_for_<field>`
+        # `stats salary` -- whole-table, `_by_<field>`, and `_for_<field>`
         # aggregate siblings, all three shapes.
         print("total salary (whole table):", sqrrl__world.Employee.sum_salary())
         print("average salary (whole table):", sqrrl__world.Employee.avg_salary())
@@ -162,9 +162,9 @@ def main() raises:
             print("department salary total:", sqrrl__world.Department.get_name(sqrrl__d))
         print("average sales salary (via avg_salary_for_dept):", sqrrl__world.Employee.avg_salary_for_dept(sqrrl__sales))
 
-        # `ordered` alone (no `math`) already earns `min_<field>`/
+        # `ordered` alone (no `stats`) already earns `min_<field>`/
         # `max_<field>` for free -- it already proves `Comparable` for its
-        # own range queries above; only `sum_`/`avg_` need `math` too.
+        # own range queries above; only `sum_`/`avg_` need `stats` too.
         print("fewest years employed:", sqrrl__world.Employee.min_years_employed())
         print("most years employed:", sqrrl__world.Employee.max_years_employed())
 

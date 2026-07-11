@@ -73,26 +73,26 @@ struct Field(Copyable, Movable):
     (`forwardonly`) doesn't have a sensible ordering to offer in the
     first place.
 
-    `is_math` is set by a leading `math` keyword (`math price: Float64`),
+    `is_stats` is set by a leading `stats` keyword (`stats price: Float64`),
     independent of `modifier` rather than a sixth `FieldModifier` case --
     unlike `unique`/`forwardonly`/`multi`/`ordered` (which each pick this
-    field's own storage/index shape, structurally one-at-a-time), `math`
+    field's own storage/index shape, structurally one-at-a-time), `stats`
     says nothing about how *this* field is stored; it only marks the field
     as eligible to be the aggregated value in a `sum_<this>_by_<other>`/
     `avg_`/`min_`/`max_` method generated against some *other* field in
-    the same struct (`codegen.table`). A field can be `ordered` and `math`
+    the same struct (`codegen.table`). A field can be `ordered` and `stats`
     at once (`ordered` alone already earns `min_`/`max_` for free, since it
-    already requires `Comparable`; `math` is what additionally earns
+    already requires `Comparable`; `stats` is what additionally earns
     `sum_`/`avg_`, needing `+` too) -- structurally independent of
     `modifier`, so no exclusivity check applies between them. This parser
     can't verify a field's type actually supports `+`/`<`/`>` any more than
-    `unique` can verify `Hashable` -- `math` is trusted the same way,
+    `unique` can verify `Hashable` -- `stats` is trusted the same way,
     rejected by Mojo's own compiler with a clear message if it's wrong."""
 
     var name: String
     var type_str: String
     var modifier: FieldModifier
-    var is_math: Bool
+    var is_stats: Bool
 
 
 @fieldwise_init
@@ -145,7 +145,7 @@ struct ParsedStruct(Copyable, Movable):
     field, which every table gets unconditionally, `value_eq` is opt-in:
     every field's own type needs to support `!=` for it to compile, which
     this parser has no way to check ahead of time (same trust-the-compiler
-    reasoning as `unique`'s `Hashable`/`ordered`'s `Comparable`/`math`'s
+    reasoning as `unique`'s `Hashable`/`ordered`'s `Comparable`/`stats`'s
     `+`), and unlike those four, `value_eq` was previously generated
     unconditionally for every struct -- meaning any struct with a
     non-`Equatable` field (most commonly an embedded plain struct, which
